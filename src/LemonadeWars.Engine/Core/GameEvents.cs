@@ -107,7 +107,38 @@ namespace LemonadeWars.Engine.Core
     public sealed class GameEnded : GameEvent
     {
         public List<int> Winners { get; set; } = new List<int>();
+        /// <summary>Final victory points per player (in-game VP + met Lemon Lord titles).</summary>
+        public Dictionary<int, int> Scores { get; set; } = new Dictionary<int, int>();
         public override string ToString() => $"Game over. Winner(s): {string.Join(", ", Winners)}";
+    }
+
+    public sealed class TitleClaimed : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string TitleId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId} claimed {TitleId}!";
+    }
+
+    public sealed class LemonLordMet : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string TitleId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId} fulfilled {TitleId}";
+    }
+
+    public sealed class RollModified : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string SourceDefId { get; set; } = "";
+        public int NewValue { get; set; }
+        public override string ToString() => $"P{PlayerId} used {SourceDefId} -> {NewValue}";
+    }
+
+    public sealed class AbilityTriggered : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string DefId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId}'s {DefId} triggered";
     }
 
     // ------------------------------------------------------- interactions

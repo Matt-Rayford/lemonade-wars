@@ -105,6 +105,7 @@ namespace LemonadeWars.Engine.Data
                     .Select(s => EnumMaps.Parse(EnumMaps.ShapeName, (string)s!, "shape"))
                     .ToList(),
                 Icons = c["icons"]!.Select(i => (string)i!).ToList(),
+                Number = (int?)c["number"],
             }).ToList();
 
             List<TitleDef> ReadTitles(string key, TitleKind kind) =>

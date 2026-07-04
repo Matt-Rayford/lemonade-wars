@@ -19,9 +19,8 @@ namespace LemonadeWars.Engine.Core
     /// <see cref="Apply"/>, emitting <see cref="GameEvent"/>s that presentation layers animate from.
     /// Fully deterministic: same seed + same action sequence = same state on every platform.
     ///
-    /// Not yet implemented (next passes): Lemon card play + the tantrum stack, Black Market
-    /// effect resolution, First Dibs auto-claiming, Lemon Lord end-game scoring, Whiniest
-    /// Baby / Spoiled Rotten mechanics.
+    /// The complete ruleset is implemented; remaining engine work is hidden-information
+    /// views for clients and AI opponents.
     /// </summary>
     public sealed partial class Game
     {
@@ -233,7 +232,7 @@ namespace LemonadeWars.Engine.Core
                     break;
                 case BuyStand buy:
                     RequireTurnAction(buy);
-                    ApplyBuyStand(buy.PlayerId, buy.StandTypeId, events, spendAction: true);
+                    ApplyBuyStand(buy.PlayerId, buy.StandTypeId, buy.InsertIndex, events, spendAction: true);
                     break;
                 case BuyBlackMarket buyBm:
                     ApplyBuyBlackMarket(buyBm, events);
@@ -269,10 +268,22 @@ namespace LemonadeWars.Engine.Core
                 case SkipFreePlay skip:
                     ApplySkipFreePlay(skip, events);
                     break;
+                case UseTurnAbility ability:
+                    ApplyUseTurnAbility(ability, events);
+                    break;
+                case SubmitAbilityChoice choice:
+                    ApplySubmitAbilityChoice(choice, events);
+                    break;
                 default:
                     throw new InvalidActionException($"Unknown action type {action.GetType().Name}.");
             }
             State.RngState = _rng.State;
+
+            // First Dibs titles are claimed the moment their condition is met (not tantrummable).
+            if (State.Stage == GameStage.Playing || State.Stage == GameStage.FinalRound)
+            {
+                CheckFirstDibs(events);
+            }
             return events;
         }
 
@@ -293,9 +304,12 @@ namespace LemonadeWars.Engine.Core
                 action is RespondToWindow || action is PassWindow ||
                 action is SubmitDiscard || action is SubmitTimeoutPayment ||
                 action is SubmitRetarget || action is SkipFreePlay ||
+                action is SubmitAbilityChoice ||
+                (action is UseTurnAbility && State.PendingRoll != null) ||
                 (action is PlayLemonCard && State.PendingDecisions.Any(d =>
                     d.PlayerId == action.PlayerId &&
-                    (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.ForcedPlay)));
+                    (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.ForcedPlay ||
+                     d.Kind == DecisionKind.BouncerAttack)));
 
             if (interactionPending && !isInteractionAction)
             {
@@ -359,7 +373,7 @@ namespace LemonadeWars.Engine.Core
             {
                 throw new InvalidActionException("Already bought the mandatory Stand this visit.");
             }
-            ApplyBuyStand(action.PlayerId, action.StandTypeId, events, spendAction: false);
+            ApplyBuyStand(action.PlayerId, action.StandTypeId, action.InsertIndex, events, spendAction: false);
             State.InitialBuyStandDone = true;
         }
 
@@ -438,7 +452,8 @@ namespace LemonadeWars.Engine.Core
             return State.Players[id];
         }
 
-        private void Pay(PlayerState player, int amount, string reason, List<GameEvent> events)
+        private void Pay(PlayerState player, int amount, string reason, List<GameEvent> events,
+            bool countsAsSpending = true)
         {
             if (player.Money < amount)
             {
@@ -446,6 +461,11 @@ namespace LemonadeWars.Engine.Core
                     $"P{player.PlayerId} cannot afford ${amount} for {reason} (has ${player.Money}).");
             }
             player.Money -= amount;
+            // Shopaholic tracks the active player's spending, Bragging Rights excluded.
+            if (countsAsSpending && player.PlayerId == State.ActivePlayer)
+            {
+                State.SpentThisTurn += amount;
+            }
             events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = -amount, Reason = reason });
         }
 
@@ -454,7 +474,7 @@ namespace LemonadeWars.Engine.Core
             Db.StandType(standTypeId).BaseCost +
             Player(playerId).Stands.Count * Db.Config.StandCostEscalationPerOwned;
 
-        private void ApplyBuyStand(int playerId, string standTypeId, List<GameEvent> events, bool spendAction)
+        private void ApplyBuyStand(int playerId, string standTypeId, int? insertIndex, List<GameEvent> events, bool spendAction)
         {
             var player = Player(playerId);
             var standType = Db.StandType(standTypeId);
@@ -477,7 +497,10 @@ namespace LemonadeWars.Engine.Core
                 Shape = supply[0],
             };
             supply.RemoveAt(0);
-            player.Stands.Add(stand);
+            // Stands live in a row: position is chosen at purchase and never changes
+            // (rulebook p8) — Lefty Loosey / Righty Tighty read neighbors from it.
+            int index = insertIndex is int i ? Math.Clamp(i, 0, player.Stands.Count) : player.Stands.Count;
+            player.Stands.Insert(index, stand);
             events.Add(new StandPurchased
             {
                 PlayerId = playerId,
@@ -503,7 +526,21 @@ namespace LemonadeWars.Engine.Core
             }
             else
             {
-                RequireTurnAction(action);
+                // Like RequireTurnAction, but a Shopping Spree BM-only action can stand in
+                // for a normal action.
+                RequirePlaying();
+                if (action.PlayerId != State.ActivePlayer)
+                {
+                    throw new InvalidActionException($"It is P{State.ActivePlayer}'s turn, not P{action.PlayerId}'s.");
+                }
+                if (State.Phase != TurnPhase.Play)
+                {
+                    throw new InvalidActionException($"Actions are only legal in the Play phase (now {State.Phase}).");
+                }
+                if (State.ActionsRemaining <= 0 && State.BmOnlyActionsRemaining <= 0)
+                {
+                    throw new InvalidActionException("No actions remaining this turn.");
+                }
             }
 
             if (action.MarketIndex < 0 || action.MarketIndex >= State.Market.Count)
@@ -517,11 +554,19 @@ namespace LemonadeWars.Engine.Core
 
             ValidateEquipDestination(player, def, action.TargetStandInstanceId, action.ReplaceInstanceId);
 
-            // TODO(effects): Peddlin' Pete's $1 discount on Black Market purchases.
-            Pay(player, def.Cost, def.Name, events);
+            int price = BlackMarketPrice(player.PlayerId, def); // Peddlin' Pete discount
+            Pay(player, price, def.Name, events);
             if (!duringSetup)
             {
-                SpendAction();
+                // Shopping Spree grants extra Black-Market-only buy actions.
+                if (State.BmOnlyActionsRemaining > 0)
+                {
+                    State.BmOnlyActionsRemaining--;
+                }
+                else
+                {
+                    SpendAction();
+                }
             }
 
             State.Market.RemoveAt(action.MarketIndex);
@@ -543,7 +588,7 @@ namespace LemonadeWars.Engine.Core
                 Kind = StackItemKind.BlackMarketPurchase,
                 OwnerId = player.PlayerId,
                 BmInstanceId = instanceId,
-                PaidCost = def.Cost,
+                PaidCost = price,
                 EquipStandInstanceId = action.TargetStandInstanceId,
                 EquipReplaceInstanceId = action.ReplaceInstanceId,
             }, events);
@@ -576,7 +621,7 @@ namespace LemonadeWars.Engine.Core
 
             var player = Player(action.PlayerId);
             int price = prices[State.BraggingRightsSold];
-            Pay(player, price, "Bragging Rights", events);
+            Pay(player, price, "Bragging Rights", events, countsAsSpending: false); // Shopaholic excludes these
             SpendAction();
 
             State.BraggingRightsSold++;
@@ -666,18 +711,7 @@ namespace LemonadeWars.Engine.Core
             Pump(events);
         }
 
-        private void FinishGame(List<GameEvent> events)
-        {
-            State.Stage = GameStage.Finished;
-
-            // TODO(titles): evaluate kept Lemon Lord conditions for their end-game VP.
-            int best = State.Players.Max(p => p.InGameVictoryPoints);
-            State.Winners.AddRange(
-                State.Players.Where(p => p.InGameVictoryPoints == best).Select(p => p.PlayerId));
-
-            events.Add(new StageChanged { Stage = State.Stage });
-            events.Add(new GameEnded { Winners = State.Winners.ToList() });
-        }
+        private void FinishGame(List<GameEvent> events) => FinishGameWithScores(events);
 
         // -------------------------------------------------------- utilities
 

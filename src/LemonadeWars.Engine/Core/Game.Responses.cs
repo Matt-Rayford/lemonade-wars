@@ -78,7 +78,7 @@ namespace LemonadeWars.Engine.Core
                     continue;
                 }
 
-                if (State.PendingDrawCount > 0)
+                if (State.PendingDraws.Count > 0)
                 {
                     ProcessPendingDraws(events);
                     continue;
@@ -108,11 +108,11 @@ namespace LemonadeWars.Engine.Core
                 if (State.PostRollContinuation is RollPurpose purpose)
                 {
                     State.PostRollContinuation = null;
-                    if (purpose == RollPurpose.TurnSale)
+                    if (purpose == RollPurpose.TurnSale || purpose == RollPurpose.TradeWinds)
                     {
                         FinishEndTurn(events);
                     }
-                    // NightShifts / SpoiledRotten: nothing further; turn-start advances below.
+                    // NightShifts / SpoiledRotten / ExtraSale: nothing further to run.
                     continue;
                 }
 
@@ -188,8 +188,11 @@ namespace LemonadeWars.Engine.Core
                     {
                         continue; // cannot respond to your own play/purchase
                     }
+                    bool hasDecoy = isAttack && p.Turf.Equipped.Any(id =>
+                        EquippedDef(id).Id == "inflatable-decoy");
                     if ((tantrummable && Holds(p, TantrumId)) ||
-                        (isAttack && (Holds(p, TagId) || Holds(p, RubberGlueId))))
+                        (isAttack && (Holds(p, TagId) || Holds(p, RubberGlueId))) ||
+                        hasDecoy)
                     {
                         yield return p.PlayerId;
                     }
@@ -212,7 +215,10 @@ namespace LemonadeWars.Engine.Core
             {
                 foreach (var p in State.Players)
                 {
-                    if (Holds(p, OutOfStockId))
+                    // Out of Stock from hand, or the active player's unused die abilities
+                    // (Downsell / Sugared Up / Take Two).
+                    if (Holds(p, OutOfStockId) ||
+                        (p.PlayerId == State.ActivePlayer && HasUnusedRollAbility(p)))
                     {
                         yield return p.PlayerId;
                     }
@@ -246,6 +252,35 @@ namespace LemonadeWars.Engine.Core
                 throw new InvalidActionException($"P{action.PlayerId} is not being awaited by any window.");
             }
             var player = Player(action.PlayerId);
+
+            // Inflatable Decoy: an equipped reaction, not a hand card. Immediate and
+            // untantrummable (card text): the attack dies on the spot, so does the decoy.
+            if (action.EquippedInstanceId is int decoyId)
+            {
+                if (!player.Turf.Equipped.Contains(decoyId) ||
+                    EquippedDef(decoyId).Id != "inflatable-decoy")
+                {
+                    throw new InvalidActionException("Only an equipped Inflatable Decoy can respond this way.");
+                }
+                var top = RequireStackTop("Inflatable Decoy");
+                if (!IsAttackItem(top))
+                {
+                    throw new InvalidActionException("Inflatable Decoy discards an attack that was just played.");
+                }
+                if (top.OwnerId == player.PlayerId)
+                {
+                    throw new InvalidActionException("You cannot react to your own attack.");
+                }
+                top.Cancelled = true;
+                player.Turf.Equipped.Remove(decoyId);
+                State.BlackMarketDiscard.Add(decoyId);
+                events.Add(new PlayCancelled { OwnerId = top.OwnerId, DefId = top.LemonDefId });
+                events.Add(new CardsDiscarded { PlayerId = player.PlayerId, InstanceIds = new List<int> { decoyId } });
+                BumpRevision();
+                Pump(events);
+                return;
+            }
+
             if (!player.Hand.Contains(action.CardInstanceId))
             {
                 throw new InvalidActionException("That card is not in your hand.");
@@ -299,6 +334,8 @@ namespace LemonadeWars.Engine.Core
             player.Hand.Remove(action.CardInstanceId);
             // The tantrum is gained the moment it is thrown — even if later cancelled (rulebook p11).
             GainTantrum(player, action.CardInstanceId, events);
+            // Swear Jar: throwing a tantrum against this player's card costs $2 per jar.
+            ChargeSwearJars(player, Player(top.OwnerId), events);
 
             PushStackItem(new StackItem
             {
@@ -476,7 +513,13 @@ namespace LemonadeWars.Engine.Core
                     {
                         return false;
                     }
+                    bool wasAttack = Db.Lemon(top.LemonDefId).Type == LemonCardType.Attack;
                     PopResolved(top, events);
+                    if (wasAttack)
+                    {
+                        // Bouncer: the victim of a resolved attack may fire back for free.
+                        CheckBouncer(top, events);
+                    }
                     return true;
             }
         }
@@ -659,22 +702,41 @@ namespace LemonadeWars.Engine.Core
 
         // ----------------------------------------------------- draw queue
 
-        private void QueueDraws(int playerId, int count)
+        private void QueueDraws(int playerId, int count, bool countsForRoll = false)
         {
-            State.PendingDrawPlayerId = playerId;
-            State.PendingDrawCount += count;
+            State.PendingDraws.Add(new PendingDraw
+            {
+                PlayerId = playerId,
+                Count = count,
+                CountsForRoll = countsForRoll,
+            });
         }
 
         private void ProcessPendingDraws(List<GameEvent> events)
         {
-            var player = Player(State.PendingDrawPlayerId);
-            while (State.PendingDrawCount > 0)
+            while (State.PendingDraws.Count > 0)
             {
-                State.PendingDrawCount--;
-                if (!DrawOneCard(player, events))
+                var entry = State.PendingDraws[0];
+                var player = Player(entry.PlayerId);
+                while (entry.Count > 0)
                 {
-                    return; // Timeout interrupted; remaining draws stay queued.
+                    entry.Count--;
+                    bool drewCard = DrawOneCard(player, events);
+                    if (drewCard && entry.CountsForRoll)
+                    {
+                        StatsFor(player.PlayerId).CardsKept++;
+                    }
+                    if (!drewCard)
+                    {
+                        // Timeout interrupted; remaining draws stay queued.
+                        if (entry.Count == 0)
+                        {
+                            State.PendingDraws.Remove(entry);
+                        }
+                        return;
+                    }
                 }
+                State.PendingDraws.Remove(entry);
             }
         }
 
@@ -721,7 +783,7 @@ namespace LemonadeWars.Engine.Core
             State.TimeoutDrawerId = drawer.PlayerId;
             State.LemonDiscard.Add(timeoutInstanceId);
             // The drawer draws a replacement once everything settles.
-            State.PendingDrawCount++;
+            QueueDraws(drawer.PlayerId, 1);
 
             foreach (var player in State.Players)
             {
@@ -889,7 +951,10 @@ namespace LemonadeWars.Engine.Core
 
         private void ApplySkipFreePlay(SkipFreePlay action, List<GameEvent> events)
         {
-            var decision = RequireDecision(action.PlayerId, DecisionKind.FreePlayOffer);
+            var decision = State.PendingDecisions.FirstOrDefault(d =>
+                d.PlayerId == action.PlayerId &&
+                (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.BouncerAttack))
+                ?? throw new InvalidActionException($"P{action.PlayerId} has no optional play to skip.");
             State.PendingDecisions.Remove(decision);
             Pump(events);
         }
@@ -903,6 +968,12 @@ namespace LemonadeWars.Engine.Core
             State.ActionsRemaining = Db.Config.ActionsPerTurn;
             State.MarketRefreshUsedThisTurn = false;
             State.BraggingRightsBoughtThisTurn = false;
+            State.UsedTurnAbilities.Clear();
+            State.SpentThisTurn = 0;
+            State.TradeWindsBuilt = false;
+            State.TradeWindsQueue.Clear();
+            // Shopping Spree: +1 Black-Market-only buy action per equipped copy.
+            State.BmOnlyActionsRemaining = CountOnTurf(Player(State.ActivePlayer), "shopping-spree");
             State.TurnStartInProgress = true;
             State.TurnStartStep = 0;
             events.Add(new TurnStarted { PlayerId = State.ActivePlayer });
@@ -953,13 +1024,16 @@ namespace LemonadeWars.Engine.Core
 
         // ------------------------------------------------------ sale rolls
 
-        private void OpenRollWindow(RollPurpose purpose, int rollerId, List<GameEvent> events)
+        private void OpenRollWindow(RollPurpose purpose, int rollerId, List<GameEvent> events, int? standInstanceId = null)
         {
+            // A fresh roll starts a fresh "single roll" episode for title tracking.
+            State.RollStats.Clear();
             State.PendingRoll = new PendingRoll
             {
                 Value = _rng.Roll(Db.Config.SaleDieSides),
                 Purpose = purpose,
                 RollerId = rollerId,
+                StandInstanceId = standInstanceId,
             };
             BumpRevision();
             events.Add(new SaleRolled { PlayerId = rollerId, Value = State.PendingRoll.Value });
@@ -970,78 +1044,82 @@ namespace LemonadeWars.Engine.Core
             var roll = State.PendingRoll!;
             State.PendingRoll = null;
             BumpRevision();
-
-            bool allPlayers = roll.Purpose == RollPurpose.TurnSale;
-            FinalizeSale(roll.Value, allPlayers, roll.RollerId, events);
+            FinalizeSale(roll, events);
             State.PostRollContinuation = roll.Purpose;
         }
 
         /// <summary>
-        /// Apply a final die value: every in-scope player's matching Stands pay out and matching
-        /// power pours fire (all players sell on every roll — the roller just throws the die).
+        /// Apply a final die value. All players sell on every table roll — the roller just
+        /// throws the die; Night Shifts / Spoiled Rotten rolls apply to the roller only, and
+        /// Trade Winds rolls to a single stand. Base payouts land first, then interactive
+        /// triggers queue decisions (rulebook p13 ordering).
         /// </summary>
-        private void FinalizeSale(int roll, bool allPlayers, int rollerId, List<GameEvent> events)
+        private void FinalizeSale(PendingRoll roll, List<GameEvent> events)
         {
-            var earned = new Dictionary<int, int>();
+            bool allPlayers = roll.Purpose == RollPurpose.TurnSale || roll.Purpose == RollPurpose.ExtraSale;
             int n = State.Players.Count;
+
             for (int offset = 0; offset < n; offset++)
             {
-                var player = State.Players[(rollerId + offset) % n];
-                if (!allPlayers && player.PlayerId != rollerId)
+                var player = State.Players[(roll.RollerId + offset) % n];
+                if (!allPlayers && player.PlayerId != roll.RollerId)
                 {
                     continue;
                 }
 
-                int gained = 0;
-                foreach (var stand in player.Stands)
+                foreach (var stand in player.Stands.ToList())
                 {
-                    var standType = Db.StandType(stand.StandTypeId);
-                    if (!standType.SaleNumbers.Contains(roll))
+                    if (roll.StandInstanceId is int only && stand.InstanceId != only)
                     {
-                        continue;
+                        continue; // Trade Winds: this roll is for one specific stand
                     }
-                    // TODO(effects): equipped Black Market "On Sale" triggers and earning bonuses.
-                    player.Money += standType.BaseEarnings;
-                    gained += standType.BaseEarnings;
-                    events.Add(new StandSold
+                    if (SaleNumbersOf(stand).Contains(roll.Value))
                     {
-                        PlayerId = player.PlayerId,
-                        StandInstanceId = stand.InstanceId,
-                        Earnings = standType.BaseEarnings,
-                    });
+                        SellStand(player, stand, events);
+                    }
                 }
 
-                if (player.Turf.PowerPourNumber == roll)
+                if (roll.StandInstanceId == null && PourNumbersOf(player).Contains(roll.Value))
                 {
-                    // TODO(effects): equipped "Power Pour" Black Market triggers.
-                    events.Add(new PowerPourTriggered { PlayerId = player.PlayerId });
-                    player.Money += Db.Turf.BasePowerPourMoney;
-                    gained += Db.Turf.BasePowerPourMoney;
-                    events.Add(new MoneyChanged
-                    {
-                        PlayerId = player.PlayerId,
-                        Amount = Db.Turf.BasePowerPourMoney,
-                        Reason = "power pour",
-                    });
+                    TriggerPowerPour(player, events);
                 }
+            }
 
-                earned[player.PlayerId] = gained;
+            // Tip Jars (once, on your turn): +$1 per own stand that sold on the turn sale.
+            if (roll.Purpose == RollPurpose.TurnSale)
+            {
+                var roller = Player(roll.RollerId);
+                int jars = CountOnTurf(roller, "tip-jars");
+                if (jars > 0)
+                {
+                    int sold = roller.Stands.Count(s => SaleNumbersOf(s).Contains(roll.Value));
+                    if (sold > 0)
+                    {
+                        events.Add(new AbilityTriggered { PlayerId = roller.PlayerId, DefId = "tip-jars" });
+                        GainFromRoll(roller, jars * sold, "tip jars", events);
+                    }
+                }
             }
 
             // Steal the Cashbox traps: skim up to $10 of what the trapped player just earned.
             foreach (var player in State.Players)
             {
                 if (!(player.Turf.TrapInstanceId is int trapId) ||
-                    !(player.Turf.TrapOwnerId is int thief) ||
-                    !earned.TryGetValue(player.PlayerId, out int gain))
+                    !(player.Turf.TrapOwnerId is int thief))
                 {
                     continue;
                 }
+                if (!allPlayers && player.PlayerId != roll.RollerId)
+                {
+                    continue; // trapped player was not part of this roll
+                }
+                int gain = State.RollStats.TryGetValue(player.PlayerId, out var stats) ? stats.Earned : 0;
                 int stolen = System.Math.Min(gain, 10);
                 if (stolen > 0)
                 {
                     player.Money -= stolen;
                     Player(thief).Money += stolen;
+                    StatsFor(thief).MoneyStolen += stolen;
                     events.Add(new MoneyStolen
                     {
                         FromPlayerId = player.PlayerId,
@@ -1069,10 +1147,35 @@ namespace LemonadeWars.Engine.Core
             BumpRevision();
         }
 
-        /// <summary>After the end-of-turn sale settles: check the VP trigger and pass the turn.</summary>
+        /// <summary>After the end-of-turn sale settles: Trade Winds rolls, then the VP trigger and turn pass.</summary>
         private void FinishEndTurn(List<GameEvent> events)
         {
             var active = Player(State.ActivePlayer);
+
+            // Trade Winds: "End of Your Turn: +1 sale roll for this Stand only" — one roll
+            // per equipped copy, resolved before the turn passes.
+            if (!State.TradeWindsBuilt)
+            {
+                State.TradeWindsBuilt = true;
+                foreach (var stand in active.Stands)
+                {
+                    for (int i = 0; i < stand.Equipped.Count(id => EquippedDef(id).Id == "trade-winds"); i++)
+                    {
+                        State.TradeWindsQueue.Add(stand.InstanceId);
+                    }
+                }
+            }
+            if (State.TradeWindsQueue.Count > 0)
+            {
+                int standId = State.TradeWindsQueue[0];
+                State.TradeWindsQueue.RemoveAt(0);
+                if (active.Stands.Any(s => s.InstanceId == standId))
+                {
+                    events.Add(new AbilityTriggered { PlayerId = active.PlayerId, DefId = "trade-winds" });
+                    OpenRollWindow(RollPurpose.TradeWinds, active.PlayerId, events, standId);
+                    return; // pump finalizes the roll, then re-enters FinishEndTurn
+                }
+            }
             if (State.Stage == GameStage.Playing &&
                 active.InGameVictoryPoints >= Db.Config.VictoryPointsToTriggerEnd)
             {

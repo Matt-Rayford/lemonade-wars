@@ -68,6 +68,10 @@ namespace LemonadeWars.Engine.Core
         NightShifts,
         /// <summary>Spoiled Rotten's free turn-start roll: applies only to the roller.</summary>
         SpoiledRotten,
+        /// <summary>Liquid Energy: an extra sale roll that applies to every player.</summary>
+        ExtraSale,
+        /// <summary>Trade Winds: an end-of-turn roll for one specific Stand.</summary>
+        TradeWinds,
     }
 
     /// <summary>A die that has been rolled but not yet applied (re-rollable via Out of Stock).</summary>
@@ -76,6 +80,30 @@ namespace LemonadeWars.Engine.Core
         public int Value { get; set; }
         public RollPurpose Purpose { get; set; }
         public int RollerId { get; set; }
+        /// <summary>Trade Winds: the single Stand this roll applies to.</summary>
+        public int? StandInstanceId { get; set; }
+    }
+
+    /// <summary>Cards owed to a player by draw effects; processed front to back.</summary>
+    public sealed class PendingDraw
+    {
+        public int PlayerId { get; set; }
+        public int Count { get; set; }
+        /// <summary>True when the draw came from a roll trigger (Double Scoop tracking).</summary>
+        public bool CountsForRoll { get; set; }
+    }
+
+    /// <summary>Per-player accumulators for the current roll episode ("on a single roll" titles).</summary>
+    public sealed class RollStats
+    {
+        /// <summary>Money earned from sales/pours this roll (Big Earner).</summary>
+        public int Earned { get; set; }
+        /// <summary>Money stolen via roll triggers/traps this roll (Clean Getaway).</summary>
+        public int MoneyStolen { get; set; }
+        /// <summary>Cards stolen via roll triggers this roll (Sticky Fingers).</summary>
+        public int CardsStolen { get; set; }
+        /// <summary>Cards drawn and kept from roll triggers this roll (Double Scoop).</summary>
+        public int CardsKept { get; set; }
     }
 
     /// <summary>A window offering the victim of a money steal the chance to play Profit Share.</summary>
@@ -100,6 +128,20 @@ namespace LemonadeWars.Engine.Core
         FreePlayOffer,
         /// <summary>Reverse Engineer: must play the recovered card now.</summary>
         ForcedPlay,
+        /// <summary>A steal ability triggered: its owner picks the victim. Payload: SourceInstanceId.</summary>
+        AbilityVictim,
+        /// <summary>Don's Blessings: pick a card from the victim's revealed hand. Payload: SourceInstanceId, ChosenPlayerId.</summary>
+        AbilityPickCard,
+        /// <summary>Give the victim a different Lemon card back. Payload: SourceInstanceId, ChosenPlayerId, StolenCardId.</summary>
+        AbilityGiveBack,
+        /// <summary>Whispers of Fate: discard RequiredCount card(s) after drawing.</summary>
+        AbilityDiscard,
+        /// <summary>Innovation: choose one of your other Power Pour cards to copy. Payload: SourceInstanceId.</summary>
+        InnovationCopy,
+        /// <summary>Word of Mouth: choose one of your Stands to sell immediately.</summary>
+        WordOfMouthStand,
+        /// <summary>Bouncer: you were attacked and may play an attack for free (or skip).</summary>
+        BouncerAttack,
     }
 
     /// <summary>Input the engine is blocked on, outside of response windows.</summary>
@@ -113,6 +155,12 @@ namespace LemonadeWars.Engine.Core
         public int? StackItemId { get; set; }
         /// <summary>Card that must be played for ForcedPlay.</summary>
         public int? CardInstanceId { get; set; }
+        /// <summary>The equipped Black Market card whose ability raised this decision.</summary>
+        public int? SourceInstanceId { get; set; }
+        /// <summary>Victim chosen in an earlier stage of the same ability.</summary>
+        public int? ChosenPlayerId { get; set; }
+        /// <summary>Card stolen in an earlier stage (the give-back must differ from it).</summary>
+        public int? StolenCardId { get; set; }
     }
 
     /// <summary>A tantrum sitting in a player's pile, with the order it was gained (Whiniest Baby tiebreak).</summary>

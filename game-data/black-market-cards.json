@@ -343,32 +343,118 @@
       ]
     },
     {
-      "id": "pushy-salesman",
+      "id": "pushy-salesman-1",
       "name": "Pushy Salesman",
       "target": "stand",
       "cost": 3,
-      "count": 12,
+      "count": 2,
       "timing": "Passive",
       "category": "Pushy Salesman",
       "effect": "Add 1 to your sale numbers.",
       "flavor": "You take that! I'll take this!",
       "shapes": [
         "circle",
-        "circle",
-        "circle",
-        "circle",
-        "diamond",
-        "diamond",
-        "diamond",
-        "diamond",
-        "square",
-        "square",
-        "square",
-        "square"
+        "diamond"
       ],
       "icons": [
         "1"
-      ]
+      ],
+      "number": 1
+    },
+    {
+      "id": "pushy-salesman-2",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 2 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "2"
+      ],
+      "number": 2
+    },
+    {
+      "id": "pushy-salesman-3",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 3 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "3"
+      ],
+      "number": 3
+    },
+    {
+      "id": "pushy-salesman-4",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 4 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "4"
+      ],
+      "number": 4
+    },
+    {
+      "id": "pushy-salesman-5",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 5 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "5"
+      ],
+      "number": 5
+    },
+    {
+      "id": "pushy-salesman-6",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 6 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "6"
+      ],
+      "number": 6
     },
     {
       "id": "revelation",
@@ -428,26 +514,112 @@
       ]
     },
     {
-      "id": "spiked-lemonade",
+      "id": "spiked-lemonade-1",
       "name": "Spiked Lemonade",
       "target": "turf",
       "cost": 3,
-      "count": 6,
+      "count": 1,
       "timing": "Passive",
       "category": "Spiked Lemonade",
       "effect": "Add 1 to your power pour numbers.",
       "flavor": "A lil somethin' extra from mom's secret cabinet.",
       "shapes": [
-        "circle",
-        "circle",
-        "diamond",
-        "diamond",
-        "square",
-        "square"
+        "diamond"
       ],
       "icons": [
         "1-power-pour"
-      ]
+      ],
+      "number": 1
+    },
+    {
+      "id": "spiked-lemonade-2",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 2 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "circle"
+      ],
+      "icons": [
+        "2-power-pour"
+      ],
+      "number": 2
+    },
+    {
+      "id": "spiked-lemonade-3",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 3 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "3-power-pour"
+      ],
+      "number": 3
+    },
+    {
+      "id": "spiked-lemonade-4",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 4 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "diamond"
+      ],
+      "icons": [
+        "4-power-pour"
+      ],
+      "number": 4
+    },
+    {
+      "id": "spiked-lemonade-5",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 5 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "circle"
+      ],
+      "icons": [
+        "5-power-pour"
+      ],
+      "number": 5
+    },
+    {
+      "id": "spiked-lemonade-6",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 6 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "6-power-pour"
+      ],
+      "number": 6
     },
     {
       "id": "sugared-up",

@@ -99,35 +99,47 @@ def convert_lemon():
 
 def convert_black_market():
     rows = list(csv.DictReader(open(CSV_DIR / "RnD Deck.csv")))
+    # Group by title AND effect text: numbered cards (Pushy Salesman "Add 1..6",
+    # Spiked Lemonade "Add 1..6") are distinct cards sharing a name.
     groups = defaultdict(list)
     for r in rows:
-        groups[r["Title"]].append(r)
+        groups[(r["Title"], clean(r["Main"]))].append(r)
 
     icon_cols = [c for c in rows[0].keys() if c.startswith("@") and "Icon" in c]
 
     cards = []
-    for title, copies in sorted(groups.items()):
+    for (title, effect), copies in sorted(groups.items()):
         r = copies[0]
         target = "stand" if r["Highlight"].startswith("Stand") else "turf"
         icons = sorted({
             icon_name(r[c]) for c in icon_cols
             if r[c] and r[c].lower().endswith(".png")
         })
-        cards.append({
-            "id": slug(title),
+
+        # "Add N to your sale/power pour numbers" -> the die face this copy adds.
+        number = None
+        m = re.match(r"Add (\d) to your", effect)
+        if m:
+            number = int(m.group(1))
+
+        card = {
+            "id": slug(title) + (f"-{number}" if number else ""),
             "name": title,
             "target": target,  # which card type it equips to
             "cost": int(r["Price"]),
             "count": len(copies),
             "timing": r["Timing"],        # Passive | On Sale | On Your Turn | Power Pour
             "category": r["Category"],    # designer taxonomy; used by Lemon Lord titles
-            "effect": clean(r["Main"]),
+            "effect": effect,
             "flavor": clean(r["Flavor"]),
             # one shape per physical copy; First Dibs titles count shapes
             "shapes": sorted(c["Shape"].lower() for c in copies),
             # icons printed on the card; some Lemon Lord titles count these
             "icons": icons,
-        })
+        }
+        if number is not None:
+            card["number"] = number
+        cards.append(card)
     return {"deck": "black-market", "cards": cards}
 
 
