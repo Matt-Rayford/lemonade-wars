@@ -1,0 +1,331 @@
+{
+  "backs": {
+    "blackMarket": "backs/BlackMarket-Back.jpg",
+    "braggingRights": "backs/BraggingRights-Back.jpg",
+    "firstDibs": "backs/FirstDibs-Back.jpg",
+    "lemon": "backs/Lemon-Back.jpg",
+    "lemonLord": "backs/LemonLord-Back.jpg"
+  },
+  "blackMarket": {
+    "bouncer": {
+      "circle": "black-market/bouncer-circle.png",
+      "diamond": "black-market/bouncer-diamond.png",
+      "square": "black-market/bouncer-square.png"
+    },
+    "diluted-lemonade": {
+      "diamond": "black-market/diluted-lemonade-diamond.png",
+      "square": "black-market/diluted-lemonade-square.png"
+    },
+    "dons-blessings": {
+      "square": "black-market/dons-blessings-square.png"
+    },
+    "downsell": {
+      "circle": "black-market/downsell-circle.png",
+      "diamond": "black-market/downsell-diamond.png"
+    },
+    "early-worm": {
+      "square": "black-market/early-worm-square.png"
+    },
+    "family-business": {
+      "square": "black-market/family-business-square.png"
+    },
+    "gone-fishin": {
+      "diamond": "black-market/gone-fishin-diamond.png",
+      "square": "black-market/gone-fishin-square.png"
+    },
+    "half-pint-harry": {
+      "circle": "black-market/half-pint-harry-circle.png",
+      "diamond": "black-market/half-pint-harry-diamond.png"
+    },
+    "inflatable-decoy": {
+      "circle": "black-market/inflatable-decoy-circle.png",
+      "diamond": "black-market/inflatable-decoy-diamond.png",
+      "square": "black-market/inflatable-decoy-square.png"
+    },
+    "innovation": {
+      "circle": "black-market/innovation-circle.png"
+    },
+    "interest": {
+      "diamond": "black-market/interest-diamond.png"
+    },
+    "juice-box-joey": {
+      "circle": "black-market/juice-box-joey-circle.png",
+      "diamond": "black-market/juice-box-joey-diamond.png"
+    },
+    "lefty-loosey": {
+      "circle": "black-market/lefty-loosey-circle.png",
+      "square": "black-market/lefty-loosey-square.png"
+    },
+    "liquid-energy": {
+      "square": "black-market/liquid-energy-square.png"
+    },
+    "meditation": {
+      "diamond": "black-market/meditation-diamond.png",
+      "square": "black-market/meditation-square.png"
+    },
+    "nap-time-nino": {
+      "circle": "black-market/nap-time-nino-circle.png",
+      "square": "black-market/nap-time-nino-square.png"
+    },
+    "peddlin-pete": {
+      "circle": "black-market/peddlin-pete-circle.png",
+      "diamond": "black-market/peddlin-pete-diamond.png"
+    },
+    "pink-lemonade": {
+      "circle": "black-market/pink-lemonade-circle.png",
+      "square": "black-market/pink-lemonade-square.png"
+    },
+    "pushy-salesman-1": {
+      "circle": "black-market/pushy-salesman-1-circle.png",
+      "diamond": "black-market/pushy-salesman-1-diamond.png"
+    },
+    "pushy-salesman-2": {
+      "diamond": "black-market/pushy-salesman-2-diamond.png",
+      "square": "black-market/pushy-salesman-2-square.png"
+    },
+    "pushy-salesman-3": {
+      "circle": "black-market/pushy-salesman-3-circle.png",
+      "square": "black-market/pushy-salesman-3-square.png"
+    },
+    "pushy-salesman-4": {
+      "circle": "black-market/pushy-salesman-4-circle.png",
+      "diamond": "black-market/pushy-salesman-4-diamond.png"
+    },
+    "pushy-salesman-5": {
+      "diamond": "black-market/pushy-salesman-5-diamond.png",
+      "square": "black-market/pushy-salesman-5-square.png"
+    },
+    "pushy-salesman-6": {
+      "circle": "black-market/pushy-salesman-6-circle.png",
+      "square": "black-market/pushy-salesman-6-square.png"
+    },
+    "revelation": {
+      "circle": "black-market/revelation-circle.png",
+      "square": "black-market/revelation-square.png"
+    },
+    "righty-tighty": {
+      "circle": "black-market/righty-tighty-circle.png",
+      "diamond": "black-market/righty-tighty-diamond.png"
+    },
+    "shopping-spree": {
+      "circle": "black-market/shopping-spree-circle.png",
+      "square": "black-market/shopping-spree-square.png"
+    },
+    "spiked-lemonade-1": {
+      "diamond": "black-market/spiked-lemonade-1-diamond.png"
+    },
+    "spiked-lemonade-2": {
+      "circle": "black-market/spiked-lemonade-2-circle.png"
+    },
+    "spiked-lemonade-3": {
+      "square": "black-market/spiked-lemonade-3-square.png"
+    },
+    "spiked-lemonade-4": {
+      "diamond": "black-market/spiked-lemonade-4-diamond.png"
+    },
+    "spiked-lemonade-5": {
+      "circle": "black-market/spiked-lemonade-5-circle.png"
+    },
+    "spiked-lemonade-6": {
+      "square": "black-market/spiked-lemonade-6-square.png"
+    },
+    "sugared-up": {
+      "diamond": "black-market/sugared-up-diamond.png",
+      "square": "black-market/sugared-up-square.png"
+    },
+    "swear-jar": {
+      "diamond": "black-market/swear-jar-diamond.png",
+      "square": "black-market/swear-jar-square.png"
+    },
+    "take-two": {
+      "circle": "black-market/take-two-circle.png",
+      "diamond": "black-market/take-two-diamond.png"
+    },
+    "tip-jars": {
+      "diamond": "black-market/tip-jars-diamond.png"
+    },
+    "trade-winds": {
+      "circle": "black-market/trade-winds-circle.png",
+      "square": "black-market/trade-winds-square.png"
+    },
+    "two-bit-timmy": {
+      "circle": "black-market/two-bit-timmy-circle.png"
+    },
+    "whispers-of-fate": {
+      "circle": "black-market/whispers-of-fate-circle.png",
+      "diamond": "black-market/whispers-of-fate-diamond.png"
+    },
+    "word-of-mouth": {
+      "diamond": "black-market/word-of-mouth-diamond.png"
+    }
+  },
+  "lemon": {
+    "apologize": "lemon/apologize.png",
+    "automation": "lemon/automation.png",
+    "blame-changer": "lemon/blame-changer.png",
+    "connections": "lemon/connections.png",
+    "doorbuster-sale": "lemon/doorbuster-sale.png",
+    "finders-keepers": "lemon/finders-keepers.png",
+    "hoa-violation": "lemon/hoa-violation.png",
+    "im-rubber-youre-glue": "lemon/im-rubber-youre-glue.png",
+    "market-forecasting": "lemon/market-forecasting.png",
+    "night-shifts": "lemon/night-shifts.png",
+    "out-of-stock": "lemon/out-of-stock.png",
+    "profit-share": "lemon/profit-share.png",
+    "rebrand": "lemon/rebrand.png",
+    "reduce-and-reuse": "lemon/reduce-and-reuse.png",
+    "reverse-engineer": "lemon/reverse-engineer.png",
+    "rummage-sale": "lemon/rummage-sale.png",
+    "sharing-is-caring": "lemon/sharing-is-caring.png",
+    "smear-campaign": "lemon/smear-campaign.png",
+    "steal-the-cashbox": "lemon/steal-the-cashbox.png",
+    "tag-youre-it": "lemon/tag-youre-it.png",
+    "tantrum": "lemon/tantrum.png",
+    "taxes": "lemon/taxes.png",
+    "thats-not-fair": "lemon/thats-not-fair.png",
+    "trash-pandas": "lemon/trash-pandas.png"
+  },
+  "money": {
+    "1": "money/1-Dollar.jpg",
+    "10": "money/10-Dollars.jpg",
+    "2": "money/2-Dollars.jpg",
+    "5": "money/5-Dollars.jpg"
+  },
+  "note": "All paths relative to game-assets/images/. Regenerate with tools/rename_images.py.",
+  "stands": {
+    "bargain": [
+      "supporting-cards/bargain-stand-01.png",
+      "supporting-cards/bargain-stand-02.png",
+      "supporting-cards/bargain-stand-03.png",
+      "supporting-cards/bargain-stand-04.png",
+      "supporting-cards/bargain-stand-05.png",
+      "supporting-cards/bargain-stand-06.png",
+      "supporting-cards/bargain-stand-07.png",
+      "supporting-cards/bargain-stand-08.png",
+      "supporting-cards/bargain-stand-09.png",
+      "supporting-cards/bargain-stand-10.png",
+      "supporting-cards/bargain-stand-11.png",
+      "supporting-cards/bargain-stand-12.png",
+      "supporting-cards/bargain-stand-13.png",
+      "supporting-cards/bargain-stand-14.png",
+      "supporting-cards/bargain-stand-15.png",
+      "supporting-cards/bargain-stand-16.png",
+      "supporting-cards/bargain-stand-17.png",
+      "supporting-cards/bargain-stand-18.png",
+      "supporting-cards/bargain-stand-19.png",
+      "supporting-cards/bargain-stand-20.png",
+      "supporting-cards/bargain-stand-21.png"
+    ],
+    "classic": [
+      "supporting-cards/classic-stand-01.png",
+      "supporting-cards/classic-stand-02.png",
+      "supporting-cards/classic-stand-03.png",
+      "supporting-cards/classic-stand-04.png",
+      "supporting-cards/classic-stand-05.png",
+      "supporting-cards/classic-stand-06.png",
+      "supporting-cards/classic-stand-07.png",
+      "supporting-cards/classic-stand-08.png",
+      "supporting-cards/classic-stand-09.png",
+      "supporting-cards/classic-stand-10.png",
+      "supporting-cards/classic-stand-11.png",
+      "supporting-cards/classic-stand-12.png",
+      "supporting-cards/classic-stand-13.png",
+      "supporting-cards/classic-stand-14.png",
+      "supporting-cards/classic-stand-15.png",
+      "supporting-cards/classic-stand-16.png",
+      "supporting-cards/classic-stand-17.png",
+      "supporting-cards/classic-stand-18.png"
+    ],
+    "gourmet": [
+      "supporting-cards/gourmet-stand-01.png",
+      "supporting-cards/gourmet-stand-02.png",
+      "supporting-cards/gourmet-stand-03.png",
+      "supporting-cards/gourmet-stand-04.png",
+      "supporting-cards/gourmet-stand-05.png",
+      "supporting-cards/gourmet-stand-06.png",
+      "supporting-cards/gourmet-stand-07.png",
+      "supporting-cards/gourmet-stand-08.png",
+      "supporting-cards/gourmet-stand-09.png",
+      "supporting-cards/gourmet-stand-10.png",
+      "supporting-cards/gourmet-stand-11.png",
+      "supporting-cards/gourmet-stand-12.png",
+      "supporting-cards/gourmet-stand-13.png",
+      "supporting-cards/gourmet-stand-14.png",
+      "supporting-cards/gourmet-stand-15.png"
+    ]
+  },
+  "supporting": {
+    "braggingRights": [
+      "supporting-cards/bragging-rights-01.png",
+      "supporting-cards/bragging-rights-02.png",
+      "supporting-cards/bragging-rights-03.png",
+      "supporting-cards/bragging-rights-04.png",
+      "supporting-cards/bragging-rights-05.png",
+      "supporting-cards/bragging-rights-06.png",
+      "supporting-cards/bragging-rights-07.png",
+      "supporting-cards/bragging-rights-08.png",
+      "supporting-cards/bragging-rights-09.png",
+      "supporting-cards/bragging-rights-10.png",
+      "supporting-cards/bragging-rights-11.png"
+    ],
+    "playerAids": [
+      "supporting-cards/player-aid-01.png",
+      "supporting-cards/player-aid-02.png",
+      "supporting-cards/player-aid-03.png",
+      "supporting-cards/player-aid-04.png",
+      "supporting-cards/player-aid-05.png"
+    ],
+    "spoiledRotten": "supporting-cards/spoiled-rotten.png",
+    "timeout": [
+      "supporting-cards/timeout-01.png",
+      "supporting-cards/timeout-02.png"
+    ],
+    "whiniestBaby": "supporting-cards/whiniest-baby.png"
+  },
+  "titles": {
+    "balanced-set": "titles/balanced-set.png",
+    "bare-bones": "titles/bare-bones.png",
+    "big-earner": "titles/big-earner.png",
+    "block-builder": "titles/block-builder.png",
+    "budget-beast": "titles/budget-beast.png",
+    "card-shark": "titles/card-shark.png",
+    "cash-queen": "titles/cash-queen.png",
+    "clean-getaway": "titles/clean-getaway.png",
+    "connoisseur": "titles/connoisseur.png",
+    "cranky-pants": "titles/cranky-pants.png",
+    "diamond-dealer": "titles/diamond-dealer.png",
+    "double-scoop": "titles/double-scoop.png",
+    "elite-squeezer": "titles/elite-squeezer.png",
+    "expander": "titles/expander.png",
+    "expert-whiner": "titles/expert-whiner.png",
+    "flow-master": "titles/flow-master.png",
+    "friendly-fran": "titles/friendly-fran.png",
+    "full-circle": "titles/full-circle.png",
+    "fuming-phil": "titles/fuming-phil.png",
+    "hoarder": "titles/hoarder.png",
+    "innovator": "titles/innovator.png",
+    "local-legend": "titles/local-legend.png",
+    "meltdown-master": "titles/meltdown-master.png",
+    "no-bullies-allowed": "titles/no-bullies-allowed.png",
+    "pam-the-planner": "titles/pam-the-planner.png",
+    "penny-pincher": "titles/penny-pincher.png",
+    "pour-master": "titles/pour-master.png",
+    "profit-pusher": "titles/profit-pusher.png",
+    "pushover": "titles/pushover.png",
+    "roll-wrangler": "titles/roll-wrangler.png",
+    "sales-engine": "titles/sales-engine.png",
+    "shopaholic": "titles/shopaholic.png",
+    "stand-surge": "titles/stand-surge.png",
+    "sticky-fingers": "titles/sticky-fingers.png",
+    "swindling-sammy": "titles/swindling-sammy.png",
+    "thieving-tommy": "titles/thieving-tommy.png"
+  },
+  "turf": {
+    "1": "supporting-cards/turf-1.png",
+    "2": "supporting-cards/turf-2.png",
+    "3": "supporting-cards/turf-3.png",
+    "4": "supporting-cards/turf-4.png",
+    "5": "supporting-cards/turf-5.png",
+    "6": "supporting-cards/turf-6.png"
+  }
+}

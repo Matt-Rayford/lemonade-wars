@@ -98,7 +98,7 @@ def convert_lemon():
 # ------------------------------------------------------- black market (RnD)
 
 def convert_black_market():
-    rows = list(csv.DictReader(open(CSV_DIR / "RnD Deck.csv")))
+    rows = list(csv.DictReader(open(CSV_DIR / "Black Market Deck.csv")))
     # Group by title AND effect text: numbered cards (Pushy Salesman "Add 1..6",
     # Spiked Lemonade "Add 1..6") are distinct cards sharing a name.
     groups = defaultdict(list)
