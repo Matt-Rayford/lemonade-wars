@@ -555,6 +555,11 @@ namespace LemonadeWars.Engine.Core
             ValidateEquipDestination(player, def, action.TargetStandInstanceId, action.ReplaceInstanceId);
 
             int price = BlackMarketPrice(player.PlayerId, def); // Peddlin' Pete discount
+            if (duringSetup && price > SetupSpendingRoom(player))
+            {
+                throw new InvalidActionException(
+                    "You must keep enough money for your remaining mandatory Stand (rulebook p5).");
+            }
             Pay(player, price, def.Name, events);
             if (!duringSetup)
             {
@@ -593,6 +598,24 @@ namespace LemonadeWars.Engine.Core
                 EquipReplaceInstanceId = action.ReplaceInstanceId,
             }, events);
             Pump(events);
+        }
+
+        /// <summary>
+        /// During the setup draft, money that may be spent on optional Black Market cards:
+        /// enough must stay reserved to afford the mandatory Stand of any later visit.
+        /// </summary>
+        private int SetupSpendingRoom(PlayerState player)
+        {
+            bool hasLaterVisit = State.InitialBuyQueue.Skip(1).Contains(player.PlayerId);
+            if (!hasLaterVisit)
+            {
+                return player.Money;
+            }
+            int cheapestBase = Db.StandTypes
+                .Where(t => State.StandSupply[t.Id].Count > 0)
+                .Min(t => t.BaseCost);
+            int reserve = cheapestBase + player.Stands.Count * Db.Config.StandCostEscalationPerOwned;
+            return player.Money - reserve;
         }
 
         /// <summary>A purchase survived its tantrum window: equip it.</summary>

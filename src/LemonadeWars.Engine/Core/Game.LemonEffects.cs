@@ -631,6 +631,18 @@ namespace LemonadeWars.Engine.Core
             {
                 return Fizzle(item, events);
             }
+            // Finders Keepers also needs somewhere to PUT a stolen card — with no valid
+            // destination for any of the victim's cards, the retarget would deadlock.
+            if (item.LemonDefId == "finders-keepers")
+            {
+                var owner = Player(item.OwnerId);
+                bool anyDestination = AllEquipped(victim)
+                    .Any(eq => DestinationsFor(owner, EquippedDef(eq)).Any());
+                if (!anyDestination)
+                {
+                    return Fizzle(item, events);
+                }
+            }
             State.PendingDecisions.Add(new PendingDecision
             {
                 PlayerId = item.OwnerId,

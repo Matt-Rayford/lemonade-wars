@@ -39,6 +39,10 @@ namespace LemonadeWars.Engine.Core
         {
             while (true)
             {
+                // Concurrent decisions can invalidate each other (two steal abilities racing
+                // over the same near-empty hand); drop the ones that can no longer be answered.
+                PruneStaleDecisions();
+
                 // A finished Timeout episode completes once its decisions are settled.
                 if (State.TimeoutDrawerId != null && State.PendingDecisions.Count == 0)
                 {
@@ -127,6 +131,48 @@ namespace LemonadeWars.Engine.Core
         }
 
         private void BumpRevision() => State.InteractionRevision++;
+
+        /// <summary>Remove pending decisions whose answers no longer exist.</summary>
+        private void PruneStaleDecisions()
+        {
+            for (int i = State.PendingDecisions.Count - 1; i >= 0; i--)
+            {
+                var decision = State.PendingDecisions[i];
+                var player = Player(decision.PlayerId);
+                bool stale = false;
+                switch (decision.Kind)
+                {
+                    case DecisionKind.AbilityPickCard:
+                        stale = Player(decision.ChosenPlayerId!.Value).Hand.Count == 0;
+                        break;
+                    case DecisionKind.AbilityGiveBack:
+                        stale = !player.Hand.Any(id => id != decision.StolenCardId);
+                        break;
+                    case DecisionKind.AbilityDiscard:
+                    case DecisionKind.DiscardToHandLimit:
+                    case DecisionKind.WhiniestBabyDiscard:
+                        if (player.Hand.Count < decision.RequiredCount)
+                        {
+                            decision.RequiredCount = player.Hand.Count;
+                            stale = decision.RequiredCount == 0;
+                        }
+                        break;
+                    case DecisionKind.WordOfMouthStand:
+                        stale = player.Stands.Count == 0;
+                        break;
+                    case DecisionKind.InnovationCopy:
+                        stale = !player.Turf.Equipped.Any(id =>
+                            id != decision.SourceInstanceId &&
+                            EquippedDef(id).Timing == Data.EffectTiming.PowerPour &&
+                            EquippedDef(id).Id != "innovation");
+                        break;
+                }
+                if (stale)
+                {
+                    State.PendingDecisions.RemoveAt(i);
+                }
+            }
+        }
 
         /// <summary>
         /// Make sure the current context's window has been opened for this revision.
@@ -901,22 +947,9 @@ namespace LemonadeWars.Engine.Core
             var decision = RequireDecision(action.PlayerId, DecisionKind.TimeoutFine);
             var player = Player(action.PlayerId);
 
-            // Sell listed assets at full base price: stands under their stack, cards to the discard.
-            foreach (int standId in action.SellStandInstanceIds.Distinct())
-            {
-                var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standId)
-                    ?? throw new InvalidActionException($"No owned stand {standId}.");
-                var type = Db.StandType(stand.StandTypeId);
-                // Equipped cards on a sold stand are discarded with it.
-                foreach (int equipped in stand.Equipped)
-                {
-                    State.BlackMarketDiscard.Add(equipped);
-                }
-                player.Stands.Remove(stand);
-                State.StandSupply[stand.StandTypeId].Add(stand.Shape); // bottom of the stack
-                player.Money += type.BaseCost;
-                events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = type.BaseCost, Reason = "sold stand" });
-            }
+            // Sell listed assets at full base price. Black Market cards go FIRST: selling a
+            // stand discards its remaining equips uncompensated, so a payment listing both
+            // an equip and its stand must cash the equip in before the stand goes.
             foreach (int bmId in action.SellBmInstanceIds.Distinct())
             {
                 bool fromStand = player.Stands.Any(s => s.Equipped.Remove(bmId));
@@ -929,6 +962,21 @@ namespace LemonadeWars.Engine.Core
                 State.BlackMarketDiscard.Add(bmId);
                 player.Money += def.Cost;
                 events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = def.Cost, Reason = "sold card" });
+            }
+            foreach (int standId in action.SellStandInstanceIds.Distinct())
+            {
+                var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standId)
+                    ?? throw new InvalidActionException($"No owned stand {standId}.");
+                var type = Db.StandType(stand.StandTypeId);
+                // Equipped cards still on a sold stand are discarded with it.
+                foreach (int equipped in stand.Equipped)
+                {
+                    State.BlackMarketDiscard.Add(equipped);
+                }
+                player.Stands.Remove(stand);
+                State.StandSupply[stand.StandTypeId].Add(stand.Shape); // bottom of the stack
+                player.Money += type.BaseCost;
+                events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = type.BaseCost, Reason = "sold stand" });
             }
 
             int owed = decision.RequiredMoney;
@@ -953,8 +1001,24 @@ namespace LemonadeWars.Engine.Core
         {
             var decision = State.PendingDecisions.FirstOrDefault(d =>
                 d.PlayerId == action.PlayerId &&
-                (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.BouncerAttack))
+                (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.BouncerAttack ||
+                 d.Kind == DecisionKind.ForcedPlay))
                 ?? throw new InvalidActionException($"P{action.PlayerId} has no optional play to skip.");
+
+            if (decision.Kind == DecisionKind.ForcedPlay)
+            {
+                // "Play it immediately" is mandatory — skippable only when the recovered
+                // card has no legal parameterization (e.g. That's Not Fair! with no
+                // opposing equips). The card then stays in hand.
+                var player = Player(action.PlayerId);
+                int cardId = decision.CardInstanceId!.Value;
+                var def = Db.Lemon(State.LemonInstances[cardId].DefId);
+                if (PlayParamCombos(player, cardId, def).Any())
+                {
+                    throw new InvalidActionException("Reverse Engineer: the recovered card must be played.");
+                }
+            }
+
             State.PendingDecisions.Remove(decision);
             Pump(events);
         }
