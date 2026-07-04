@@ -6,6 +6,7 @@
       "baseCost": 2,
       "upgradeSlots": 1,
       "saleNumbers": [
+        1,
         2,
         3
       ],

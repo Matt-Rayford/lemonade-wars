@@ -166,7 +166,7 @@ def convert_titles():
 # ------------------------------------------- stands / turf / supporting cards
 # No CSV exists for these; values come from the rulebook, the Supporting Cards
 # PDF (visual read of dice faces), and the designer's notes:
-#   Bargain  $2+, 1 upgrade slot,  sells on 2-3, earns $1, 21 cards
+#   Bargain  $2+, 1 upgrade slot,  sells on 1-3, earns $1, 21 cards
 #   Classic  $3+, 2 upgrade slots, sells on 4-5, earns $2, 18 cards
 #   Gourmet  $4+, 4 upgrade slots, sells on 6,   earns $3, 15 cards
 #   Shapes (diamond/circle/square) divided evenly within each stand type.
@@ -181,7 +181,7 @@ STANDS = {
     "standTypes": [
         {
             "id": "bargain", "name": "Bargain Stand", "baseCost": 2,
-            "upgradeSlots": 1, "saleNumbers": [2, 3], "baseEarnings": 1,
+            "upgradeSlots": 1, "saleNumbers": [1, 2, 3], "baseEarnings": 1,
             "count": 21, "shapes": even_shapes(21),
             "tagline": "Low potential & earnings, sells often",
             "flavor": "We've all gotta start somewhere.",
