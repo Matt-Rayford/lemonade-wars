@@ -1,0 +1,25 @@
+{
+  "totalBills": 70,
+  "denominations": [
+    {
+      "value": 1,
+      "count": 30,
+      "image": "1-Dollar.jpg"
+    },
+    {
+      "value": 2,
+      "count": 20,
+      "image": "2-Dollars.jpg"
+    },
+    {
+      "value": 5,
+      "count": 10,
+      "image": "5-Dollars.jpg"
+    },
+    {
+      "value": 10,
+      "count": 10,
+      "image": "10-Dollars.jpg"
+    }
+  ]
+}
