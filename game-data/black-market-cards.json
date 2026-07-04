@@ -1,0 +1,601 @@
+{
+  "deck": "black-market",
+  "cards": [
+    {
+      "id": "bouncer",
+      "name": "Bouncer",
+      "target": "turf",
+      "cost": 6,
+      "count": 3,
+      "timing": "Passive",
+      "category": "Defense",
+      "effect": "Reaction: After an attack is resolved against you, you may play an attack.",
+      "flavor": "Can I help you with something, bub?",
+      "shapes": [
+        "circle",
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "attack",
+        "shield"
+      ]
+    },
+    {
+      "id": "diluted-lemonade",
+      "name": "Diluted Lemonade",
+      "target": "stand",
+      "cost": 6,
+      "count": 2,
+      "timing": "On Sale",
+      "category": "Gain Money",
+      "effect": "On Sale: +$2.",
+      "flavor": "Surely no one will notice!",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "dollar",
+        "sale"
+      ]
+    },
+    {
+      "id": "dons-blessings",
+      "name": "Don's Blessings",
+      "target": "turf",
+      "cost": 6,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Swap Card",
+      "effect": "On Power Pour: Look at an opponent's hand and steal 1 Lemon card, then give them a different Lemon card.",
+      "flavor": "The boss approves.",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "eyeball",
+        "power-pour",
+        "steal-card"
+      ]
+    },
+    {
+      "id": "downsell",
+      "name": "Downsell",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Roll Modification",
+      "effect": "On Your Turn (once): Modify die roll by -1 (min 1).",
+      "flavor": "You don't need that fancy stuff anyways...",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "die",
+        "on-your-turn"
+      ]
+    },
+    {
+      "id": "early-worm",
+      "name": "Early Worm",
+      "target": "turf",
+      "cost": 3,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Gain Money",
+      "effect": "On Power Pour: +$1.",
+      "flavor": "Gets the bird?",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "dollar",
+        "power-pour"
+      ]
+    },
+    {
+      "id": "family-business",
+      "name": "Family Business",
+      "target": "turf",
+      "cost": 8,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Swap Card & Steal Money",
+      "effect": "On Power Pour: Steal $1 and 1 random Lemon card, then give that player a different Lemon card.",
+      "flavor": "Thank you for your generous contributions.",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "power-pour",
+        "steal-card",
+        "steal-dollar"
+      ]
+    },
+    {
+      "id": "gone-fishin",
+      "name": "Gone Fishin'",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "Power Pour",
+      "category": "Steal Money",
+      "effect": "On Power Pour: Steal $1.",
+      "flavor": "Look what I caught!",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "power-pour",
+        "steal-dollar"
+      ]
+    },
+    {
+      "id": "half-pint-harry",
+      "name": "Half-Pint Harry",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "Power Pour",
+      "category": "Swap Card",
+      "effect": "On Power Pour: Steal 1 random Lemon card, then give that player a different Lemon card.",
+      "flavor": "Oh...it's an ironic nickname...",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "power-pour",
+        "steal-card"
+      ]
+    },
+    {
+      "id": "inflatable-decoy",
+      "name": "Inflatable Decoy",
+      "target": "turf",
+      "cost": 2,
+      "count": 3,
+      "timing": "Passive",
+      "category": "Defense",
+      "effect": "Reaction: Discard an attack that was just played, then discard this card. This card's effect cannot be tantrummed.",
+      "flavor": "It's so silly, it just might work!",
+      "shapes": [
+        "circle",
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "attack",
+        "shield",
+        "trash"
+      ]
+    },
+    {
+      "id": "innovation",
+      "name": "Innovation",
+      "target": "turf",
+      "cost": 8,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Other",
+      "effect": "On Power Pour: Copy one of your other On Power Pour abilities.",
+      "flavor": "My intellect is unmatched.",
+      "shapes": [
+        "circle"
+      ],
+      "icons": [
+        "copy-power-pour",
+        "power-pour"
+      ]
+    },
+    {
+      "id": "interest",
+      "name": "Interest",
+      "target": "turf",
+      "cost": 6,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Gain Money",
+      "effect": "On Power Pour: +$1 per power pour number you have.",
+      "flavor": "Is this what they mean by \"earning interest?\"",
+      "shapes": [
+        "diamond"
+      ],
+      "icons": [
+        "power-pour",
+        "power-pour-number"
+      ]
+    },
+    {
+      "id": "juice-box-joey",
+      "name": "Juice-box Joey",
+      "target": "stand",
+      "cost": 4,
+      "count": 2,
+      "timing": "On Sale",
+      "category": "Steal Money",
+      "effect": "On Sale: Steal $1.",
+      "flavor": "Gimme all your money! Or at least $1...",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "sale",
+        "steal-dollar"
+      ]
+    },
+    {
+      "id": "lefty-loosey",
+      "name": "Lefty Loosey",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Gain Money",
+      "effect": "The Stand to the left of this gains $1 on sales.",
+      "flavor": "Lowering my operating costs.",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "dollar",
+        "stand-left"
+      ]
+    },
+    {
+      "id": "liquid-energy",
+      "name": "Liquid Energy",
+      "target": "turf",
+      "cost": 7,
+      "count": 1,
+      "timing": "On Your Turn",
+      "category": "Roll Modification",
+      "effect": "On Your Turn (once): Make a sale roll. This applies to all players.",
+      "flavor": "Anyone else feeling jittery?",
+      "shapes": [
+        "square"
+      ],
+      "icons": [
+        "on-your-turn",
+        "roll-for-table"
+      ]
+    },
+    {
+      "id": "meditation",
+      "name": "Meditation",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "On Sale",
+      "category": "Gain Card",
+      "effect": "On Sale: +1 Lemon card.",
+      "flavor": "ooohm...",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "draw",
+        "sale"
+      ]
+    },
+    {
+      "id": "nap-time-nino",
+      "name": "Nap-Time Nino",
+      "target": "stand",
+      "cost": 4,
+      "count": 2,
+      "timing": "On Sale",
+      "category": "Swap Card",
+      "effect": "On Sale: Steal 1 random Lemon card, then give that player a different Lemon card.",
+      "flavor": "Ya snooze, ya lose...",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "sale",
+        "steal-card"
+      ]
+    },
+    {
+      "id": "peddlin-pete",
+      "name": "Peddlin' Pete",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Buys",
+      "effect": "On Your Turn: $1 discount on all Black Market purchases.",
+      "flavor": "VIP status has its benefits!",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "black-market-card",
+        "on-your-turn"
+      ]
+    },
+    {
+      "id": "pink-lemonade",
+      "name": "Pink Lemonade",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "On Sale",
+      "category": "Gain Money",
+      "effect": "On Sale: +$1.",
+      "flavor": "The holy grail of lemonade.",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "dollar",
+        "sale"
+      ]
+    },
+    {
+      "id": "pushy-salesman",
+      "name": "Pushy Salesman",
+      "target": "stand",
+      "cost": 3,
+      "count": 12,
+      "timing": "Passive",
+      "category": "Pushy Salesman",
+      "effect": "Add 1 to your sale numbers.",
+      "flavor": "You take that! I'll take this!",
+      "shapes": [
+        "circle",
+        "circle",
+        "circle",
+        "circle",
+        "diamond",
+        "diamond",
+        "diamond",
+        "diamond",
+        "square",
+        "square",
+        "square",
+        "square"
+      ],
+      "icons": [
+        "1"
+      ]
+    },
+    {
+      "id": "revelation",
+      "name": "Revelation",
+      "target": "turf",
+      "cost": 3,
+      "count": 2,
+      "timing": "Power Pour",
+      "category": "Gain Card",
+      "effect": "On Power Pour: +1 Lemon card.",
+      "flavor": "I see the light!",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "draw",
+        "power-pour"
+      ]
+    },
+    {
+      "id": "righty-tighty",
+      "name": "Righty Tighty",
+      "target": "stand",
+      "cost": 3,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Gain Money",
+      "effect": "The Stand to the right of this gains $1 on sales.",
+      "flavor": "Lowering my operating costs.",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "dollar",
+        "stand-right"
+      ]
+    },
+    {
+      "id": "shopping-spree",
+      "name": "Shopping Spree",
+      "target": "turf",
+      "cost": 6,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Buys",
+      "effect": "On Your Turn: +1 buy action for Black Market cards.",
+      "flavor": "Life can never give you too many lemons!",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "buy",
+        "on-your-turn"
+      ]
+    },
+    {
+      "id": "spiked-lemonade",
+      "name": "Spiked Lemonade",
+      "target": "turf",
+      "cost": 3,
+      "count": 6,
+      "timing": "Passive",
+      "category": "Spiked Lemonade",
+      "effect": "Add 1 to your power pour numbers.",
+      "flavor": "A lil somethin' extra from mom's secret cabinet.",
+      "shapes": [
+        "circle",
+        "circle",
+        "diamond",
+        "diamond",
+        "square",
+        "square"
+      ],
+      "icons": [
+        "1-power-pour"
+      ]
+    },
+    {
+      "id": "sugared-up",
+      "name": "Sugared Up",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Roll Modification",
+      "effect": "On Your Turn (once): Modify die roll by +1 (max 6).",
+      "flavor": "Enough messin' around. Let's sell lemonade!",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "die",
+        "on-your-turn"
+      ]
+    },
+    {
+      "id": "swear-jar",
+      "name": "Swear Jar",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "Passive",
+      "category": "Defense",
+      "effect": "Reaction: Each time a player plays a tantrum against you, they must pay you $2.",
+      "flavor": "Don't make me tap the jar.",
+      "shapes": [
+        "diamond",
+        "square"
+      ],
+      "icons": [
+        "shield",
+        "tantrum"
+      ]
+    },
+    {
+      "id": "take-two",
+      "name": "Take Two",
+      "target": "turf",
+      "cost": 7,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Roll Modification",
+      "effect": "On Your Turn (once): +1 sale re-roll.",
+      "flavor": "Not thirsty? It also cleans!",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "on-your-turn",
+        "reroll"
+      ]
+    },
+    {
+      "id": "tip-jars",
+      "name": "Tip Jars",
+      "target": "turf",
+      "cost": 9,
+      "count": 1,
+      "timing": "On Your Turn",
+      "category": "Gain Money",
+      "effect": "On Your Turn (once): +$1 per Stand that sells.",
+      "flavor": "Making customers feel bad can be lucrative!",
+      "shapes": [
+        "diamond"
+      ],
+      "icons": [
+        "on-your-turn",
+        "stands-that-sell"
+      ]
+    },
+    {
+      "id": "trade-winds",
+      "name": "Trade Winds",
+      "target": "stand",
+      "cost": 6,
+      "count": 2,
+      "timing": "On Your Turn",
+      "category": "Roll Modification",
+      "effect": "End of Your Turn: +1 sale roll for this Stand only.",
+      "flavor": "Look what just blew in!",
+      "shapes": [
+        "circle",
+        "square"
+      ],
+      "icons": [
+        "roll-for-this-stand"
+      ]
+    },
+    {
+      "id": "two-bit-timmy",
+      "name": "Two-Bit Timmy",
+      "target": "turf",
+      "cost": 8,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Steal Money",
+      "effect": "On Power Pour: Steal $2.",
+      "flavor": "A shave and a haircut...",
+      "shapes": [
+        "circle"
+      ],
+      "icons": [
+        "power-pour",
+        "steal-dollar"
+      ]
+    },
+    {
+      "id": "whispers-of-fate",
+      "name": "Whispers of Fate",
+      "target": "turf",
+      "cost": 4,
+      "count": 2,
+      "timing": "Power Pour",
+      "category": "Gain Card",
+      "effect": "On Power Pour: +2 Lemon cards, then discard 1 of them.",
+      "flavor": "Does anyone else hear that?",
+      "shapes": [
+        "circle",
+        "diamond"
+      ],
+      "icons": [
+        "draw",
+        "power-pour"
+      ]
+    },
+    {
+      "id": "word-of-mouth",
+      "name": "Word of Mouth",
+      "target": "turf",
+      "cost": 12,
+      "count": 1,
+      "timing": "Power Pour",
+      "category": "Other",
+      "effect": "On Power Pour: Choose 1 Stand to sell immediately.",
+      "flavor": "You've GOTTA try this kid's lemonade.",
+      "shapes": [
+        "diamond"
+      ],
+      "icons": [
+        "power-pour",
+        "stand-sells"
+      ]
+    }
+  ]
+}

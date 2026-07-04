@@ -1,0 +1,15 @@
+{
+  "count": 6,
+  "upgradeSlots": 5,
+  "powerPourNumbers": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "basePowerPourAbility": "Take $1 from the bank.",
+  "tagline": "Your base of operations",
+  "flavor": "Build your empire. Dominate the market."
+}

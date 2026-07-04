@@ -1,0 +1,339 @@
+{
+  "firstDibs": [
+    {
+      "id": "balanced-set",
+      "name": "Balanced Set",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to collect 2 of each shape (circle, diamond, and square)",
+      "flavor": "Every angle represented."
+    },
+    {
+      "id": "big-earner",
+      "name": "Big Earner",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to earn $9+ on a single roll",
+      "flavor": "My investments paid off!"
+    },
+    {
+      "id": "block-builder",
+      "name": "Block Builder",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 6+ [square]",
+      "flavor": "Solid stacks win games.",
+      "countedIcon": "square"
+    },
+    {
+      "id": "clean-getaway",
+      "name": "Clean Getaway",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to steal $3+ on a single roll",
+      "flavor": "In and out richer."
+    },
+    {
+      "id": "connoisseur",
+      "name": "Connoisseur",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 3 Gourmet Stands and 1 other Stand",
+      "flavor": "Fresh-squeezed, hand-stirred."
+    },
+    {
+      "id": "cranky-pants",
+      "name": "Cranky Pants",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to have 3 tantrums under your Turf",
+      "flavor": "Someone's asking for a timeout!"
+    },
+    {
+      "id": "diamond-dealer",
+      "name": "Diamond Dealer",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 6+ [diamond]",
+      "flavor": "Only the sharpest shine.",
+      "countedIcon": "diamond"
+    },
+    {
+      "id": "double-scoop",
+      "name": "Double Scoop",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to draw and keep 2+ cards on a single roll",
+      "flavor": "A full hand in one go."
+    },
+    {
+      "id": "expander",
+      "name": "Expander",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 5 Turf Black Market cards",
+      "flavor": "Home-field advantage."
+    },
+    {
+      "id": "full-circle",
+      "name": "Full Circle",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 6+ [circle]",
+      "flavor": "Round up the whole set.",
+      "countedIcon": "circle"
+    },
+    {
+      "id": "innovator",
+      "name": "Innovator",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 5 Stand Black Market cards",
+      "flavor": "Better, faster, stronger."
+    },
+    {
+      "id": "local-legend",
+      "name": "Local Legend",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 4 Classic Stands",
+      "flavor": "Not too cheap, not too fancy."
+    },
+    {
+      "id": "penny-pincher",
+      "name": "Penny Pincher",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to 5 Bargain Stands",
+      "flavor": "Cheap lemons, cheaper sugar."
+    },
+    {
+      "id": "shopaholic",
+      "name": "Shopaholic",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to spend $12+ (except Bragging Rights) on a turn",
+      "flavor": "Cash burns holes fast."
+    },
+    {
+      "id": "stand-surge",
+      "name": "Stand Surge",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to increase a Stand's earning potential by $3+",
+      "flavor": "More juice means more cash."
+    },
+    {
+      "id": "sticky-fingers",
+      "name": "Sticky Fingers",
+      "kind": "first-dibs",
+      "victoryPoints": 1,
+      "condition": "First to steal 2+ cards on a single roll",
+      "flavor": "Fast hands, faster getaways."
+    }
+  ],
+  "lemonLord": [
+    {
+      "id": "bare-bones",
+      "name": "Bare Bones",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ Stands with no Black Market cards on them",
+      "flavor": "Nothing too fancy..."
+    },
+    {
+      "id": "budget-beast",
+      "name": "Budget Beast",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with a Bargain Stand that earns $3+",
+      "flavor": "Cheap stand, huge payoff.",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 8
+    },
+    {
+      "id": "card-shark",
+      "name": "Card Shark",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 2+ [draw]",
+      "flavor": "Never stop drawing.",
+      "countedIcon": "draw",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 6
+    },
+    {
+      "id": "cash-queen",
+      "name": "Cash Queen",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ Black Market cards that cost $6+",
+      "flavor": "Coins clink louder than words.",
+      "requiredCount": 3,
+      "qualifyingCardsInDeck": 18
+    },
+    {
+      "id": "elite-squeezer",
+      "name": "Elite Squeezer",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with a Gourmet Stand with 4 Black Market cards",
+      "flavor": "Fancy pays every time.",
+      "requiredCount": 4,
+      "qualifyingCardsInDeck": 69
+    },
+    {
+      "id": "expert-whiner",
+      "name": "Expert Whiner",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with the Whiniest Baby card",
+      "flavor": "Turning tears into leverage."
+    },
+    {
+      "id": "flow-master",
+      "name": "Flow Master",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 4+ [power-pour]",
+      "flavor": "Control the pour, control the profit.",
+      "countedIcon": "power-pour",
+      "requiredCount": 4,
+      "qualifyingCardsInDeck": 15
+    },
+    {
+      "id": "friendly-fran",
+      "name": "Friendly Fran",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with no tantrums under your Turf",
+      "flavor": "So well-behaved."
+    },
+    {
+      "id": "fuming-phil",
+      "name": "Fuming Phil",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 5+ Attack cards in your hand",
+      "flavor": "I've got pent-up rage!",
+      "requiredCount": 5,
+      "qualifyingCardsInDeck": 22
+    },
+    {
+      "id": "hoarder",
+      "name": "Hoarder",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 10+ Lemon cards in your hand",
+      "flavor": "Surely I'll use these someday...",
+      "requiredCount": 10,
+      "qualifyingCardsInDeck": 69
+    },
+    {
+      "id": "meltdown-master",
+      "name": "Meltdown Master",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ tantrums in your hand",
+      "flavor": "Chaos ready at all times.",
+      "requiredCount": 3,
+      "qualifyingCardsInDeck": 12
+    },
+    {
+      "id": "no-bullies-allowed",
+      "name": "No Bullies Allowed",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 2+ [shield]",
+      "flavor": "Try something, see what happens.",
+      "countedIcon": "shield",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 8
+    },
+    {
+      "id": "pam-the-planner",
+      "name": "Pam the Planner",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 5+ Plan cards in your hand",
+      "flavor": "Schemes saved for victory.",
+      "requiredCount": 5,
+      "qualifyingCardsInDeck": 22
+    },
+    {
+      "id": "pour-master",
+      "name": "Pour Master",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 2+ Spiked Lemonade cards",
+      "flavor": "Precision with every splash.",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 6
+    },
+    {
+      "id": "profit-pusher",
+      "name": "Profit Pusher",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ Black Market [dollar]",
+      "flavor": "Every move pays extra.",
+      "countedIcon": "dollar",
+      "requiredCount": 3,
+      "qualifyingCardsInDeck": 9
+    },
+    {
+      "id": "pushover",
+      "name": "Pushover",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 4+ Pushy Salesman cards",
+      "flavor": "You sure you don't want any?",
+      "requiredCount": 4,
+      "qualifyingCardsInDeck": 12
+    },
+    {
+      "id": "roll-wrangler",
+      "name": "Roll Wrangler",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ [die-wild]",
+      "flavor": "Outcomes bend to your will.",
+      "countedIcon": "die-wild",
+      "requiredCount": 3,
+      "qualifyingCardsInDeck": 9
+    },
+    {
+      "id": "sales-engine",
+      "name": "Sales Engine",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 3+ [sale]",
+      "flavor": "Every sale is one step closer.",
+      "countedIcon": "sale",
+      "requiredCount": 3,
+      "qualifyingCardsInDeck": 10
+    },
+    {
+      "id": "swindling-sammy",
+      "name": "Swindling Sammy",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 2+ [steal-card]",
+      "flavor": "You take opportunities freely.",
+      "countedIcon": "steal-card",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 6
+    },
+    {
+      "id": "thieving-tommy",
+      "name": "Thieving Tommy",
+      "kind": "lemon-lord",
+      "victoryPoints": 1,
+      "condition": "End with 2+ [steal-dollar]",
+      "flavor": "Money finds you naturally.",
+      "countedIcon": "steal-dollar",
+      "requiredCount": 2,
+      "qualifyingCardsInDeck": 6
+    }
+  ]
+}

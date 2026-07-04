@@ -1,0 +1,31 @@
+{
+  "players": {
+    "min": 2,
+    "max": 5
+  },
+  "victoryPointsToTriggerEnd": 3,
+  "saleDie": 6,
+  "setup": {
+    "startingMoney": 15,
+    "startingHandSize": 5,
+    "lemonLordDealt": 3,
+    "lemonLordKept": 2,
+    "firstDibsFaceUp": "playerCount + 1",
+    "blackMarketFaceUp": 4,
+    "blackMarketFaceUp2Player": 5,
+    "firstPlayerBonus": "$1 x (players after you in turn order)",
+    "initialBuys": {
+      "rounds": 2,
+      "order": "clockwise, then counter-clockwise (snake)",
+      "mustBuyStand": true,
+      "mayBuyBlackMarket": true
+    }
+  },
+  "turn": {
+    "startDraw": 1,
+    "actions": 2,
+    "handLimit": null,
+    "timeoutHandLimit": 10,
+    "blackMarketRefreshCost": 1
+  }
+}

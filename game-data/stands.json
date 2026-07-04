@@ -1,0 +1,61 @@
+{
+  "standTypes": [
+    {
+      "id": "bargain",
+      "name": "Bargain Stand",
+      "baseCost": 2,
+      "upgradeSlots": 1,
+      "saleNumbers": [
+        2,
+        3
+      ],
+      "baseEarnings": 1,
+      "count": 21,
+      "shapes": {
+        "diamond": 7,
+        "circle": 7,
+        "square": 7
+      },
+      "tagline": "Low potential & earnings, sells often",
+      "flavor": "We've all gotta start somewhere."
+    },
+    {
+      "id": "classic",
+      "name": "Classic Stand",
+      "baseCost": 3,
+      "upgradeSlots": 2,
+      "saleNumbers": [
+        4,
+        5
+      ],
+      "baseEarnings": 2,
+      "count": 18,
+      "shapes": {
+        "diamond": 6,
+        "circle": 6,
+        "square": 6
+      },
+      "tagline": "Decent potential, sales, and earnings",
+      "flavor": "Your standard cartoon lemonade stand."
+    },
+    {
+      "id": "gourmet",
+      "name": "Gourmet Stand",
+      "baseCost": 4,
+      "upgradeSlots": 4,
+      "saleNumbers": [
+        6
+      ],
+      "baseEarnings": 3,
+      "count": 15,
+      "shapes": {
+        "diamond": 5,
+        "circle": 5,
+        "square": 5
+      },
+      "tagline": "High potential & earnings, few sales",
+      "flavor": "Lemonade snobs will love it (and pay more)."
+    }
+  ],
+  "costEscalationPerOwnedStand": 1
+}

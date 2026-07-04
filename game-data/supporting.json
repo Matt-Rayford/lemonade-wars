@@ -1,0 +1,28 @@
+{
+  "braggingRights": {
+    "count": 11,
+    "victoryPointsEach": 1,
+    "prices": [
+      16,
+      18,
+      20,
+      22,
+      24,
+      26,
+      28,
+      30,
+      32,
+      34,
+      36
+    ],
+    "purchaseLimitPerTurn": 1
+  },
+  "whiniestBaby": {
+    "awardedTo": "player with the most played tantrums (ties: most recent gain)",
+    "effect": "At the start of each turn, draw 2 Lemon cards instead of 1, then discard 1 of them. You must pay $3 per tantrum when the Timeout card is drawn, then discard all your tantrums."
+  },
+  "spoiledRotten": {
+    "awardedTo": "player with the fewest victory points (must be sole last; ties: return to market)",
+    "effect": "You get 1 free sale roll for only yourself at the start of each of your turns."
+  }
+}

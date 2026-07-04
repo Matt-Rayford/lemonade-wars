@@ -1,0 +1,211 @@
+{
+  "deck": "lemon",
+  "cards": [
+    {
+      "id": "apologize",
+      "name": "Apologize",
+      "type": "plan",
+      "count": 2,
+      "effect": "Take a tantrum you've thrown and send it to the discard pile.",
+      "flavor": "Sorryyyyyyyyyyyyyyy...",
+      "condition": "This card cannot be tantrummed"
+    },
+    {
+      "id": "automation",
+      "name": "Automation",
+      "type": "plan",
+      "count": 2,
+      "effect": "Gain +2 actions this turn.",
+      "flavor": "Can't stop progress. May as well embrace it!"
+    },
+    {
+      "id": "blame-changer",
+      "name": "Blame Changer",
+      "type": "attack",
+      "count": 3,
+      "effect": "Give another player one of your played tantrums.",
+      "flavor": "It wasn't me!"
+    },
+    {
+      "id": "connections",
+      "name": "Connections",
+      "type": "plan",
+      "count": 2,
+      "effect": "Take a Black Market card from the market and play it for free.",
+      "flavor": "I know a guy."
+    },
+    {
+      "id": "doorbuster-sale",
+      "name": "Doorbuster Sale",
+      "type": "plan",
+      "count": 2,
+      "effect": "Choose a Stand to immediately make a sale.",
+      "flavor": "Let's create a sense of urgency."
+    },
+    {
+      "id": "finders-keepers",
+      "name": "Finders Keepers",
+      "type": "attack",
+      "count": 3,
+      "effect": "Steal a Black Market card from another player and play it immediately.",
+      "flavor": "Wow, someone left this here just for me!"
+    },
+    {
+      "id": "hoa-violation",
+      "name": "HOA Violation",
+      "type": "attack",
+      "count": 2,
+      "effect": "Take $5 from another player.",
+      "flavor": "Umm...are those lemons sunshine yellow or golden citrus?"
+    },
+    {
+      "id": "im-rubber-youre-glue",
+      "name": "I'm Rubber, You're Glue",
+      "type": "instant",
+      "count": 2,
+      "effect": "Place the attack on the attacker instead, as if you played it.",
+      "flavor": "Sticks and stones...",
+      "condition": "Play after an attack is played"
+    },
+    {
+      "id": "market-forecasting",
+      "name": "Market Forecasting",
+      "type": "plan",
+      "count": 2,
+      "effect": "Draw 3 cards from the Lemon deck.",
+      "flavor": "I see...EVERYTHING!"
+    },
+    {
+      "id": "night-shifts",
+      "name": "Night Shifts",
+      "type": "plan",
+      "count": 2,
+      "effect": "Immediately make a sale roll. This roll only applies to you.",
+      "flavor": "Howdy, stranger! Would ya like to buy some lemonade?"
+    },
+    {
+      "id": "out-of-stock",
+      "name": "Out of Stock",
+      "type": "instant",
+      "count": 2,
+      "effect": "Re-roll the die that was just rolled.",
+      "flavor": "When life takes your lemons, no sales for you!",
+      "condition": "Play after any player rolls a die"
+    },
+    {
+      "id": "profit-share",
+      "name": "Profit Share",
+      "type": "instant",
+      "count": 3,
+      "effect": "If money was stolen, split the money with the attacker (rounding your half up).",
+      "flavor": "If you score, I score.",
+      "condition": "Play after an attack is resolved"
+    },
+    {
+      "id": "rebrand",
+      "name": "Rebrand",
+      "type": "plan",
+      "count": 2,
+      "effect": "Swap one of your Stands with any other Stand type. Discard Black Market cards if necessary.",
+      "flavor": "New look, same hustle."
+    },
+    {
+      "id": "reduce-and-reuse",
+      "name": "Reduce and Reuse",
+      "type": "plan",
+      "count": 3,
+      "effect": "Take a discarded Black Market card and play it immediately.",
+      "flavor": "Don't mind if I do!"
+    },
+    {
+      "id": "reverse-engineer",
+      "name": "Reverse Engineer",
+      "type": "plan",
+      "count": 2,
+      "effect": "Take a discarded Lemon card and play it immediately, or draw 2 cards from the Lemon deck.",
+      "flavor": "Oooooooooo!"
+    },
+    {
+      "id": "rummage-sale",
+      "name": "Rummage Sale",
+      "type": "plan",
+      "count": 3,
+      "effect": "Sell up to 3 of your Black Market cards for 1/2 their base price (rounding each card up).",
+      "flavor": "Going through some remodeling!"
+    },
+    {
+      "id": "sharing-is-caring",
+      "name": "Sharing Is Caring",
+      "type": "attack",
+      "count": 2,
+      "effect": "Choose a player. Steal half of their money (rounding up, max $10).",
+      "flavor": "Awwww...how nice of you!"
+    },
+    {
+      "id": "smear-campaign",
+      "name": "Smear Campaign",
+      "type": "attack",
+      "count": 2,
+      "effect": "Steal 2 random Lemon cards from another player's hand. Then you may play any card.",
+      "flavor": "Let's just say, it's not made with lemons..."
+    },
+    {
+      "id": "steal-the-cashbox",
+      "name": "Steal the Cashbox",
+      "type": "attack",
+      "count": 2,
+      "effect": "Play on a Turf before rolling. Steal up to $10 in earnings. Discard after rolling.",
+      "flavor": "Yoink!"
+    },
+    {
+      "id": "tag-youre-it",
+      "name": "Tag, You're It!",
+      "type": "instant",
+      "count": 6,
+      "effect": "You may move the attack to another player (not the attacker). In a 2-player game, discard it instead.",
+      "flavor": "Passing problems like playground gossip.",
+      "condition": "Play after an attack is played"
+    },
+    {
+      "id": "tantrum",
+      "name": "Tantrum",
+      "type": "instant",
+      "count": 12,
+      "effect": "Cancel the card and discard it. The player gets their money (but not action) back.",
+      "flavor": "Place below your Turf after playing.",
+      "condition": "Play after someone plays a Lemon card or buys a Black Market card"
+    },
+    {
+      "id": "taxes",
+      "name": "Taxes",
+      "type": "attack",
+      "count": 2,
+      "effect": "Choose a player. Steal $2 per Stand they have (max $10).",
+      "flavor": "Uncle Sam always gets his due!"
+    },
+    {
+      "id": "thats-not-fair",
+      "name": "That's Not Fair!",
+      "type": "attack",
+      "count": 4,
+      "effect": "Choose an equipped Black Market card and discard it.",
+      "flavor": "Involving parents helps level the playing field."
+    },
+    {
+      "id": "trash-pandas",
+      "name": "Trash Pandas",
+      "type": "attack",
+      "count": 2,
+      "effect": "Trade hands with another player.",
+      "flavor": "One kid's trash is another kid's treasure!"
+    },
+    {
+      "id": "timeout",
+      "name": "Timeout",
+      "type": "timeout",
+      "count": 2,
+      "effect": "Stop play and immediately do the following: All players discard down to 10 Lemon cards. The Whiniest Baby must pay $3 for each played tantrum (sell cards if needed) then discard all their tantrums and this card. Pass the Whiniest Baby card, draw a new card, then continue.",
+      "flavor": ""
+    }
+  ]
+}
