@@ -214,6 +214,17 @@ TURF = {
     "flavor": "Build your empire. Dominate the market.",
 }
 
+# 70 paper money (rulebook p3); images in game-assets/images/money/.
+MONEY = {
+    "totalBills": 70,
+    "denominations": [
+        {"value": 1, "count": 30, "image": "1-Dollar.jpg"},
+        {"value": 2, "count": 20, "image": "2-Dollars.jpg"},
+        {"value": 5, "count": 10, "image": "5-Dollars.jpg"},
+        {"value": 10, "count": 10, "image": "10-Dollars.jpg"},
+    ],
+}
+
 SUPPORTING = {
     "braggingRights": {
         "count": 11,
@@ -286,6 +297,7 @@ def validate(lemon, bm, titles):
     check("Bragging Rights", SUPPORTING["braggingRights"]["count"], 11)
     check("Stands", sum(s["count"] for s in STANDS["standTypes"]), 54)
     check("Turf cards", TURF["count"], 6)
+    check("Paper money", sum(d["count"] for d in MONEY["denominations"]), MONEY["totalBills"])
 
     # Shape copies should be evenly split across the BM deck
     shape_counts = Counter(s for c in bm["cards"] for s in c["shapes"])
@@ -330,6 +342,7 @@ def main():
         "stands.json": STANDS,
         "turf.json": TURF,
         "supporting.json": SUPPORTING,
+        "money.json": MONEY,
         "config.json": CONFIG,
     }
     for name, data in outputs.items():
