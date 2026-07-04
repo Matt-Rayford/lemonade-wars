@@ -1,3 +1,10 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.idea/
+
 .DS_Store
 game-assets/.DS_Store
 game-assets/Black Market Cards.pdf
