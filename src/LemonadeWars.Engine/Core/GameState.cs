@@ -59,6 +59,10 @@ namespace LemonadeWars.Engine.Core
         public int PowerPourNumber { get; set; }
         /// <summary>Instance ids of equipped Turf Black Market cards (max 5).</summary>
         public List<int> Equipped { get; } = new List<int>();
+        /// <summary>Steal the Cashbox trap: lemon instance sitting on this turf, if any.</summary>
+        public int? TrapInstanceId { get; set; }
+        /// <summary>Who played the trap and collects the stolen earnings.</summary>
+        public int? TrapOwnerId { get; set; }
     }
 
     public sealed class PlayerState
@@ -70,8 +74,8 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Lemon card instance ids in hand. Hand size is public knowledge; contents are hidden info.</summary>
         public List<int> Hand { get; } = new List<int>();
         public List<StandInstance> Stands { get; } = new List<StandInstance>();
-        /// <summary>Tantrum instance ids played by this player, kept below their Turf.</summary>
-        public List<int> TantrumsPlayed { get; } = new List<int>();
+        /// <summary>Tantrums gained by this player (kept below their Turf), with gain order.</summary>
+        public List<TantrumRecord> TantrumPile { get; } = new List<TantrumRecord>();
         /// <summary>Lemon Lord titles dealt during setup (3), before the keep-2 choice.</summary>
         public List<string> LemonLordDealt { get; } = new List<string>();
         /// <summary>The 2 secret Lemon Lord titles kept; scored at game end.</summary>
@@ -80,8 +84,6 @@ namespace LemonadeWars.Engine.Core
         public List<string> FirstDibsClaimed { get; } = new List<string>();
         /// <summary>Bragging Rights cards purchased (1 VP each).</summary>
         public int BraggingRights { get; set; }
-        public bool HasWhiniestBaby { get; set; }
-        public bool HasSpoiledRotten { get; set; }
 
         /// <summary>VP visible during play; the game-end trigger checks this (Lemon Lords score later).</summary>
         public int InGameVictoryPoints => FirstDibsClaimed.Count + BraggingRights;
@@ -132,6 +134,41 @@ namespace LemonadeWars.Engine.Core
         public List<int> InitialBuyQueue { get; } = new List<int>();
         /// <summary>Whether the current initial-buy player has bought their mandatory Stand.</summary>
         public bool InitialBuyStandDone { get; set; }
+
+        // ---- Interaction machinery ----
+        /// <summary>Pending plays/purchases, bottom-first. Non-empty means a response window is open on the last item.</summary>
+        public List<StackItem> ResponseStack { get; } = new List<StackItem>();
+        public int NextStackItemId { get; set; } = 1;
+        /// <summary>Players who may still respond to the current window (stack top, roll, or theft).</summary>
+        public List<int> AwaitingResponse { get; } = new List<int>();
+        /// <summary>A rolled die waiting out its Out of Stock window before applying.</summary>
+        public PendingRoll? PendingRoll { get; set; }
+        /// <summary>Profit Share windows after money steals, processed front to back.</summary>
+        public List<PendingTheftResponse> TheftQueue { get; } = new List<PendingTheftResponse>();
+        /// <summary>Blocking player decisions (discards, fines, retargets, free plays).</summary>
+        public List<PendingDecision> PendingDecisions { get; } = new List<PendingDecision>();
+        /// <summary>Draws still owed (e.g. interrupted by a Timeout resolving mid-draw).</summary>
+        public int PendingDrawCount { get; set; }
+        public int PendingDrawPlayerId { get; set; }
+        /// <summary>True while resolving a turn-start (Spoiled Rotten roll / Whiniest Baby draw) before Play.</summary>
+        public bool TurnStartInProgress { get; set; }
+        /// <summary>Progress through turn-start steps: 0 = Spoiled Rotten roll, 1 = draws, 2 = baby discard, 3 = enter Play.</summary>
+        public int TurnStartStep { get; set; }
+        /// <summary>Bumped on every stack push/pop/reroll; a window recomputes its audience when it differs from LastWindowRevision.</summary>
+        public int InteractionRevision { get; set; }
+        public int LastWindowRevision { get; set; } = -1;
+        /// <summary>What to run once the pending roll (and its aftermath) fully settles.</summary>
+        public RollPurpose? PostRollContinuation { get; set; }
+        /// <summary>Set while a drawn Timeout is being resolved; null otherwise.</summary>
+        public int? TimeoutDrawerId { get; set; }
+        /// <summary>Whether any tantrum was gained during the current stack episode (Whiniest Baby check).</summary>
+        public bool EpisodeHadTantrums { get; set; }
+        /// <summary>Monotonic counter ordering tantrum gains (Whiniest Baby tiebreak).</summary>
+        public int NextTantrumGainSeq { get; set; } = 1;
+
+        // ---- Status cards ----
+        public int? WhiniestBabyHolder { get; set; }
+        public int? SpoiledRottenHolder { get; set; }
 
         // ---- End of game ----
         /// <summary>Player whose turn-end hit the VP target and triggered the final round.</summary>

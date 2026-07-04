@@ -195,7 +195,7 @@ namespace LemonadeWars.Engine.Tests
             Assert.Throws<InvalidActionException>(() =>
                 game.Apply(new BuyBraggingRights { PlayerId = active }));
 
-            game.Apply(new EndTurn { PlayerId = active });
+            ApplyAndPass(game, new EndTurn { PlayerId = active });
 
             // Next player pays the escalated price.
             int next = game.State.ActivePlayer;
@@ -235,6 +235,7 @@ namespace LemonadeWars.Engine.Tests
 
             var events = game.Apply(new EndTurn { PlayerId = s.ActivePlayer });
             int roll = events.OfType<SaleRolled>().Single().Value;
+            PassAll(game); // decline any Out of Stock windows so payouts land
 
             foreach (var p in s.Players)
             {
@@ -274,7 +275,7 @@ namespace LemonadeWars.Engine.Tests
                     {
                         break;
                     }
-                    game.Apply(new EndTurn { PlayerId = active.PlayerId });
+                    ApplyAndPass(game, new EndTurn { PlayerId = active.PlayerId });
                 }
             }
 
@@ -304,6 +305,53 @@ namespace LemonadeWars.Engine.Tests
             Assert.NotEqual(PlayScriptedGame(1), PlayScriptedGame(2));
         }
 
+        /// <summary>Apply an action, then settle all windows/decisions with default choices.</summary>
+        internal static void ApplyAndPass(Game game, GameAction action)
+        {
+            game.Apply(action);
+            PassAll(game);
+        }
+
+        /// <summary>
+        /// Everyone declines to respond, and mandatory decisions get deterministic default
+        /// answers (discard newest), until the game is quiet.
+        /// </summary>
+        internal static void PassAll(Game game)
+        {
+            var s = game.State;
+            while (s.AwaitingResponse.Count > 0 || s.PendingDecisions.Count > 0)
+            {
+                if (s.AwaitingResponse.Count > 0)
+                {
+                    game.Apply(new PassWindow { PlayerId = s.AwaitingResponse[0] });
+                    continue;
+                }
+                var decision = s.PendingDecisions[0];
+                var player = s.Players[decision.PlayerId];
+                switch (decision.Kind)
+                {
+                    case DecisionKind.DiscardToHandLimit:
+                    case DecisionKind.WhiniestBabyDiscard:
+                        game.Apply(new SubmitDiscard
+                        {
+                            PlayerId = player.PlayerId,
+                            InstanceIds = player.Hand
+                                .Skip(player.Hand.Count - decision.RequiredCount).ToList(),
+                        });
+                        break;
+                    case DecisionKind.TimeoutFine:
+                        game.Apply(new SubmitTimeoutPayment { PlayerId = player.PlayerId });
+                        break;
+                    case DecisionKind.FreePlayOffer:
+                        game.Apply(new SkipFreePlay { PlayerId = player.PlayerId });
+                        break;
+                    default:
+                        throw new System.InvalidOperationException(
+                            $"PassAll cannot default {decision.Kind}; answer it explicitly in the test.");
+                }
+            }
+        }
+
         /// <summary>Plays a fixed action script over a seeded game and returns the final snapshot.</summary>
         private static string PlayScriptedGame(ulong seed)
         {
@@ -312,13 +360,13 @@ namespace LemonadeWars.Engine.Tests
             for (int turns = 0; turns < 12 && s.Stage != GameStage.Finished; turns++)
             {
                 int active = s.ActivePlayer;
-                game.Apply(new DrawLemonCard { PlayerId = active });
+                ApplyAndPass(game, new DrawLemonCard { PlayerId = active });
                 if (s.Players[active].Money >= game.StandPrice(active, "bargain") &&
                     s.StandSupply["bargain"].Count > 0)
                 {
-                    game.Apply(new BuyStand { PlayerId = active, StandTypeId = "bargain" });
+                    ApplyAndPass(game, new BuyStand { PlayerId = active, StandTypeId = "bargain" });
                 }
-                game.Apply(new EndTurn { PlayerId = active });
+                ApplyAndPass(game, new EndTurn { PlayerId = active });
             }
             return game.SnapshotJson();
         }

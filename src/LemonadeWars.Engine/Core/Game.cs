@@ -23,7 +23,7 @@ namespace LemonadeWars.Engine.Core
     /// effect resolution, First Dibs auto-claiming, Lemon Lord end-game scoring, Whiniest
     /// Baby / Spoiled Rotten mechanics.
     /// </summary>
-    public sealed class Game
+    public sealed partial class Game
     {
         public CardDatabase Db { get; }
         public GameState State { get; }
@@ -85,7 +85,7 @@ namespace LemonadeWars.Engine.Core
             {
                 for (int c = 0; c < cfg.StartingHandSize; c++)
                 {
-                    game.DrawIntoHand(player, allowTimeout: false);
+                    game.SetupDraw(player);
                 }
             }
 
@@ -211,6 +211,8 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Validate and execute a player action, returning the events it produced.</summary>
         public IReadOnlyList<GameEvent> Apply(GameAction action)
         {
+            RequireInteractionGate(action);
+
             var events = new List<GameEvent>();
             switch (action)
             {
@@ -226,7 +228,8 @@ namespace LemonadeWars.Engine.Core
                 case DrawLemonCard draw:
                     RequireTurnAction(draw);
                     SpendAction();
-                    DrawIntoHand(Player(draw.PlayerId), allowTimeout: true, events);
+                    QueueDraws(draw.PlayerId, 1);
+                    Pump(events);
                     break;
                 case BuyStand buy:
                     RequireTurnAction(buy);
@@ -245,11 +248,60 @@ namespace LemonadeWars.Engine.Core
                 case EndTurn endTurn:
                     ApplyEndTurn(endTurn, events);
                     break;
+                case PlayLemonCard play:
+                    ApplyPlayLemonCard(play, events);
+                    break;
+                case RespondToWindow respond:
+                    ApplyRespondToWindow(respond, events);
+                    break;
+                case PassWindow pass:
+                    ApplyPassWindow(pass, events);
+                    break;
+                case SubmitDiscard discard:
+                    ApplySubmitDiscard(discard, events);
+                    break;
+                case SubmitTimeoutPayment payment:
+                    ApplySubmitTimeoutPayment(payment, events);
+                    break;
+                case SubmitRetarget retarget:
+                    ApplySubmitRetarget(retarget, events);
+                    break;
+                case SkipFreePlay skip:
+                    ApplySkipFreePlay(skip, events);
+                    break;
                 default:
                     throw new InvalidActionException($"Unknown action type {action.GetType().Name}.");
             }
             State.RngState = _rng.State;
             return events;
+        }
+
+        /// <summary>
+        /// While windows or decisions are pending, only the matching interaction actions are
+        /// legal; conversely interaction actions need an open window/decision to respond to.
+        /// </summary>
+        private void RequireInteractionGate(GameAction action)
+        {
+            bool interactionPending =
+                State.PendingDecisions.Count > 0 ||
+                State.AwaitingResponse.Count > 0 ||
+                State.ResponseStack.Count > 0 ||
+                State.PendingRoll != null ||
+                State.TheftQueue.Count > 0;
+
+            bool isInteractionAction =
+                action is RespondToWindow || action is PassWindow ||
+                action is SubmitDiscard || action is SubmitTimeoutPayment ||
+                action is SubmitRetarget || action is SkipFreePlay ||
+                (action is PlayLemonCard && State.PendingDecisions.Any(d =>
+                    d.PlayerId == action.PlayerId &&
+                    (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.ForcedPlay)));
+
+            if (interactionPending && !isInteractionAction)
+            {
+                throw new InvalidActionException(
+                    "A response window or decision is pending; resolve it first.");
+            }
         }
 
         // ---------------------------------------------------- setup actions
@@ -335,6 +387,7 @@ namespace LemonadeWars.Engine.Core
                 events.Add(new StageChanged { Stage = State.Stage });
                 State.ActivePlayer = State.FirstPlayer;
                 StartTurn(events);
+                Pump(events);
             }
         }
 
@@ -460,49 +513,9 @@ namespace LemonadeWars.Engine.Core
 
             var player = Player(action.PlayerId);
             int instanceId = State.Market[action.MarketIndex];
-            var instance = State.BlackMarketInstances[instanceId];
-            var def = Db.BlackMarket(instance.DefId);
+            var def = Db.BlackMarket(State.BlackMarketInstances[instanceId].DefId);
 
-            // Resolve the equip target and its slot limit.
-            List<int> equipped;
-            int slotLimit;
-            if (def.Target == EquipTarget.Stand)
-            {
-                if (!(action.TargetStandInstanceId is int standId))
-                {
-                    throw new InvalidActionException($"{def.Name} is a Stand upgrade; choose a target Stand.");
-                }
-                var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standId)
-                    ?? throw new InvalidActionException($"P{player.PlayerId} has no Stand {standId}.");
-                equipped = stand.Equipped;
-                slotLimit = Db.StandType(stand.StandTypeId).UpgradeSlots;
-            }
-            else
-            {
-                if (action.TargetStandInstanceId != null)
-                {
-                    throw new InvalidActionException($"{def.Name} is a Turf upgrade; it cannot target a Stand.");
-                }
-                equipped = player.Turf.Equipped;
-                slotLimit = Db.Turf.UpgradeSlots;
-            }
-
-            // At the limit, the buyer may discard an existing card to make room (rulebook p9).
-            if (equipped.Count >= slotLimit)
-            {
-                if (!(action.ReplaceInstanceId is int replaceId) || !equipped.Contains(replaceId))
-                {
-                    throw new InvalidActionException(
-                        "Target is at its upgrade limit; choose an equipped card to discard.");
-                }
-                equipped.Remove(replaceId);
-                State.BlackMarketDiscard.Add(replaceId);
-                events.Add(new CardsDiscarded
-                {
-                    PlayerId = player.PlayerId,
-                    InstanceIds = new List<int> { replaceId },
-                });
-            }
+            ValidateEquipDestination(player, def, action.TargetStandInstanceId, action.ReplaceInstanceId);
 
             // TODO(effects): Peddlin' Pete's $1 discount on Black Market purchases.
             Pay(player, def.Cost, def.Name, events);
@@ -512,22 +525,40 @@ namespace LemonadeWars.Engine.Core
             }
 
             State.Market.RemoveAt(action.MarketIndex);
-            equipped.Add(instanceId);
-            events.Add(new BlackMarketPurchased
-            {
-                PlayerId = player.PlayerId,
-                InstanceId = instanceId,
-                DefId = def.Id,
-                TargetStandInstanceId = def.Target == EquipTarget.Stand ? action.TargetStandInstanceId : null,
-            });
-
             RefillMarket();
             events.Add(new MarketRefilled { Market = State.Market.ToList() });
 
             if (duringSetup)
             {
-                // The optional Black Market pick ends this draft visit.
+                // Pre-game purchases cannot be tantrummed — equip immediately.
+                TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events);
                 AdvanceInitialBuyQueue(events);
+                return;
+            }
+
+            // In-game purchases are contestable (rulebook p11): money is paid up front and
+            // refunded (action is not) if a tantrum chain cancels the purchase.
+            PushStackItem(new StackItem
+            {
+                Kind = StackItemKind.BlackMarketPurchase,
+                OwnerId = player.PlayerId,
+                BmInstanceId = instanceId,
+                PaidCost = def.Cost,
+                EquipStandInstanceId = action.TargetStandInstanceId,
+                EquipReplaceInstanceId = action.ReplaceInstanceId,
+            }, events);
+            Pump(events);
+        }
+
+        /// <summary>A purchase survived its tantrum window: equip it.</summary>
+        private void CompleteBlackMarketPurchase(StackItem item, List<GameEvent> events)
+        {
+            var player = Player(item.OwnerId);
+            if (!TryEquip(player, item.BmInstanceId!.Value,
+                    item.EquipStandInstanceId, item.EquipReplaceInstanceId, events))
+            {
+                // Destination vanished mid-contest (cannot normally happen); card is lost.
+                State.BlackMarketDiscard.Add(item.BmInstanceId.Value);
             }
         }
 
@@ -552,6 +583,26 @@ namespace LemonadeWars.Engine.Core
             player.BraggingRights++;
             State.BraggingRightsBoughtThisTurn = true;
             events.Add(new BraggingRightsPurchased { PlayerId = player.PlayerId, Price = price });
+
+            // Victory point purchases cannot be tantrummed (rulebook p11).
+            AssignSpoiledRotten(events);
+        }
+
+        /// <summary>Each VP gain re-checks Spoiled Rotten: sole last place holds it (rulebook p12).</summary>
+        private void AssignSpoiledRotten(List<GameEvent> events)
+        {
+            int min = State.Players.Min(p => p.InGameVictoryPoints);
+            var last = State.Players.Where(p => p.InGameVictoryPoints == min).ToList();
+            int? newHolder = last.Count == 1 ? last[0].PlayerId : (int?)null;
+            if (newHolder != State.SpoiledRottenHolder)
+            {
+                events.Add(new SpoiledRottenMoved
+                {
+                    FromPlayerId = State.SpoiledRottenHolder,
+                    ToPlayerId = newHolder,
+                });
+                State.SpoiledRottenHolder = newHolder;
+            }
         }
 
         private void ApplyRefreshMarket(RefreshMarket action, List<GameEvent> events)
@@ -577,99 +628,25 @@ namespace LemonadeWars.Engine.Core
         }
 
         // ------------------------------------------------------- turn cycle
+        // StartTurn, draws, Timeout handling, and sale resolution live in Game.Responses.cs;
+        // everything below flows through the interaction pump.
 
-        private void StartTurn(List<GameEvent> events)
+        /// <summary>Setup-only draw: Timeout cards are shuffled back instead of resolving (rulebook p5).</summary>
+        private void SetupDraw(PlayerState player)
         {
-            State.Phase = TurnPhase.Start;
-            State.ActionsRemaining = Db.Config.ActionsPerTurn;
-            State.MarketRefreshUsedThisTurn = false;
-            State.BraggingRightsBoughtThisTurn = false;
-            events.Add(new TurnStarted { PlayerId = State.ActivePlayer });
-
-            var player = Player(State.ActivePlayer);
-            // TODO(whiniest-baby): draw 2 and discard 1 instead, once tantrums can assign the card.
-            for (int i = 0; i < Db.Config.TurnStartDraw; i++)
+            while (State.LemonDeck.Count > 0)
             {
-                DrawIntoHand(player, allowTimeout: true, events);
-            }
-
-            State.Phase = TurnPhase.Play;
-        }
-
-        /// <summary>
-        /// Draw one Lemon card. With <paramref name="allowTimeout"/> false (setup), Timeouts are
-        /// shuffled back; otherwise a drawn Timeout resolves immediately (rulebook p12).
-        /// </summary>
-        private void DrawIntoHand(PlayerState player, bool allowTimeout, List<GameEvent>? events = null)
-        {
-            while (true)
-            {
-                if (State.LemonDeck.Count == 0)
-                {
-                    State.LemonDeck.AddRange(State.LemonDiscard);
-                    State.LemonDiscard.Clear();
-                    _rng.Shuffle(State.LemonDeck);
-                    if (State.LemonDeck.Count == 0)
-                    {
-                        return; // Nothing left to draw anywhere.
-                    }
-                }
-
                 int instanceId = State.LemonDeck[0];
                 State.LemonDeck.RemoveAt(0);
-                var def = Db.Lemon(State.LemonInstances[instanceId].DefId);
-
-                if (def.Type != LemonCardType.Timeout)
+                if (Db.Lemon(State.LemonInstances[instanceId].DefId).Type == LemonCardType.Timeout)
                 {
-                    player.Hand.Add(instanceId);
-                    events?.Add(new CardDrawn
-                    {
-                        PlayerId = player.PlayerId,
-                        InstanceId = instanceId,
-                        DefId = def.Id,
-                    });
-                    return;
-                }
-
-                if (!allowTimeout)
-                {
-                    // Setup deal: shuffle the Timeout back and draw again (rulebook p5).
                     State.LemonDeck.Add(instanceId);
                     _rng.Shuffle(State.LemonDeck);
                     continue;
                 }
-
-                ResolveTimeout(player, instanceId, events);
-                // The drawer then draws a replacement card (rulebook p12) — loop.
+                player.Hand.Add(instanceId);
+                return;
             }
-        }
-
-        private void ResolveTimeout(PlayerState drawer, int timeoutInstanceId, List<GameEvent>? events)
-        {
-            events?.Add(new TimeoutDrawn { PlayerId = drawer.PlayerId });
-
-            // All players discard down to the hand limit.
-            // TODO(decisions): let players choose which cards to discard; for now the newest go.
-            foreach (var player in State.Players)
-            {
-                int excess = player.Hand.Count - Db.Config.TimeoutHandLimit;
-                if (excess <= 0)
-                {
-                    continue;
-                }
-                var discarded = new List<int>();
-                for (int i = 0; i < excess; i++)
-                {
-                    int id = player.Hand[player.Hand.Count - 1];
-                    player.Hand.RemoveAt(player.Hand.Count - 1);
-                    State.LemonDiscard.Add(id);
-                    discarded.Add(id);
-                }
-                events?.Add(new CardsDiscarded { PlayerId = player.PlayerId, InstanceIds = discarded });
-            }
-
-            // TODO(tantrums): Whiniest Baby pays $3 per played tantrum and passes the card.
-            State.LemonDiscard.Add(timeoutInstanceId);
         }
 
         private void ApplyEndTurn(EndTurn action, List<GameEvent> events)
@@ -684,74 +661,9 @@ namespace LemonadeWars.Engine.Core
                 throw new InvalidActionException("Turn can only end from the Play phase.");
             }
 
-            ResolveSellPhase(events);
-
-            // Game-end trigger: a player ends their turn at the VP target (rulebook p2).
-            var active = Player(State.ActivePlayer);
-            if (State.Stage == GameStage.Playing &&
-                active.InGameVictoryPoints >= Db.Config.VictoryPointsToTriggerEnd)
-            {
-                State.Stage = GameStage.FinalRound;
-                State.EndTriggeredBy = active.PlayerId;
-                events.Add(new StageChanged { Stage = State.Stage });
-            }
-
-            int nextPlayer = (State.ActivePlayer + 1) % State.Players.Count;
-            if (State.Stage == GameStage.FinalRound && nextPlayer == State.FirstPlayer)
-            {
-                FinishGame(events);
-                return;
-            }
-
-            State.ActivePlayer = nextPlayer;
-            StartTurn(events);
-        }
-
-        private void ResolveSellPhase(List<GameEvent> events)
-        {
             State.Phase = TurnPhase.Sell;
-
-            int roll = _rng.Roll(Db.Config.SaleDieSides);
-            events.Add(new SaleRolled { PlayerId = State.ActivePlayer, Value = roll });
-            // TODO(instants): "Out of Stock" re-roll window goes here.
-            // TODO(effects): roll modifiers (Downsell, Sugared Up, Pushy Salesman, ...).
-
-            int n = State.Players.Count;
-            for (int offset = 0; offset < n; offset++)
-            {
-                var player = State.Players[(State.ActivePlayer + offset) % n];
-
-                foreach (var stand in player.Stands)
-                {
-                    var standType = Db.StandType(stand.StandTypeId);
-                    if (!standType.SaleNumbers.Contains(roll))
-                    {
-                        continue;
-                    }
-                    // TODO(effects): equipped Black Market "On Sale" triggers and earning bonuses.
-                    player.Money += standType.BaseEarnings;
-                    events.Add(new StandSold
-                    {
-                        PlayerId = player.PlayerId,
-                        StandInstanceId = stand.InstanceId,
-                        Earnings = standType.BaseEarnings,
-                    });
-                }
-
-                if (player.Turf.PowerPourNumber == roll)
-                {
-                    // Base Turf ability: take $1 from the bank (rulebook p7).
-                    // TODO(effects): equipped "Power Pour" Black Market triggers.
-                    events.Add(new PowerPourTriggered { PlayerId = player.PlayerId });
-                    player.Money += Db.Turf.BasePowerPourMoney;
-                    events.Add(new MoneyChanged
-                    {
-                        PlayerId = player.PlayerId,
-                        Amount = Db.Turf.BasePowerPourMoney,
-                        Reason = "power pour",
-                    });
-                }
-            }
+            OpenRollWindow(RollPurpose.TurnSale, State.ActivePlayer, events);
+            Pump(events);
         }
 
         private void FinishGame(List<GameEvent> events)
