@@ -26,6 +26,8 @@ namespace LemonadeWars.Engine.Core
     public sealed class InitialBuyStand : GameAction
     {
         public string StandTypeId { get; set; } = "";
+        /// <summary>Row position for the new stand; appended to the right when omitted.</summary>
+        public int? InsertIndex { get; set; }
     }
 
     /// <summary>Optional Black Market purchase during the initial draft, or pass by ending.</summary>
@@ -44,6 +46,8 @@ namespace LemonadeWars.Engine.Core
     public sealed class BuyStand : GameAction
     {
         public string StandTypeId { get; set; } = "";
+        /// <summary>Row position: stands may be inserted anywhere but never moved (rulebook p8).</summary>
+        public int? InsertIndex { get; set; }
     }
 
     /// <summary>Action: purchase a face-up Black Market card and equip it immediately.</summary>
@@ -122,9 +126,12 @@ namespace LemonadeWars.Engine.Core
     /// </summary>
     public sealed class RespondToWindow : GameAction
     {
+        /// <summary>Instant played from hand; 0 when responding with an equipped card instead.</summary>
         public int CardInstanceId { get; set; }
         /// <summary>Tag, You're It!: the player the attack moves to.</summary>
         public int? RedirectTargetId { get; set; }
+        /// <summary>Equipped reaction used instead of a hand card (Inflatable Decoy).</summary>
+        public int? EquippedInstanceId { get; set; }
     }
 
     /// <summary>Decline to respond to the current window.</summary>
@@ -158,5 +165,30 @@ namespace LemonadeWars.Engine.Core
         public int? TargetEquippedInstanceId { get; set; }
         public int? EquipStandInstanceId { get; set; }
         public int? EquipReplaceInstanceId { get; set; }
+    }
+
+    // ------------------------------------------- black market abilities
+
+    /// <summary>
+    /// Activate an equipped "On Your Turn" ability: Downsell/Sugared Up (modify the pending
+    /// die), Take Two (reroll it), or Liquid Energy (an extra table-wide sale roll).
+    /// Free — does not consume an action; each "(once)" card works once per turn.
+    /// </summary>
+    public sealed class UseTurnAbility : GameAction
+    {
+        public int EquippedInstanceId { get; set; }
+    }
+
+    /// <summary>Answer a pending Black Market ability decision (victim picks, give-backs, copies...).</summary>
+    public sealed class SubmitAbilityChoice : GameAction
+    {
+        /// <summary>AbilityVictim: who to steal from.</summary>
+        public int? TargetPlayerId { get; set; }
+        /// <summary>AbilityPickCard / AbilityGiveBack / AbilityDiscard: the chosen hand card(s).</summary>
+        public List<int> CardInstanceIds { get; set; } = new List<int>();
+        /// <summary>InnovationCopy: the Power Pour card to copy.</summary>
+        public int? EquippedInstanceId { get; set; }
+        /// <summary>WordOfMouthStand: the Stand to sell.</summary>
+        public int? StandInstanceId { get; set; }
     }
 }

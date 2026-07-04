@@ -17,11 +17,12 @@ namespace LemonadeWars.Engine.Core
         {
             var player = Player(action.PlayerId);
 
-            // Free-play contexts (Smear Campaign follow-up, Reverse Engineer forced play)
-            // bypass the phase/action checks.
+            // Free-play contexts (Smear Campaign follow-up, Reverse Engineer forced play,
+            // Bouncer counter-attack) bypass the phase/action checks.
             var freePlay = State.PendingDecisions.FirstOrDefault(d =>
                 d.PlayerId == action.PlayerId &&
-                (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.ForcedPlay));
+                (d.Kind == DecisionKind.FreePlayOffer || d.Kind == DecisionKind.ForcedPlay ||
+                 d.Kind == DecisionKind.BouncerAttack));
 
             if (freePlay == null)
             {
@@ -42,6 +43,11 @@ namespace LemonadeWars.Engine.Core
             {
                 throw new InvalidActionException(
                     $"{def.Name} is an {def.Type}; instants respond through windows.");
+            }
+            if (freePlay != null && freePlay.Kind == DecisionKind.BouncerAttack &&
+                def.Type != LemonCardType.Attack)
+            {
+                throw new InvalidActionException("Bouncer: the free play must be an attack.");
             }
 
             ValidatePlayParams(def, action, player);
@@ -377,15 +383,8 @@ namespace LemonadeWars.Engine.Core
                     {
                         return Fizzle(item, events);
                     }
-                    // TODO(effects): equipped "On Sale" triggers when Black Market effects land.
-                    var type = Db.StandType(stand.StandTypeId);
-                    owner.Money += type.BaseEarnings;
-                    events.Add(new StandSold
-                    {
-                        PlayerId = owner.PlayerId,
-                        StandInstanceId = stand.InstanceId,
-                        Earnings = type.BaseEarnings,
-                    });
+                    // Full sale: earning bonuses and On Sale triggers included.
+                    SellStand(owner, stand, events);
                     return true;
                 }
 

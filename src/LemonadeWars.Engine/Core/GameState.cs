@@ -147,9 +147,8 @@ namespace LemonadeWars.Engine.Core
         public List<PendingTheftResponse> TheftQueue { get; } = new List<PendingTheftResponse>();
         /// <summary>Blocking player decisions (discards, fines, retargets, free plays).</summary>
         public List<PendingDecision> PendingDecisions { get; } = new List<PendingDecision>();
-        /// <summary>Draws still owed (e.g. interrupted by a Timeout resolving mid-draw).</summary>
-        public int PendingDrawCount { get; set; }
-        public int PendingDrawPlayerId { get; set; }
+        /// <summary>Draws still owed, possibly to several players (e.g. sale triggers); FIFO.</summary>
+        public List<PendingDraw> PendingDraws { get; } = new List<PendingDraw>();
         /// <summary>True while resolving a turn-start (Spoiled Rotten roll / Whiniest Baby draw) before Play.</summary>
         public bool TurnStartInProgress { get; set; }
         /// <summary>Progress through turn-start steps: 0 = Spoiled Rotten roll, 1 = draws, 2 = baby discard, 3 = enter Play.</summary>
@@ -165,6 +164,21 @@ namespace LemonadeWars.Engine.Core
         public bool EpisodeHadTantrums { get; set; }
         /// <summary>Monotonic counter ordering tantrum gains (Whiniest Baby tiebreak).</summary>
         public int NextTantrumGainSeq { get; set; } = 1;
+
+        // ---- Black Market ability bookkeeping ----
+        /// <summary>Equipped instance ids whose once-per-turn ability was used this turn.</summary>
+        public List<int> UsedTurnAbilities { get; } = new List<int>();
+        /// <summary>Extra buy actions usable only for Black Market purchases (Shopping Spree).</summary>
+        public int BmOnlyActionsRemaining { get; set; }
+        /// <summary>Trade Winds: stands still owed their end-of-turn roll.</summary>
+        public List<int> TradeWindsQueue { get; } = new List<int>();
+        public bool TradeWindsBuilt { get; set; }
+
+        // ---- Title trackers ----
+        /// <summary>Per-player accumulators for the current roll episode, keyed by player id.</summary>
+        public Dictionary<int, RollStats> RollStats { get; } = new Dictionary<int, RollStats>();
+        /// <summary>Money spent by the active player this turn, excluding Bragging Rights (Shopaholic).</summary>
+        public int SpentThisTurn { get; set; }
 
         // ---- Status cards ----
         public int? WhiniestBabyHolder { get; set; }

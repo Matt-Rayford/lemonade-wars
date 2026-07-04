@@ -32,6 +32,8 @@ namespace LemonadeWars.Engine.Data
         public IReadOnlyList<Shape> Shapes { get; set; } = new List<Shape>();
         /// <summary>Icon glyphs printed on the card; some Lemon Lord titles count cards bearing an icon.</summary>
         public IReadOnlyList<string> Icons { get; set; } = new List<string>();
+        /// <summary>Die face added by numbered cards (Pushy Salesman: sale numbers; Spiked Lemonade: power pour numbers).</summary>
+        public int? Number { get; set; }
     }
 
     /// <summary>A First Dibs or Lemon Lord title card. Every title is worth 1 VP.</summary>
