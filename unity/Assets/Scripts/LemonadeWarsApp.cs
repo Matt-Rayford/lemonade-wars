@@ -653,11 +653,14 @@ namespace LemonadeWars.Unity
             {
                 case DecisionKind.DiscardToHandLimit:
                 case DecisionKind.WhiniestBabyDiscard:
-                    pool = View.Hand.ToList();
+                    // Whiniest Baby restricts the pool to the cards just drawn.
+                    pool = decision.EligibleCardIds != null
+                        ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
+                        : View.Hand.ToList();
                     required = decision.RequiredCount;
                     title = decision.Kind == DecisionKind.DiscardToHandLimit
                         ? $"Timeout! Discard {required} card(s)"
-                        : "Whiniest Baby: discard 1 card";
+                        : "Whiniest Baby: discard 1 of your new cards";
                     accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
                     break;
 

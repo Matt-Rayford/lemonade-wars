@@ -153,7 +153,8 @@ namespace LemonadeWars.Engine.Core
             {
                 case DecisionKind.DiscardToHandLimit:
                 case DecisionKind.WhiniestBabyDiscard:
-                    foreach (var combo in CardCombos(player.Hand, decision.RequiredCount))
+                    foreach (var combo in CardCombos(
+                        decision.EligibleCardIds ?? player.Hand, decision.RequiredCount))
                     {
                         moves.Add(new SubmitDiscard { PlayerId = player.PlayerId, InstanceIds = combo });
                     }
