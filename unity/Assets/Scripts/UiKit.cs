@@ -109,6 +109,9 @@ namespace LemonadeWars.Unity
             frameImage.sprite = UiSprites.RoundedRect;
             frameImage.type = Image.Type.Sliced;
             frameImage.color = texture == null ? new Color(0.28f, 0.28f, 0.32f) : Color.white;
+            // Scale the corner radius with the card: constant proportion, not constant pixels
+            // (a fixed radius devours the corners of small cards).
+            frameImage.pixelsPerUnitMultiplier = 150f / Mathf.Max(40f, width);
             frame.GetComponent<Mask>().showMaskGraphic = true;
             var layout = frame.GetComponent<LayoutElement>();
             layout.preferredWidth = width;

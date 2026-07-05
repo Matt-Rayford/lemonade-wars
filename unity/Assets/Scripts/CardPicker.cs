@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -18,7 +17,6 @@ namespace LemonadeWars.Unity
         private const float CardAspect = 0.714f; // width / height of the card art
         private static readonly Color GlowInnerColor = new Color(1f, 0.97f, 0.88f, 1f);
         private static readonly Color GlowOuterColor = new Color(1f, 0.96f, 0.82f, 0.80f);
-        private static readonly Color BackdropTint = new Color(0.42f, 0.42f, 0.48f, 1f);
 
         private sealed class Slot
         {
@@ -29,10 +27,9 @@ namespace LemonadeWars.Unity
             public bool Selected;
         }
 
-        private readonly MonoBehaviour _host;
         private readonly CardPreview _preview;
         private readonly RectTransform _root;
-        private readonly RawImage _backdrop;
+        private readonly ModalBackdrop _backdrop;
         private readonly Text _title;
         private readonly RectTransform _rowHost;
         private readonly RectTransform _row;
@@ -42,28 +39,16 @@ namespace LemonadeWars.Unity
         private readonly List<Slot> _slots = new List<Slot>();
         private int _requiredCount;
         private System.Action<List<int>> _onAccept;
-        private int _showToken;
-        private RenderTexture _blurTexture;
 
         public bool IsOpen { get; private set; }
 
         public CardPicker(RectTransform canvasRoot, CardPreview preview, MonoBehaviour host)
         {
             _preview = preview;
-            _host = host;
 
             _root = UiKit.CreatePanel(canvasRoot, "CardPicker", new Color(0, 0, 0, 0));
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
-
-            // Blurred screenshot backdrop (plain dark fallback until the capture lands).
-            var backdropGo = new GameObject("Backdrop", typeof(RectTransform), typeof(RawImage));
-            backdropGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)backdropGo.transform, Vector2.zero, Vector2.one);
-            _backdrop = backdropGo.GetComponent<RawImage>();
-
-            // Extra darkening layer over the blur.
-            var dim = UiKit.CreatePanel(_root, "Dim", new Color(0, 0, 0, 0.35f));
-            UiKit.Anchor(dim, Vector2.zero, Vector2.one);
+            _backdrop = new ModalBackdrop(_root, host);
 
             // Floating title with a drop shadow — no bar.
             var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
@@ -141,74 +126,15 @@ namespace LemonadeWars.Unity
             }
             RefreshAccept();
 
-            _host.StartCoroutine(RevealAfterCapture(++_showToken));
+            // Appears next frame, once the backdrop blur has been captured.
+            _backdrop.Reveal(_root.gameObject);
         }
 
         public void Hide()
         {
             IsOpen = false;
-            _showToken++;
             _root.gameObject.SetActive(false);
-            ReleaseBlur();
-        }
-
-        // ---------------------------------------------------------- backdrop
-
-        private IEnumerator RevealAfterCapture(int token)
-        {
-            yield return new WaitForEndOfFrame(); // let the current frame finish rendering
-            if (token != _showToken)
-            {
-                yield break; // closed (or reopened) while waiting
-            }
-
-            ReleaseBlur();
-            var screenshot = ScreenCapture.CaptureScreenshotAsTexture();
-            _blurTexture = BlurDownsample(screenshot);
-            Object.Destroy(screenshot);
-
-            if (_blurTexture != null)
-            {
-                _backdrop.texture = _blurTexture;
-                _backdrop.color = BackdropTint;
-            }
-            else
-            {
-                _backdrop.texture = null;
-                _backdrop.color = new Color(0.05f, 0.05f, 0.08f, 0.92f);
-            }
-            _root.gameObject.SetActive(true);
-        }
-
-        /// <summary>Cheap strong blur: bounce down to 1/16 resolution and back up once.</summary>
-        private static RenderTexture BlurDownsample(Texture2D source)
-        {
-            if (source == null || source.width < 32)
-            {
-                return null;
-            }
-            int w = source.width;
-            int h = source.height;
-            var quarter = RenderTexture.GetTemporary(w / 4, h / 4);
-            var eighth = RenderTexture.GetTemporary(w / 8, h / 8);
-            var sixteenth = RenderTexture.GetTemporary(w / 16, h / 16);
-            Graphics.Blit(source, quarter);
-            Graphics.Blit(quarter, eighth);
-            Graphics.Blit(eighth, sixteenth);
-            Graphics.Blit(sixteenth, eighth); // back up: softens the blockiness
-            RenderTexture.ReleaseTemporary(quarter);
-            RenderTexture.ReleaseTemporary(sixteenth);
-            return eighth; // released on Hide
-        }
-
-        private void ReleaseBlur()
-        {
-            if (_blurTexture != null)
-            {
-                _backdrop.texture = null;
-                RenderTexture.ReleaseTemporary(_blurTexture);
-                _blurTexture = null;
-            }
+            _backdrop.Hide();
         }
 
         // ------------------------------------------------------------- cards

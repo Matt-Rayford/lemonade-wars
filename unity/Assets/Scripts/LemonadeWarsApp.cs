@@ -83,7 +83,7 @@ namespace LemonadeWars.Unity
                 !_humanAutoplay && MoveGroups.For(_game, HumanSeat).SupplyMoves.ContainsKey(typeId);
             _table.OnSupplyDrop = OnSupplyDrop;
             // Built last: overlays render on top of the table.
-            _prompt = new Prompt(root, _art);
+            _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
         }
 
