@@ -77,6 +77,7 @@ namespace LemonadeWars.Unity
         private RectTransform _dibsHost;
         private RectTransform _discardOverlay;
         private RectTransform _discardGrid;
+        private ScrollRect _discardScrollRect;
         private Text _discardTitle;
         private GameObject _discardTakeButton;
         private Text _discardTakeLabel;
@@ -471,6 +472,7 @@ namespace LemonadeWars.Unity
             scroll.viewport = (RectTransform)viewportGo.transform;
             scroll.content = content;
             _discardGrid = content;
+            _discardScrollRect = scroll;
 
             // Bottom-center: "TAKE <CARD>" — only exists while a pick is required.
             var buttonGo = new GameObject("TakeButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
@@ -578,6 +580,41 @@ namespace LemonadeWars.Unity
             _discardSelectedId = instanceId;
             _discardTakeLabel.text = $"TAKE {name.ToUpperInvariant()}";
             _discardTakeButton.SetActive(true);
+        }
+
+        /// <summary>
+        /// Hover-based scrolling for the discard browser/picker: the top and bottom 20%
+        /// of the screen glide the grid, faster nearer the edge. Call every frame.
+        /// </summary>
+        public void TickDiscardScroll(Vector2 screenPosition)
+        {
+            if (!_discardOverlay.gameObject.activeSelf)
+            {
+                return;
+            }
+            float scrollable = _discardGrid.rect.height - _discardScrollRect.viewport.rect.height;
+            if (scrollable <= 1f)
+            {
+                return; // everything fits, nothing to scroll
+            }
+            float fraction = screenPosition.y / Mathf.Max(1f, Screen.height);
+            const float zone = 0.2f;
+            float direction = 0f;
+            if (fraction > 1f - zone)
+            {
+                direction = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            else if (fraction < zone)
+            {
+                direction = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            if (direction == 0f)
+            {
+                return;
+            }
+            _discardScrollRect.verticalNormalizedPosition = Mathf.Clamp01(
+                _discardScrollRect.verticalNormalizedPosition +
+                direction * 900f * Time.deltaTime / scrollable);
         }
 
         private void CloseDiscardViewer()

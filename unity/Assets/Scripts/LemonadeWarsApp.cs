@@ -61,6 +61,7 @@ namespace LemonadeWars.Unity
         private Text _statusText;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
+        private string _modalSignature = "";
         private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
@@ -317,6 +318,7 @@ namespace LemonadeWars.Unity
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
+            _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
             RenderIfChanged();
         }
@@ -696,11 +698,23 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            // Online, harmless updates (a friend passing their window, bot pacing) bump
+            // the revision while a modal is open. Rebuilding identical buttons under the
+            // cursor eats the player's click — so if the same choice is already on
+            // screen, leave it alone.
+            string signature = ModalTitle() + "|" +
+                string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
+            if ((_prompt.IsOpen || _picker.IsOpen) && signature == _modalSignature)
+            {
+                _modalRevision = revision;
+                return;
+            }
             if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen))
             {
                 return;
             }
             _modalRevision = revision;
+            _modalSignature = signature;
             if (TryShowPicker())
             {
                 return;
@@ -737,17 +751,42 @@ namespace LemonadeWars.Unity
             switch (decision.Kind)
             {
                 case DecisionKind.DiscardToHandLimit:
+                    pool = View.Hand.ToList();
+                    required = decision.RequiredCount;
+                    title = $"Timeout! Discard {required} card(s)";
+                    accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    break;
+
                 case DecisionKind.WhiniestBabyDiscard:
-                    // Whiniest Baby restricts the pool to the cards just drawn.
+                {
+                    // Restricted to the cards just drawn — and phrased positively:
+                    // pick what you KEEP, the rest goes to the discard.
                     pool = decision.EligibleCardIds != null
                         ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
                         : View.Hand.ToList();
-                    required = decision.RequiredCount;
-                    title = decision.Kind == DecisionKind.DiscardToHandLimit
-                        ? $"Timeout! Discard {required} card(s)"
-                        : "Whiniest Baby: discard 1 of your new cards";
-                    accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    int keepCount = pool.Count - decision.RequiredCount;
+                    if (keepCount > 0)
+                    {
+                        required = keepCount;
+                        title = keepCount == 1
+                            ? "Whiniest Baby: pick 1 new card to keep"
+                            : $"Whiniest Baby: pick {keepCount} new cards to keep";
+                        var drawnPool = pool;
+                        accept = keptIds => Submit(new SubmitDiscard
+                        {
+                            InstanceIds = drawnPool.Select(c => c.InstanceId)
+                                .Where(id => !keptIds.Contains(id)).ToList(),
+                        });
+                    }
+                    else
+                    {
+                        // Thin deck: everything drawn must go — no keep choice exists.
+                        required = decision.RequiredCount;
+                        title = $"Whiniest Baby: discard {required} card(s)";
+                        accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    }
                     break;
+                }
 
                 case DecisionKind.AbilityDiscard:
                     pool = View.Hand.ToList();
