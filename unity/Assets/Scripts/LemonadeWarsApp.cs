@@ -116,7 +116,7 @@ namespace LemonadeWars.Unity
                 new Vector2(14, 0), new Vector2(-14, 0));
 
             _preview = new CardPreview(root);
-            _table = new TableView(root, _art, _preview);
+            _table = new TableView(root, _art, _preview, this);
             _table.OnHandCard = OpenHandMenu;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
             _table.OnMarketDragStart = OnMarketDragStart;
@@ -315,6 +315,8 @@ namespace LemonadeWars.Unity
             }
 
             _table.TickSupplyDrag(Input.mousePosition);
+            _table.TickEquipTargeting(Input.mousePosition);
+            _table.TickHandScroll(Input.mousePosition);
             _dice.Tick();
             RenderIfChanged();
         }
@@ -459,16 +461,36 @@ namespace LemonadeWars.Unity
                         Submit(candidates[0]);
                         return;
                     }
-                    // Several equip destinations for the taken card: pick one.
                     var picked = pool.First(c => c.InstanceId == instanceId);
-                    _prompt.Show("Where should it go?",
-                        new[]
+                    var texture = blackMarket
+                        ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
+                        : _art.Lemon(picked.DefId);
+
+                    // Aim the taken card at a turf/stand: float + dashed arrow + click.
+                    var byDest = candidates.Cast<PlayLemonCard>()
+                        .GroupBy(m => m.EquipStandInstanceId)
+                        .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+                    System.Action<int?> pickDestination = destId =>
+                    {
+                        var atDest = byDest[destId];
+                        if (atDest.Count == 1)
                         {
-                            blackMarket
-                                ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
-                                : _art.Lemon(picked.DefId),
-                        },
-                        ToOptions(candidates), showCancel: true);
+                            Submit(atDest[0]);
+                        }
+                        else
+                        {
+                            _prompt.Show("That slot is full — replace which card?",
+                                new[] { texture }, ToOptions(atDest), showCancel: true);
+                        }
+                    };
+                    if (byDest.Count == 1)
+                    {
+                        // Only one valid target: apply without the selector.
+                        pickDestination(byDest.Keys.First());
+                        return;
+                    }
+                    _table.BeginEquipTargeting(texture,
+                        new HashSet<int?>(byDest.Keys), pickDestination, () => { });
                 });
         }
 

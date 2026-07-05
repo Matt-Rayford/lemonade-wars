@@ -38,6 +38,24 @@ namespace LemonadeWars.Unity
         private readonly HashSet<int?> _validDropTargets = new HashSet<int?>();
         private RectTransform _canvasRoot;
 
+        // Equip targeting (take-from-discard): blurred table, crisp copies of the valid
+        // targets, float card + dashed arrow + click-to-apply.
+        private RectTransform _targetingRoot;
+        private RectTransform _targetingCardHost;
+        private RectTransform _targetingCopiesHost;
+        private RectTransform _arrowHost;
+        private ModalBackdrop _targetingBackdrop;
+        private ISet<int?> _targetingValid;
+        private System.Action<int?> _targetingPick;
+        private System.Action _targetingCancel;
+        private int? _targetingHover;
+        private bool _targetingHoverAny;
+        private Vector2 _targetingCardBottom;
+        private readonly List<(int? Id, GameObject Glow)> _targetingGlows =
+            new List<(int?, GameObject)>();
+        private readonly List<(int? Id, RectTransform Cell, Texture2D Art)> _dropCells =
+            new List<(int?, RectTransform, Texture2D)>();
+
         // Supply-drag insertion preview.
         private RectTransform _boardPanel;
         private readonly List<RectTransform> _standCells = new List<RectTransform>();
@@ -48,6 +66,7 @@ namespace LemonadeWars.Unity
 
         private readonly CardArt _art;
         private readonly CardPreview _preview;
+        private readonly MonoBehaviour _host;
 
         private Text _bannerText;
         private Text _opponentsText;
@@ -74,10 +93,12 @@ namespace LemonadeWars.Unity
         public RectTransform Root { get; private set; }
         public RectTransform ActionBar { get; private set; }
 
-        public TableView(RectTransform canvasRoot, CardArt art, CardPreview preview)
+        public TableView(RectTransform canvasRoot, CardArt art, CardPreview preview,
+            MonoBehaviour host)
         {
             _art = art;
             _preview = preview;
+            _host = host;
             _canvasRoot = canvasRoot;
             Build(canvasRoot);
         }
@@ -141,12 +162,16 @@ namespace LemonadeWars.Unity
 
             // Bottom edge: the hand. Cards peek up from below the screen and rise on
             // hover, Dune: Imperium style. Built LAST so raised cards overlay the table.
+            // A soft-edged mask clips the fan to its band, fading cards out at the
+            // sides instead of letting them spill into the neighboring zones.
             _handHost = UiKit.CreatePanel(Root, "Hand", new Color(0, 0, 0, 0));
             _handHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(_handHost, new Vector2(0.21f, 0f), new Vector2(0.79f, 0f));
+            UiKit.Anchor(_handHost, new Vector2(0.245f, 0f), new Vector2(0.755f, 0f));
             _handHost.pivot = new Vector2(0.5f, 0f);
             _handHost.sizeDelta = new Vector2(_handHost.sizeDelta.x, 300f);
             _handHost.anchoredPosition = Vector2.zero;
+            var handMask = _handHost.gameObject.AddComponent<RectMask2D>();
+            handMask.softness = new Vector2Int(70, 0);
 
             // Bottom-right: your two secret Lemon Lords, same peek-and-rise treatment,
             // floating over the dark side zone.
@@ -165,7 +190,229 @@ namespace LemonadeWars.Unity
             _dibsHost.sizeDelta = new Vector2(_dibsHost.sizeDelta.x, 300f);
             _dibsHost.anchoredPosition = Vector2.zero;
 
+            BuildEquipTargeting();
             BuildDiscardViewer();
+        }
+
+        // ------------------------------------------------- equip targeting
+
+        /// <summary>
+        /// Invisible full-screen layer for aiming a just-taken card at a turf/stand.
+        /// It intercepts the pointer itself and hit-tests the board cells manually, so
+        /// hover glows and clicks work without fighting the cells' own handlers.
+        /// </summary>
+        private void BuildEquipTargeting()
+        {
+            _targetingRoot = UiKit.CreatePanel(Root, "EquipTargeting", new Color(0, 0, 0, 0));
+            UiKit.Anchor(_targetingRoot, Vector2.zero, Vector2.one);
+            // Backdrop first: blur behind, crisp targeting actors on top.
+            _targetingBackdrop = new ModalBackdrop(_targetingRoot, _host);
+            UiKit.AddClick(_targetingRoot.gameObject, () =>
+            {
+                var pick = _targetingPick;
+                var cancel = _targetingCancel;
+                bool onTarget = _targetingHoverAny;
+                int? target = _targetingHover;
+                EndEquipTargeting();
+                if (onTarget)
+                {
+                    pick?.Invoke(target);
+                }
+                else
+                {
+                    cancel?.Invoke();
+                }
+            });
+
+            var copiesGo = new GameObject("TargetCopies", typeof(RectTransform));
+            copiesGo.transform.SetParent(_targetingRoot, false);
+            _targetingCopiesHost = (RectTransform)copiesGo.transform;
+            UiKit.Anchor(_targetingCopiesHost, Vector2.zero, Vector2.one);
+
+            var arrowGo = new GameObject("Arrow", typeof(RectTransform));
+            arrowGo.transform.SetParent(_targetingRoot, false);
+            _arrowHost = (RectTransform)arrowGo.transform;
+            UiKit.Anchor(_arrowHost, Vector2.zero, Vector2.one);
+
+            var cardGo = new GameObject("FloatCard", typeof(RectTransform));
+            cardGo.transform.SetParent(_targetingRoot, false);
+            _targetingCardHost = (RectTransform)cardGo.transform;
+            UiKit.Anchor(_targetingCardHost, Vector2.zero, Vector2.one);
+
+            _targetingRoot.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Blur the table, float the taken card centered in the market band, redraw the
+        /// valid targets crisp on top, and wait for a target click.
+        /// </summary>
+        public void BeginEquipTargeting(Texture2D texture, ISet<int?> validTargets,
+            System.Action<int?> onPick, System.Action onCancel)
+        {
+            const float width = 190f;
+            const float height = 266f;
+
+            _targetingValid = validTargets;
+            _targetingPick = onPick;
+            _targetingCancel = onCancel;
+            _targetingHover = null;
+            _targetingHoverAny = false;
+            UiKit.Clear(_targetingCardHost);
+            UiKit.Clear(_targetingCopiesHost);
+            UiKit.Clear(_arrowHost);
+            _targetingGlows.Clear();
+
+            // Crisp copies of the valid targets at their board positions — everything
+            // else stays under the blur, so the legal choices pop.
+            foreach (var (id, cell, art) in _dropCells)
+            {
+                if (!validTargets.Contains(id))
+                {
+                    continue;
+                }
+                var cardFrame = cell.Find("Card") as RectTransform;
+                if (cardFrame == null)
+                {
+                    continue;
+                }
+                var world = cardFrame.TransformPoint(cardFrame.rect.center);
+                Vector2 local = _targetingRoot.InverseTransformPoint(world);
+                float copyWidth = cardFrame.rect.width;
+                float copyHeight = cardFrame.rect.height;
+
+                var glow = UiKit.CreateGlow(_targetingCopiesHost,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
+                    copyWidth + 30, copyHeight + 30, DropGlowHot);
+                _targetingGlows.Add((id, glow));
+
+                var copy = UiKit.CreateCardImage(_targetingCopiesHost, art, copyWidth, copyHeight);
+                copy.raycastTarget = false;
+                var copyFrame = (RectTransform)copy.transform.parent;
+                copyFrame.GetComponent<Image>().raycastTarget = false;
+                copyFrame.anchorMin = copyFrame.anchorMax = new Vector2(0.5f, 0.5f);
+                copyFrame.pivot = new Vector2(0.5f, 0.5f);
+                copyFrame.sizeDelta = new Vector2(copyWidth, copyHeight);
+                copyFrame.anchoredPosition = local;
+            }
+
+            // The taken card floats centered in the market band.
+            var anchor = new Vector2(0, _targetingRoot.rect.height * 0.325f);
+            var image = UiKit.CreateCardImage(_targetingCardHost, texture, width, height);
+            image.raycastTarget = false;
+            var frame = (RectTransform)image.transform.parent;
+            frame.GetComponent<Image>().raycastTarget = false;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0.5f);
+            frame.pivot = new Vector2(0.5f, 0.5f);
+            frame.sizeDelta = new Vector2(width, height);
+            frame.anchoredPosition = anchor;
+            var shadow = frame.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0, 0, 0, 0.6f);
+            shadow.effectDistance = new Vector2(0, -6f);
+            _targetingCardBottom = anchor + new Vector2(0, -height * 0.5f);
+
+            // Activates the root once the frame is captured and blurred.
+            _targetingBackdrop.Reveal(_targetingRoot.gameObject);
+        }
+
+        /// <summary>Called every frame by the app; drives hover glow + the dashed arrow.</summary>
+        public void TickEquipTargeting(Vector2 screenPosition)
+        {
+            if (_targetingPick == null)
+            {
+                return;
+            }
+            int? hover = null;
+            bool any = false;
+            foreach (var (id, cell, _) in _dropCells)
+            {
+                if (_targetingValid.Contains(id) &&
+                    RectTransformUtility.RectangleContainsScreenPoint(cell, screenPosition))
+                {
+                    hover = id;
+                    any = true;
+                    break;
+                }
+            }
+            if (any == _targetingHoverAny && hover == _targetingHover)
+            {
+                return;
+            }
+            _targetingHover = hover;
+            _targetingHoverAny = any;
+
+            foreach (var (id, glow) in _targetingGlows)
+            {
+                glow.SetActive(any && Equals(id, hover));
+            }
+            UiKit.Clear(_arrowHost);
+            if (any)
+            {
+                foreach (var (id, cell, _) in _dropCells)
+                {
+                    if (Equals(id, hover))
+                    {
+                        var world = cell.TransformPoint(
+                            new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
+                        DrawDashedArrow(_targetingCardBottom,
+                            (Vector2)_targetingRoot.InverseTransformPoint(world));
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Dismiss the targeting layer without invoking pick or cancel.</summary>
+        private void EndEquipTargeting()
+        {
+            _targetingPick = null;
+            _targetingCancel = null;
+            _targetingValid = null;
+            _targetingHover = null;
+            _targetingHoverAny = false;
+            _targetingRoot.gameObject.SetActive(false);
+            _targetingBackdrop.Hide();
+            UiKit.Clear(_targetingCardHost);
+            UiKit.Clear(_targetingCopiesHost);
+            UiKit.Clear(_arrowHost);
+            _targetingGlows.Clear();
+        }
+
+        private void DrawDashedArrow(Vector2 from, Vector2 to)
+        {
+            var direction = to - from;
+            float length = direction.magnitude;
+            if (length < 30f)
+            {
+                return;
+            }
+            var unit = direction / length;
+            float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
+            for (float d = 18f; d < length - 24f; d += 30f)
+            {
+                CreateDash(from + unit * d, angle, 16f);
+            }
+            // Arrowhead: two wings sweeping back from the tip.
+            for (int sign = -1; sign <= 1; sign += 2)
+            {
+                float wingAngle = angle + sign * 145f;
+                var wingDir = new Vector2(
+                    Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
+                CreateDash(to + wingDir * 11f, wingAngle, 22f);
+            }
+        }
+
+        private void CreateDash(Vector2 center, float angleDegrees, float length)
+        {
+            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(_arrowHost, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(length, 6f);
+            rect.anchoredPosition = center;
+            rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
+            var image = go.GetComponent<Image>();
+            image.color = UiKit.ButtonColor;
+            image.raycastTarget = false;
         }
 
         /// <summary>
@@ -432,7 +679,13 @@ namespace LemonadeWars.Unity
         private void RenderBoard(PlayerView view)
         {
             UiKit.Clear(_boardRow);
+            if (_targetingPick != null)
+            {
+                // The board is being rebuilt under the targeting layer: dismiss it.
+                EndEquipTargeting();
+            }
             _dropGlows.Clear();
+            _dropCells.Clear();
             _standCells.Clear();
             _spacer = null; // destroyed with the row; recreated lazily
             _spacerTween = null;
@@ -443,15 +696,15 @@ namespace LemonadeWars.Unity
             var turfCaption = "Pours " + string.Join(",", me.PourNumbers);
             var turfCell = AddCard(_boardRow, turfTexture, 150, 210, turfCaption, false, null);
             AddEquipList(turfCell, me.TurfEquipped);
-            MakeDropTarget(turfCell, null);
+            MakeDropTarget(turfCell, null, turfTexture);
 
             foreach (var stand in me.Stands)
             {
                 string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
-                var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId, stand.Shape),
-                    150, 210, caption, false, null);
+                var standTexture = _art.Stand(stand.StandTypeId, stand.Shape);
+                var cell = AddCard(_boardRow, standTexture, 150, 210, caption, false, null);
                 AddEquipList(cell, stand.Equipped);
-                MakeDropTarget(cell, stand.InstanceId);
+                MakeDropTarget(cell, stand.InstanceId, standTexture);
                 _standCells.Add(cell);
             }
         }
@@ -468,23 +721,26 @@ namespace LemonadeWars.Unity
 
             const float width = 190f;
             const float height = 266f;
-            const float raisedY = 12f;         // fully visible, floating just off the edge
-            const float peekPlayable = 180f;   // ~2/3 visible at rest
-            const float peekIdle = 158f;       // unplayable cards sit a little lower
+            const float raisedY = 12f;   // fully visible, floating just off the edge
+            const float peek = 172f;     // ~2/3 visible at rest, one even row
 
-            float available = _handHost.rect.width;
-            if (available < 10f)
+            float hostWidth = _handHost.rect.width;
+            if (hostWidth < 10f)
             {
-                available = 1100f; // first-frame fallback before canvas layout settles
+                hostWidth = 1075f; // first-frame fallback before canvas layout settles
             }
-            // Constant Dune Imperium overlap; a big hand scrolls (wheel) instead of
-            // compressing past readability or spilling out of the center band.
+            // Constant Dune Imperium overlap; a big hand scrolls instead of compressing
+            // past readability. The usable width is inset well past the mask's fade
+            // zones so the end cards rest comfortably inside the band at either
+            // scroll extreme, not flush against its edges.
+            const float edgeFade = 130f;
+            float usable = hostWidth - edgeFade * 2f;
             float spacing = width * 0.72f;
             float span = width + spacing * (count - 1);
-            _handMaxScroll = Mathf.Max(0f, span - available);
+            _handMaxScroll = Mathf.Max(0f, span - usable);
             _handScroll = Mathf.Clamp(_handScroll, 0f, _handMaxScroll);
             float startX = _handMaxScroll > 0f
-                ? -available / 2f + width / 2f
+                ? -hostWidth / 2f + edgeFade + width / 2f
                 : -span / 2f + width / 2f;
 
             for (int i = 0; i < count; i++)
@@ -500,21 +756,15 @@ namespace LemonadeWars.Unity
                 frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
                 frame.pivot = new Vector2(0.5f, 0f);
                 frame.sizeDelta = new Vector2(width, height);
-                float restY = (optionCount > 0 ? peekPlayable : peekIdle) - height;
+                float restY = peek - height;
                 float baseX = startX + i * spacing;
                 frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
                 _handFrames.Add((frame, baseX));
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
-                image.gameObject.AddComponent<HandScrollRelay>().Scrolled = ScrollHand;
 
                 if (optionCount > 0)
                 {
-                    // Thin lemonade strip along the visible top edge: playable at a glance.
-                    var strip = UiKit.CreatePanel(frame, "PlayableStrip", UiKit.ButtonColor);
-                    UiKit.Anchor(strip, new Vector2(0f, 1f), new Vector2(1f, 1f),
-                        new Vector2(0, -7f), new Vector2(0, 0));
-
                     // Revealed only when the card rises.
                     var badge = UiKit.CreatePanel(frame, "PlayBadge", UiKit.ButtonColor);
                     UiKit.Anchor(badge, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
@@ -544,14 +794,40 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>Wheel over the hand: slide the fan sideways when it overflows.</summary>
-        private void ScrollHand(float delta)
+        /// <summary>
+        /// Hover-based fan scrolling: with the cursor inside the hand zone, the outer
+        /// 20% on each side auto-scrolls that direction, faster nearer the edge.
+        /// Call every frame.
+        /// </summary>
+        public void TickHandScroll(Vector2 screenPosition)
         {
-            if (_handMaxScroll <= 0f)
+            if (_handMaxScroll <= 0f ||
+                !RectTransformUtility.RectangleContainsScreenPoint(_handHost, screenPosition))
             {
                 return;
             }
-            _handScroll = Mathf.Clamp(_handScroll - delta * 48f, 0f, _handMaxScroll);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _handHost, screenPosition, null, out var local);
+            var rect = _handHost.rect;
+            float fraction = (local.x - rect.xMin) / Mathf.Max(1f, rect.width);
+
+            const float zone = 0.2f;
+            float velocity = 0f;
+            if (fraction < zone)
+            {
+                velocity = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            else if (fraction > 1f - zone)
+            {
+                velocity = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            if (velocity == 0f)
+            {
+                return;
+            }
+
+            _handScroll = Mathf.Clamp(
+                _handScroll + velocity * 900f * Time.deltaTime, 0f, _handMaxScroll);
             foreach (var (frame, baseX) in _handFrames)
             {
                 if (frame != null)
@@ -966,7 +1242,7 @@ namespace LemonadeWars.Unity
 
         // --------------------------------------------------------- drop zones
 
-        private void MakeDropTarget(RectTransform cell, int? standInstanceId)
+        private void MakeDropTarget(RectTransform cell, int? standInstanceId, Texture2D art)
         {
             var target = cell.gameObject.AddComponent<DropTarget>();
             target.StandInstanceId = standInstanceId;
@@ -984,6 +1260,7 @@ namespace LemonadeWars.Unity
 
             _dropGlows.Add((standInstanceId, wide));
             _dropGlows.Add((standInstanceId, hot));
+            _dropCells.Add((standInstanceId, cell, art));
         }
 
         public void SetValidDropTargets(ISet<int?> validTargets)
@@ -1067,22 +1344,6 @@ namespace LemonadeWars.Unity
             var parts = defId.Split('-');
             return string.Join(" ", parts.Select(p =>
                 p.Length > 0 ? char.ToUpperInvariant(p[0]) + p.Substring(1) : p));
-        }
-    }
-
-    /// <summary>
-    /// Forwards mouse-wheel input on a hand card to the fan scroller. A dedicated
-    /// component (not PointerRelay) so ordinary hover/click objects elsewhere — e.g.
-    /// inside prompt scroll lists — never swallow wheel events.
-    /// </summary>
-    public sealed class HandScrollRelay : MonoBehaviour,
-        UnityEngine.EventSystems.IScrollHandler
-    {
-        public System.Action<float> Scrolled;
-
-        public void OnScroll(UnityEngine.EventSystems.PointerEventData eventData)
-        {
-            Scrolled?.Invoke(eventData.scrollDelta.y);
         }
     }
 
