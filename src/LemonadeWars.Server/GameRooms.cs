@@ -403,7 +403,15 @@ public sealed class Room
                     {
                         return;
                     }
-                    int actor = _game.ActingPlayers().FirstOrDefault(a => _bots.ContainsKey(a), -1);
+                    var acting = _game.ActingPlayers();
+                    // Humans answer first: while any human seat is being awaited
+                    // (response window, discard, ...), bots hold their responses so
+                    // the pause is unmistakable at the table.
+                    if (acting.Any(a => !_bots.ContainsKey(a)))
+                    {
+                        return;
+                    }
+                    int actor = acting.FirstOrDefault(a => _bots.ContainsKey(a), -1);
                     if (actor < 0)
                     {
                         return;

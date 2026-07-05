@@ -94,7 +94,16 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            foreach (int actor in _game.ActingPlayers())
+            var acting = _game.ActingPlayers();
+            // The table waits for YOU: while you are among the players being asked
+            // (response window, discard, ...), bots hold their own responses. Without
+            // this they answer within a bot-step and cards resolve mid-thought — the
+            // pause never feels real even though the engine is blocked on you.
+            if (!HumanAutoplay && acting.Contains(Seat))
+            {
+                return;
+            }
+            foreach (int actor in acting)
             {
                 bool isBot = actor != Seat || HumanAutoplay;
                 if (!isBot)
