@@ -145,7 +145,7 @@ namespace LemonadeWars.Unity
             var readyButton = UiKit.CreateButton((RectTransform)everyoneControls.transform,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<Text>();
-            UiKit.CreateButton((RectTransform)everyoneControls.transform, "Leave", 20,
+            UiKit.CreateButton((RectTransform)everyoneControls.transform, "< Back", 20,
                 () => OnLeave?.Invoke());
 
             var controls = new GameObject("LobbyControls", typeof(RectTransform), typeof(HorizontalLayoutGroup));

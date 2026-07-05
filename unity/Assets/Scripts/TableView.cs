@@ -80,8 +80,10 @@ namespace LemonadeWars.Unity
         private ScrollRect _discardScrollRect;
         private Text _discardTitle;
         private GameObject _discardTakeButton;
+        private GameObject _discardBackButton;
         private Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
+        private System.Action _discardOnBack;
         private int? _discardSelectedId;
         private readonly Dictionary<int, GameObject> _discardSelectGlows =
             new Dictionary<int, GameObject>();
@@ -508,6 +510,37 @@ namespace LemonadeWars.Unity
             });
             _discardTakeButton = buttonGo;
 
+            // Bottom-left: BACK — only for multi-step flows (e.g. Finders Keepers,
+            // returning to the victim choice).
+            var backGo = new GameObject("BackButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
+            backGo.transform.SetParent(_discardOverlay, false);
+            var backRect = (RectTransform)backGo.transform;
+            backRect.anchorMin = backRect.anchorMax = new Vector2(0f, 0f);
+            backRect.pivot = new Vector2(0f, 0f);
+            backRect.sizeDelta = new Vector2(180f, 58f);
+            backRect.anchoredPosition = new Vector2(30f, 26f);
+            var backImage = backGo.GetComponent<Image>();
+            backImage.sprite = UiSprites.RoundedRect;
+            backImage.type = Image.Type.Sliced;
+            backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f);
+            var backShadow = backGo.GetComponent<Shadow>();
+            backShadow.effectColor = new Color(0, 0, 0, 0.5f);
+            backShadow.effectDistance = new Vector2(0, -4f);
+            var backLabel = UiKit.CreateText(backGo.transform, "< BACK", 22,
+                TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
+            backLabel.raycastTarget = false;
+            UiKit.Anchor((RectTransform)backLabel.transform, Vector2.zero, Vector2.one);
+            UiKit.AddHover(backGo,
+                () => backImage.color = new Color(0.22f, 0.26f, 0.35f, 0.96f),
+                () => backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f));
+            UiKit.AddClick(backGo, () =>
+            {
+                var back = _discardOnBack;
+                CloseDiscardViewer();
+                back?.Invoke();
+            });
+            _discardBackButton = backGo;
+
             _discardOverlay.gameObject.SetActive(false);
         }
 
@@ -527,11 +560,13 @@ namespace LemonadeWars.Unity
         /// </summary>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
-            System.Action<int> onTake)
+            System.Action<int> onTake, System.Action onBack = null)
         {
             _discardTitle.text = title;
             _discardOnTake = onTake;
+            _discardOnBack = onBack;
             FillDiscardGrid(cards, blackMarket, nameOf);
+            _discardBackButton.SetActive(onBack != null);
             _discardOverlay.gameObject.SetActive(true);
         }
 
@@ -621,8 +656,10 @@ namespace LemonadeWars.Unity
         {
             _discardOverlay.gameObject.SetActive(false);
             _discardOnTake = null;
+            _discardOnBack = null;
             _discardSelectedId = null;
             _discardTakeButton.SetActive(false);
+            _discardBackButton.SetActive(false);
         }
 
         // ------------------------------------------------------------ render

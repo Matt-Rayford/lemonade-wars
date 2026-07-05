@@ -50,6 +50,8 @@ namespace LemonadeWars.Unity
         private string _pendingName;
         private string _pendingCode;
         private string _pendingToken;
+        private float _pendingSince;
+        private const float ConnectTimeoutSeconds = 10f;
 
         private LobbyUi _lobby;
         private TableView _table;
@@ -189,6 +191,7 @@ namespace LemonadeWars.Unity
             _session = _remote;
             _session.EventEmitted += OnGameEvent;
             _pendingSend = true;
+            _pendingSince = Time.time;
             _pendingCreate = create;
             _pendingName = name;
             _pendingCode = code;
@@ -288,6 +291,13 @@ namespace LemonadeWars.Unity
                 {
                     _pendingSend = false;
                     BackToMenu(_remote.ConnectionError);
+                }
+                else if (Time.time - _pendingSince > ConnectTimeoutSeconds)
+                {
+                    // A dead host can hang ConnectAsync with no error for minutes —
+                    // give up cleanly instead of trapping the player on CONNECTING.
+                    _pendingSend = false;
+                    BackToMenu("Could not reach the server — check the address and try again.");
                 }
             }
 
@@ -415,15 +425,20 @@ namespace LemonadeWars.Unity
                 return;
             }
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+            string cardName = _db.Lemon(card?.DefId ?? "").Name;
+            var cardArt = _art.Lemon(card?.DefId ?? "");
 
-            // Take-from-discard variants collapse into one option that opens the
-            // discard picker, instead of flooding the menu with one row per card.
+            // Multi-variant plays collapse into one option that opens a guided flow,
+            // instead of flooding the menu with one text row per combination.
             var bmTakes = moves.OfType<PlayLemonCard>()
                 .Where(m => m.DiscardedBmInstanceId != null).Cast<GameAction>().ToList();
             var lemonTakes = moves.OfType<PlayLemonCard>()
                 .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
+            var equipSteals = moves.OfType<PlayLemonCard>()
+                .Where(m => m.TargetEquippedInstanceId != null).Cast<GameAction>().ToList();
             var direct = moves
-                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m)).ToList();
+                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
+                            !equipSteals.Contains(m)).ToList();
 
             var options = ToOptions(direct);
             if (bmTakes.Count > 0)
@@ -436,15 +451,87 @@ namespace LemonadeWars.Unity
                 options.Add(new Prompt.Option("Take a discarded Lemon card...",
                     () => OpenTakeFromDiscard(lemonTakes, blackMarket: false)));
             }
+            if (equipSteals.Count > 0)
+            {
+                options.Add(new Prompt.Option("Choose a player to target...",
+                    () => OpenEquippedSteal(cardName, cardArt, equipSteals)));
+            }
 
             if (direct.Count == 0 && options.Count == 1)
             {
-                options[0].OnPick(); // a lone "take from discard" — skip the menu
+                options[0].OnPick(); // a lone guided flow — skip the one-button menu
                 return;
             }
-            _prompt.Show(_db.Lemon(card?.DefId ?? "").Name,
-                new[] { _art.Lemon(card?.DefId ?? "") },
-                options, showCancel: true);
+            _prompt.Show(cardName, new[] { cardArt }, options, showCancel: true);
+        }
+
+        /// <summary>
+        /// Two-step flow for cards that target an opponent's equipped Black Market card
+        /// (Finders Keepers, That's Not Fair!): pick the victim, then pick the card off
+        /// their board in the big picker — with BACK to reconsider the victim.
+        /// </summary>
+        private void OpenEquippedSteal(string cardName, Texture2D cardArt, List<GameAction> steals)
+        {
+            var byVictim = steals.Cast<PlayLemonCard>()
+                .GroupBy(m => m.TargetPlayerId ?? FindEquipOwner(m.TargetEquippedInstanceId.Value))
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+
+            void ShowVictims()
+            {
+                _prompt.Show($"{cardName}: choose who to target", new[] { cardArt },
+                    byVictim.Select(kv => new Prompt.Option(
+                        $"{NameOf(kv.Key)} ({EquippedCardInfos(kv.Key, kv.Value).Count} card(s))",
+                        () => ShowCards(kv.Key))).ToList(),
+                    showCancel: true);
+            }
+
+            void ShowCards(int victim)
+            {
+                _prompt.Hide();
+                var victimMoves = byVictim[victim];
+                var byEquipped = victimMoves.Cast<PlayLemonCard>()
+                    .GroupBy(m => m.TargetEquippedInstanceId.Value)
+                    .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+                var cards = EquippedCardInfos(victim, victimMoves);
+                _table.OpenDiscardPicker($"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victim).ToUpperInvariant()}",
+                    cards, blackMarket: true,
+                    c => _db.BlackMarket(c.DefId).Name,
+                    equippedId =>
+                    {
+                        var picked = cards.First(c => c.InstanceId == equippedId);
+                        ResolveEquipDestination(byEquipped[equippedId],
+                            _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
+                    },
+                    onBack: ShowVictims);
+            }
+
+            ShowVictims();
+        }
+
+        /// <summary>The seat whose turf/stand carries this equipped instance.</summary>
+        private int FindEquipOwner(int equippedInstanceId)
+        {
+            foreach (var player in View.Players)
+            {
+                if (player.TurfEquipped.Any(c => c.InstanceId == equippedInstanceId) ||
+                    player.Stands.Any(st => st.Equipped.Any(c => c.InstanceId == equippedInstanceId)))
+                {
+                    return player.PlayerId;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>CardInfos for the equipped instances these moves target, in board order.</summary>
+        private List<PlayerView.CardInfo> EquippedCardInfos(int victim, List<GameAction> moves)
+        {
+            var wanted = moves.Cast<PlayLemonCard>()
+                .Select(m => m.TargetEquippedInstanceId.Value).ToHashSet();
+            var player = View.Players[victim];
+            return player.TurfEquipped
+                .Concat(player.Stands.SelectMany(st => st.Equipped))
+                .Where(c => wanted.Contains(c.InstanceId))
+                .ToList();
         }
 
         /// <summary>Choose which discard to take via the discard-pile picker overlay.</summary>
@@ -463,43 +550,50 @@ namespace LemonadeWars.Unity
                 c => blackMarket ? _db.BlackMarket(c.DefId).Name : _db.Lemon(c.DefId).Name,
                 instanceId =>
                 {
-                    var candidates = byCard[instanceId];
-                    if (candidates.Count == 1)
-                    {
-                        Submit(candidates[0]);
-                        return;
-                    }
                     var picked = pool.First(c => c.InstanceId == instanceId);
                     var texture = blackMarket
                         ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
                         : _art.Lemon(picked.DefId);
-
-                    // Aim the taken card at a turf/stand: float + dashed arrow + click.
-                    var byDest = candidates.Cast<PlayLemonCard>()
-                        .GroupBy(m => m.EquipStandInstanceId)
-                        .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
-                    System.Action<int?> pickDestination = destId =>
-                    {
-                        var atDest = byDest[destId];
-                        if (atDest.Count == 1)
-                        {
-                            Submit(atDest[0]);
-                        }
-                        else
-                        {
-                            _prompt.Show("That slot is full — replace which card?",
-                                new[] { texture }, ToOptions(atDest), showCancel: true);
-                        }
-                    };
-                    if (byDest.Count == 1)
-                    {
-                        // Only one valid target: apply without the selector.
-                        pickDestination(byDest.Keys.First());
-                        return;
-                    }
-                    _table.BeginEquipTargeting(texture,
-                        new HashSet<int?>(byDest.Keys), pickDestination, () => { });
+                    ResolveEquipDestination(byCard[instanceId], texture);
                 });
+        }
+
+        /// <summary>
+        /// Finish a play whose variants differ only by equip destination: one candidate
+        /// submits directly; several open the aim-at-your-board targeting (float card +
+        /// dashed arrow), with a replace-prompt when the chosen slot is full.
+        /// </summary>
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
+        {
+            if (candidates.Count == 1)
+            {
+                Submit(candidates[0]);
+                return;
+            }
+            var byDest = candidates.Cast<PlayLemonCard>()
+                .GroupBy(m => m.EquipStandInstanceId)
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            System.Action<int?> pickDestination = destId =>
+            {
+                var atDest = byDest[destId];
+                if (atDest.Count == 1)
+                {
+                    Submit(atDest[0]);
+                }
+                else
+                {
+                    _prompt.Show("That slot is full — replace which card?",
+                        new[] { texture }, ToOptions(atDest), showCancel: true);
+                }
+            };
+            if (byDest.Count == 1)
+            {
+                // Only one valid target: apply without the selector.
+                pickDestination(byDest.Keys.First());
+                return;
+            }
+            _table.BeginEquipTargeting(texture,
+                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
 
         private void OnMarketDragStart(int marketIndex)
