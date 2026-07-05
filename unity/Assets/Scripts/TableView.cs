@@ -38,6 +38,24 @@ namespace LemonadeWars.Unity
         private readonly HashSet<int?> _validDropTargets = new HashSet<int?>();
         private RectTransform _canvasRoot;
 
+        // Equip targeting (take-from-discard): blurred table, crisp copies of the valid
+        // targets, float card + dashed arrow + click-to-apply.
+        private RectTransform _targetingRoot;
+        private RectTransform _targetingCardHost;
+        private RectTransform _targetingCopiesHost;
+        private RectTransform _arrowHost;
+        private ModalBackdrop _targetingBackdrop;
+        private ISet<int?> _targetingValid;
+        private System.Action<int?> _targetingPick;
+        private System.Action _targetingCancel;
+        private int? _targetingHover;
+        private bool _targetingHoverAny;
+        private Vector2 _targetingCardBottom;
+        private readonly List<(int? Id, GameObject Glow)> _targetingGlows =
+            new List<(int?, GameObject)>();
+        private readonly List<(int? Id, RectTransform Cell, Texture2D Art)> _dropCells =
+            new List<(int?, RectTransform, Texture2D)>();
+
         // Supply-drag insertion preview.
         private RectTransform _boardPanel;
         private readonly List<RectTransform> _standCells = new List<RectTransform>();
@@ -48,21 +66,39 @@ namespace LemonadeWars.Unity
 
         private readonly CardArt _art;
         private readonly CardPreview _preview;
+        private readonly MonoBehaviour _host;
 
         private Text _bannerText;
         private Text _opponentsText;
-        private Text _sideText;
-        private Text _logText;
         private RectTransform _marketRow;
         private RectTransform _boardRow;
         private RectTransform _handHost;
+        private RectTransform _lordHost;
+        private RectTransform _dibsHost;
+        private RectTransform _discardOverlay;
+        private RectTransform _discardGrid;
+        private Text _discardTitle;
+        private GameObject _discardTakeButton;
+        private Text _discardTakeLabel;
+        private System.Action<int> _discardOnTake;
+        private int? _discardSelectedId;
+        private readonly Dictionary<int, GameObject> _discardSelectGlows =
+            new Dictionary<int, GameObject>();
+
+        // Hand fan scrolling (when the hand outgrows the center band).
+        private readonly List<(RectTransform Frame, float BaseX)> _handFrames =
+            new List<(RectTransform, float)>();
+        private float _handScroll;
+        private float _handMaxScroll;
         public RectTransform Root { get; private set; }
         public RectTransform ActionBar { get; private set; }
 
-        public TableView(RectTransform canvasRoot, CardArt art, CardPreview preview)
+        public TableView(RectTransform canvasRoot, CardArt art, CardPreview preview,
+            MonoBehaviour host)
         {
             _art = art;
             _preview = preview;
+            _host = host;
             _canvasRoot = canvasRoot;
             Build(canvasRoot);
         }
@@ -75,27 +111,19 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
 
-            // Left: opponents.
+            // Left: opponents, below the full-width market shelf.
             var opponents = UiKit.CreatePanel(Root, "Opponents", UiKit.PanelColor);
-            UiKit.Anchor(opponents, new Vector2(0, 0.30f), new Vector2(0.21f, 0.95f),
+            UiKit.Anchor(opponents, new Vector2(0, 0.24f), new Vector2(0.21f, 0.695f),
                 new Vector2(6, 4), new Vector2(-3, -4));
             _opponentsText = UiKit.CreateText(opponents, "", 17);
             UiKit.Anchor((RectTransform)_opponentsText.transform, Vector2.zero, Vector2.one,
                 new Vector2(10, 8), new Vector2(-10, -8));
 
-            // Left-bottom: event log.
-            var log = UiKit.CreatePanel(Root, "Log", UiKit.PanelColor);
-            UiKit.Anchor(log, new Vector2(0, 0), new Vector2(0.21f, 0.30f),
-                new Vector2(6, 6), new Vector2(-3, -3));
-            _logText = UiKit.CreateText(log, "", 14, TextAnchor.LowerLeft, new Color(0.8f, 0.9f, 0.8f));
-            UiKit.Anchor((RectTransform)_logText.transform, Vector2.zero, Vector2.one,
-                new Vector2(10, 6), new Vector2(-10, -6));
-
-            // Top: the Black Market row + (after a gap) the stand supply and Bragging
-            // Rights, one full-width shelf of everything buyable.
+            // Top: one full-width shelf — Black Market row, stand supply, Bragging
+            // Rights, and the Black Market discard pile.
             var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
-            UiKit.Anchor(market, new Vector2(0.21f, 0.70f), new Vector2(1f, 0.95f),
-                new Vector2(3, 4), new Vector2(-6, -4));
+            UiKit.Anchor(market, new Vector2(0f, 0.70f), new Vector2(1f, 0.95f),
+                new Vector2(6, 4), new Vector2(-6, -4));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
             // Center band: turn/roll banner.
@@ -132,44 +160,463 @@ namespace LemonadeWars.Unity
             barLayout.childControlHeight = true;
             ActionBar = (RectTransform)bar.transform;
 
-            // Right: first dibs + deck counts (the supply lives on the market shelf now).
-            var side = UiKit.CreatePanel(Root, "Side", UiKit.PanelColor);
-            UiKit.Anchor(side, new Vector2(0.79f, 0), new Vector2(1, 0.67f),
-                new Vector2(3, 6), new Vector2(-6, -3));
-            _sideText = UiKit.CreateText(side, "", 16);
-            var sideTextRt = (RectTransform)_sideText.transform;
-            UiKit.Anchor(sideTextRt, Vector2.zero, Vector2.one,
-                new Vector2(10, 8), new Vector2(-10, -8));
-
             // Bottom edge: the hand. Cards peek up from below the screen and rise on
             // hover, Dune: Imperium style. Built LAST so raised cards overlay the table.
+            // A soft-edged mask clips the fan to its band, fading cards out at the
+            // sides instead of letting them spill into the neighboring zones.
             _handHost = UiKit.CreatePanel(Root, "Hand", new Color(0, 0, 0, 0));
             _handHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(_handHost, new Vector2(0.21f, 0f), new Vector2(0.79f, 0f));
+            UiKit.Anchor(_handHost, new Vector2(0.245f, 0f), new Vector2(0.755f, 0f));
             _handHost.pivot = new Vector2(0.5f, 0f);
             _handHost.sizeDelta = new Vector2(_handHost.sizeDelta.x, 300f);
             _handHost.anchoredPosition = Vector2.zero;
+            var handMask = _handHost.gameObject.AddComponent<RectMask2D>();
+            handMask.softness = new Vector2Int(70, 0);
+
+            // Bottom-right: your two secret Lemon Lords, same peek-and-rise treatment,
+            // floating over the dark side zone.
+            _lordHost = UiKit.CreatePanel(Root, "LemonLords", new Color(0, 0, 0, 0));
+            _lordHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(_lordHost, new Vector2(0.79f, 0f), new Vector2(1f, 0f));
+            _lordHost.pivot = new Vector2(0.5f, 0f);
+            _lordHost.sizeDelta = new Vector2(_lordHost.sizeDelta.x, 300f);
+            _lordHost.anchoredPosition = Vector2.zero;
+
+            // Bottom-left: the First Dibs titles, peeking where the log used to live.
+            _dibsHost = UiKit.CreatePanel(Root, "FirstDibs", new Color(0, 0, 0, 0));
+            _dibsHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(_dibsHost, new Vector2(0f, 0f), new Vector2(0.21f, 0f));
+            _dibsHost.pivot = new Vector2(0.5f, 0f);
+            _dibsHost.sizeDelta = new Vector2(_dibsHost.sizeDelta.x, 300f);
+            _dibsHost.anchoredPosition = Vector2.zero;
+
+            BuildEquipTargeting();
+            BuildDiscardViewer();
+        }
+
+        // ------------------------------------------------- equip targeting
+
+        /// <summary>
+        /// Invisible full-screen layer for aiming a just-taken card at a turf/stand.
+        /// It intercepts the pointer itself and hit-tests the board cells manually, so
+        /// hover glows and clicks work without fighting the cells' own handlers.
+        /// </summary>
+        private void BuildEquipTargeting()
+        {
+            _targetingRoot = UiKit.CreatePanel(Root, "EquipTargeting", new Color(0, 0, 0, 0));
+            UiKit.Anchor(_targetingRoot, Vector2.zero, Vector2.one);
+            // Backdrop first: blur behind, crisp targeting actors on top.
+            _targetingBackdrop = new ModalBackdrop(_targetingRoot, _host);
+            UiKit.AddClick(_targetingRoot.gameObject, () =>
+            {
+                var pick = _targetingPick;
+                var cancel = _targetingCancel;
+                bool onTarget = _targetingHoverAny;
+                int? target = _targetingHover;
+                EndEquipTargeting();
+                if (onTarget)
+                {
+                    pick?.Invoke(target);
+                }
+                else
+                {
+                    cancel?.Invoke();
+                }
+            });
+
+            var copiesGo = new GameObject("TargetCopies", typeof(RectTransform));
+            copiesGo.transform.SetParent(_targetingRoot, false);
+            _targetingCopiesHost = (RectTransform)copiesGo.transform;
+            UiKit.Anchor(_targetingCopiesHost, Vector2.zero, Vector2.one);
+
+            var arrowGo = new GameObject("Arrow", typeof(RectTransform));
+            arrowGo.transform.SetParent(_targetingRoot, false);
+            _arrowHost = (RectTransform)arrowGo.transform;
+            UiKit.Anchor(_arrowHost, Vector2.zero, Vector2.one);
+
+            var cardGo = new GameObject("FloatCard", typeof(RectTransform));
+            cardGo.transform.SetParent(_targetingRoot, false);
+            _targetingCardHost = (RectTransform)cardGo.transform;
+            UiKit.Anchor(_targetingCardHost, Vector2.zero, Vector2.one);
+
+            _targetingRoot.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Blur the table, float the taken card centered in the market band, redraw the
+        /// valid targets crisp on top, and wait for a target click.
+        /// </summary>
+        public void BeginEquipTargeting(Texture2D texture, ISet<int?> validTargets,
+            System.Action<int?> onPick, System.Action onCancel)
+        {
+            const float width = 190f;
+            const float height = 266f;
+
+            _targetingValid = validTargets;
+            _targetingPick = onPick;
+            _targetingCancel = onCancel;
+            _targetingHover = null;
+            _targetingHoverAny = false;
+            UiKit.Clear(_targetingCardHost);
+            UiKit.Clear(_targetingCopiesHost);
+            UiKit.Clear(_arrowHost);
+            _targetingGlows.Clear();
+
+            // Crisp copies of the valid targets at their board positions — everything
+            // else stays under the blur, so the legal choices pop.
+            foreach (var (id, cell, art) in _dropCells)
+            {
+                if (!validTargets.Contains(id))
+                {
+                    continue;
+                }
+                var cardFrame = cell.Find("Card") as RectTransform;
+                if (cardFrame == null)
+                {
+                    continue;
+                }
+                var world = cardFrame.TransformPoint(cardFrame.rect.center);
+                Vector2 local = _targetingRoot.InverseTransformPoint(world);
+                float copyWidth = cardFrame.rect.width;
+                float copyHeight = cardFrame.rect.height;
+
+                var glow = UiKit.CreateGlow(_targetingCopiesHost,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
+                    copyWidth + 30, copyHeight + 30, DropGlowHot);
+                _targetingGlows.Add((id, glow));
+
+                var copy = UiKit.CreateCardImage(_targetingCopiesHost, art, copyWidth, copyHeight);
+                copy.raycastTarget = false;
+                var copyFrame = (RectTransform)copy.transform.parent;
+                copyFrame.GetComponent<Image>().raycastTarget = false;
+                copyFrame.anchorMin = copyFrame.anchorMax = new Vector2(0.5f, 0.5f);
+                copyFrame.pivot = new Vector2(0.5f, 0.5f);
+                copyFrame.sizeDelta = new Vector2(copyWidth, copyHeight);
+                copyFrame.anchoredPosition = local;
+            }
+
+            // The taken card floats centered in the market band.
+            var anchor = new Vector2(0, _targetingRoot.rect.height * 0.325f);
+            var image = UiKit.CreateCardImage(_targetingCardHost, texture, width, height);
+            image.raycastTarget = false;
+            var frame = (RectTransform)image.transform.parent;
+            frame.GetComponent<Image>().raycastTarget = false;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0.5f);
+            frame.pivot = new Vector2(0.5f, 0.5f);
+            frame.sizeDelta = new Vector2(width, height);
+            frame.anchoredPosition = anchor;
+            var shadow = frame.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0, 0, 0, 0.6f);
+            shadow.effectDistance = new Vector2(0, -6f);
+            _targetingCardBottom = anchor + new Vector2(0, -height * 0.5f);
+
+            // Activates the root once the frame is captured and blurred.
+            _targetingBackdrop.Reveal(_targetingRoot.gameObject);
+        }
+
+        /// <summary>Called every frame by the app; drives hover glow + the dashed arrow.</summary>
+        public void TickEquipTargeting(Vector2 screenPosition)
+        {
+            if (_targetingPick == null)
+            {
+                return;
+            }
+            int? hover = null;
+            bool any = false;
+            foreach (var (id, cell, _) in _dropCells)
+            {
+                if (_targetingValid.Contains(id) &&
+                    RectTransformUtility.RectangleContainsScreenPoint(cell, screenPosition))
+                {
+                    hover = id;
+                    any = true;
+                    break;
+                }
+            }
+            if (any == _targetingHoverAny && hover == _targetingHover)
+            {
+                return;
+            }
+            _targetingHover = hover;
+            _targetingHoverAny = any;
+
+            foreach (var (id, glow) in _targetingGlows)
+            {
+                glow.SetActive(any && Equals(id, hover));
+            }
+            UiKit.Clear(_arrowHost);
+            if (any)
+            {
+                foreach (var (id, cell, _) in _dropCells)
+                {
+                    if (Equals(id, hover))
+                    {
+                        var world = cell.TransformPoint(
+                            new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
+                        DrawDashedArrow(_targetingCardBottom,
+                            (Vector2)_targetingRoot.InverseTransformPoint(world));
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Dismiss the targeting layer without invoking pick or cancel.</summary>
+        private void EndEquipTargeting()
+        {
+            _targetingPick = null;
+            _targetingCancel = null;
+            _targetingValid = null;
+            _targetingHover = null;
+            _targetingHoverAny = false;
+            _targetingRoot.gameObject.SetActive(false);
+            _targetingBackdrop.Hide();
+            UiKit.Clear(_targetingCardHost);
+            UiKit.Clear(_targetingCopiesHost);
+            UiKit.Clear(_arrowHost);
+            _targetingGlows.Clear();
+        }
+
+        private void DrawDashedArrow(Vector2 from, Vector2 to)
+        {
+            var direction = to - from;
+            float length = direction.magnitude;
+            if (length < 30f)
+            {
+                return;
+            }
+            var unit = direction / length;
+            float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
+            for (float d = 18f; d < length - 24f; d += 30f)
+            {
+                CreateDash(from + unit * d, angle, 16f);
+            }
+            // Arrowhead: two wings sweeping back from the tip.
+            for (int sign = -1; sign <= 1; sign += 2)
+            {
+                float wingAngle = angle + sign * 145f;
+                var wingDir = new Vector2(
+                    Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
+                CreateDash(to + wingDir * 11f, wingAngle, 22f);
+            }
+        }
+
+        private void CreateDash(Vector2 center, float angleDegrees, float length)
+        {
+            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(_arrowHost, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(length, 6f);
+            rect.anchoredPosition = center;
+            rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
+            var image = go.GetComponent<Image>();
+            image.color = UiKit.ButtonColor;
+            image.raycastTarget = false;
+        }
+
+        /// <summary>
+        /// Full-screen discard browser: dim backdrop, title, and a vertically scrolling
+        /// grid of cards bounded to the center band. Click anywhere off a card to close.
+        /// </summary>
+        private void BuildDiscardViewer()
+        {
+            _discardOverlay = UiKit.CreatePanel(Root, "DiscardOverlay", new Color(0, 0, 0, 0.82f));
+            UiKit.Anchor(_discardOverlay, Vector2.zero, Vector2.one);
+            UiKit.AddClick(_discardOverlay.gameObject, CloseDiscardViewer);
+
+            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
+            titleGo.transform.SetParent(_discardOverlay, false);
+            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.1f, 0.89f), new Vector2(0.9f, 0.97f));
+            _discardTitle = titleGo.GetComponent<Text>();
+            _discardTitle.font = UiKit.DefaultFont;
+            _discardTitle.fontSize = 34;
+            _discardTitle.alignment = TextAnchor.MiddleCenter;
+            _discardTitle.color = Color.white;
+            _discardTitle.raycastTarget = false;
+            var titleShadow = titleGo.GetComponent<Shadow>();
+            titleShadow.effectColor = new Color(0, 0, 0, 0.85f);
+            titleShadow.effectDistance = new Vector2(2.5f, -2.5f);
+
+            // Transparent-but-raycastable scroll surface: the wheel works anywhere in
+            // the band, and a click between cards still closes the viewer.
+            var scrollGo = new GameObject("Scroll", typeof(RectTransform), typeof(ScrollRect), typeof(Image));
+            scrollGo.transform.SetParent(_discardOverlay, false);
+            UiKit.Anchor((RectTransform)scrollGo.transform, new Vector2(0.21f, 0.02f), new Vector2(0.79f, 0.89f));
+            scrollGo.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            UiKit.AddClick(scrollGo, CloseDiscardViewer);
+            var scroll = scrollGo.GetComponent<ScrollRect>();
+            scroll.horizontal = false;
+
+            var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
+            viewportGo.transform.SetParent(scrollGo.transform, false);
+            UiKit.Anchor((RectTransform)viewportGo.transform, Vector2.zero, Vector2.one);
+            viewportGo.GetComponent<Mask>().showMaskGraphic = false;
+
+            var contentGo = new GameObject("Content", typeof(RectTransform),
+                typeof(GridLayoutGroup), typeof(ContentSizeFitter));
+            contentGo.transform.SetParent(viewportGo.transform, false);
+            var content = (RectTransform)contentGo.transform;
+            content.anchorMin = new Vector2(0, 1);
+            content.anchorMax = new Vector2(1, 1);
+            content.pivot = new Vector2(0.5f, 1);
+            // Reading size — same scale as the Lemon Lord picker at game setup.
+            var grid = contentGo.GetComponent<GridLayoutGroup>();
+            grid.cellSize = new Vector2(280, 392);
+            grid.spacing = new Vector2(18, 18);
+            grid.padding = new RectOffset(8, 8, 8, 8);
+            grid.childAlignment = TextAnchor.UpperCenter;
+            contentGo.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            scroll.viewport = (RectTransform)viewportGo.transform;
+            scroll.content = content;
+            _discardGrid = content;
+
+            // Bottom-center: "TAKE <CARD>" — only exists while a pick is required.
+            var buttonGo = new GameObject("TakeButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
+            buttonGo.transform.SetParent(_discardOverlay, false);
+            var buttonRect = (RectTransform)buttonGo.transform;
+            buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(0.5f, 0f);
+            buttonRect.pivot = new Vector2(0.5f, 0f);
+            buttonRect.sizeDelta = new Vector2(440f, 58f);
+            buttonRect.anchoredPosition = new Vector2(0, 26f);
+            var buttonImage = buttonGo.GetComponent<Image>();
+            buttonImage.sprite = UiSprites.RoundedRect;
+            buttonImage.type = Image.Type.Sliced;
+            buttonImage.color = UiKit.ButtonColor;
+            var buttonShadow = buttonGo.GetComponent<Shadow>();
+            buttonShadow.effectColor = new Color(0, 0, 0, 0.5f);
+            buttonShadow.effectDistance = new Vector2(0, -4f);
+            _discardTakeLabel = UiKit.CreateText(buttonGo.transform, "", 24,
+                TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
+            _discardTakeLabel.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_discardTakeLabel.transform, Vector2.zero, Vector2.one);
+            UiKit.AddHover(buttonGo,
+                () => buttonImage.color = new Color(1f, 0.92f, 0.35f),
+                () => buttonImage.color = UiKit.ButtonColor);
+            UiKit.AddClick(buttonGo, () =>
+            {
+                var onTake = _discardOnTake;
+                int? picked = _discardSelectedId;
+                CloseDiscardViewer();
+                if (onTake != null && picked is int id)
+                {
+                    onTake(id);
+                }
+            });
+            _discardTakeButton = buttonGo;
+
+            _discardOverlay.gameObject.SetActive(false);
+        }
+
+        /// <summary>Browse a discard pile (no selection, no button).</summary>
+        private void OpenDiscardViewer(string title, IReadOnlyList<PlayerView.CardInfo> cards,
+            bool blackMarket)
+        {
+            _discardTitle.text = cards.Count == 0 ? $"{title} — EMPTY" : $"{title} ({cards.Count})";
+            FillDiscardGrid(cards, blackMarket, null);
+            _discardOverlay.gameObject.SetActive(true);
+        }
+
+        /// <summary>
+        /// Pick a card out of a discard pile (Reduce and Reuse, Reverse Engineer...):
+        /// click a card to select it, then confirm with the TAKE button. Clicking off a
+        /// card cancels — nothing has been submitted yet at that point.
+        /// </summary>
+        public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
+            bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
+            System.Action<int> onTake)
+        {
+            _discardTitle.text = title;
+            _discardOnTake = onTake;
+            FillDiscardGrid(cards, blackMarket, nameOf);
+            _discardOverlay.gameObject.SetActive(true);
+        }
+
+        private void FillDiscardGrid(IReadOnlyList<PlayerView.CardInfo> cards, bool blackMarket,
+            System.Func<PlayerView.CardInfo, string> nameOf)
+        {
+            UiKit.Clear(_discardGrid);
+            _discardSelectGlows.Clear();
+            _discardSelectedId = null;
+            _discardTakeButton.SetActive(false);
+
+            for (int i = cards.Count - 1; i >= 0; i--) // newest discard first
+            {
+                var card = cards[i];
+                var texture = blackMarket
+                    ? _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square)
+                    : _art.Lemon(card.DefId);
+
+                // Wrapper cell: the selection glow must sit OUTSIDE the card's rounded
+                // mask, or it would be clipped to the card shape.
+                var cellGo = new GameObject("DiscardCell", typeof(RectTransform));
+                cellGo.transform.SetParent(_discardGrid, false);
+                var cell = (RectTransform)cellGo.transform;
+                var glow = UiKit.CreateGlow(cell, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    Vector2.zero, 280 + 52, 392 + 52, DropGlowHot);
+                var image = UiKit.CreateCardImage(cell, texture, 280, 392);
+                UiKit.Anchor((RectTransform)image.transform.parent, Vector2.zero, Vector2.one);
+
+                _preview.Attach(image.gameObject, texture);
+                if (nameOf != null)
+                {
+                    int instanceId = card.InstanceId;
+                    string takeName = nameOf(card);
+                    _discardSelectGlows[instanceId] = glow;
+                    UiKit.AddClick(image.gameObject, () => SelectDiscardCard(instanceId, takeName));
+                }
+            }
+        }
+
+        private void SelectDiscardCard(int instanceId, string name)
+        {
+            foreach (var pair in _discardSelectGlows)
+            {
+                pair.Value.SetActive(pair.Key == instanceId);
+            }
+            _discardSelectedId = instanceId;
+            _discardTakeLabel.text = $"TAKE {name.ToUpperInvariant()}";
+            _discardTakeButton.SetActive(true);
+        }
+
+        private void CloseDiscardViewer()
+        {
+            _discardOverlay.gameObject.SetActive(false);
+            _discardOnTake = null;
+            _discardSelectedId = null;
+            _discardTakeButton.SetActive(false);
         }
 
         // ------------------------------------------------------------ render
 
         public void SetBanner(string text) => _bannerText.text = text;
 
-        public void SetLog(IEnumerable<string> lines) => _logText.text = string.Join("\n", lines);
+        /// <summary>The on-table log is retired for now (First Dibs lives there); kept
+        /// as a no-op until the log returns somewhere nicer.</summary>
+        public void SetLog(IEnumerable<string> lines)
+        {
+        }
 
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             RenderMarket(view, db, groups);
             RenderBoard(view);
             RenderHand(view, groups);
+            RenderLords(view);
+            RenderFirstDibs(view);
             RenderSupply(view, db, groups);
             RenderOpponents(view, db);
-            RenderSide(view, db);
         }
 
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             UiKit.Clear(_marketRow);
+            // The discard piles form their own group: Lemon, then Black Market,
+            // separated from the face-up market cards.
+            BuildDiscardPile(view, blackMarket: false);
+            BuildDiscardPile(view, blackMarket: true);
+            AddRowGap();
             for (int i = 0; i < view.Market.Count; i++)
             {
                 var card = view.Market[i];
@@ -232,7 +679,13 @@ namespace LemonadeWars.Unity
         private void RenderBoard(PlayerView view)
         {
             UiKit.Clear(_boardRow);
+            if (_targetingPick != null)
+            {
+                // The board is being rebuilt under the targeting layer: dismiss it.
+                EndEquipTargeting();
+            }
             _dropGlows.Clear();
+            _dropCells.Clear();
             _standCells.Clear();
             _spacer = null; // destroyed with the row; recreated lazily
             _spacerTween = null;
@@ -243,15 +696,15 @@ namespace LemonadeWars.Unity
             var turfCaption = "Pours " + string.Join(",", me.PourNumbers);
             var turfCell = AddCard(_boardRow, turfTexture, 150, 210, turfCaption, false, null);
             AddEquipList(turfCell, me.TurfEquipped);
-            MakeDropTarget(turfCell, null);
+            MakeDropTarget(turfCell, null, turfTexture);
 
             foreach (var stand in me.Stands)
             {
                 string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
-                var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId, stand.Shape),
-                    150, 210, caption, false, null);
+                var standTexture = _art.Stand(stand.StandTypeId, stand.Shape);
+                var cell = AddCard(_boardRow, standTexture, 150, 210, caption, false, null);
                 AddEquipList(cell, stand.Equipped);
-                MakeDropTarget(cell, stand.InstanceId);
+                MakeDropTarget(cell, stand.InstanceId, standTexture);
                 _standCells.Add(cell);
             }
         }
@@ -259,6 +712,7 @@ namespace LemonadeWars.Unity
         private void RenderHand(PlayerView view, MoveGroups groups)
         {
             UiKit.Clear(_handHost);
+            _handFrames.Clear();
             int count = view.Hand.Count;
             if (count == 0)
             {
@@ -267,20 +721,27 @@ namespace LemonadeWars.Unity
 
             const float width = 190f;
             const float height = 266f;
-            const float raisedY = 12f;         // fully visible, floating just off the edge
-            const float peekPlayable = 180f;   // ~2/3 visible at rest
-            const float peekIdle = 158f;       // unplayable cards sit a little lower
+            const float raisedY = 12f;   // fully visible, floating just off the edge
+            const float peek = 172f;     // ~2/3 visible at rest, one even row
 
-            float available = _handHost.rect.width;
-            if (available < 10f)
+            float hostWidth = _handHost.rect.width;
+            if (hostWidth < 10f)
             {
-                available = 1100f; // first-frame fallback before canvas layout settles
+                hostWidth = 1075f; // first-frame fallback before canvas layout settles
             }
-            // Always overlapped, Dune Imperium style; compresses further when the hand grows.
-            float spacing = count > 1
-                ? Mathf.Min(width * 0.72f, (available - width) / (count - 1))
-                : 0f;
-            float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
+            // Constant Dune Imperium overlap; a big hand scrolls instead of compressing
+            // past readability. The usable width is inset well past the mask's fade
+            // zones so the end cards rest comfortably inside the band at either
+            // scroll extreme, not flush against its edges.
+            const float edgeFade = 130f;
+            float usable = hostWidth - edgeFade * 2f;
+            float spacing = width * 0.72f;
+            float span = width + spacing * (count - 1);
+            _handMaxScroll = Mathf.Max(0f, span - usable);
+            _handScroll = Mathf.Clamp(_handScroll, 0f, _handMaxScroll);
+            float startX = _handMaxScroll > 0f
+                ? -hostWidth / 2f + edgeFade + width / 2f
+                : -span / 2f + width / 2f;
 
             for (int i = 0; i < count; i++)
             {
@@ -295,18 +756,15 @@ namespace LemonadeWars.Unity
                 frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
                 frame.pivot = new Vector2(0.5f, 0f);
                 frame.sizeDelta = new Vector2(width, height);
-                float restY = (optionCount > 0 ? peekPlayable : peekIdle) - height;
-                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
+                float restY = peek - height;
+                float baseX = startX + i * spacing;
+                frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
+                _handFrames.Add((frame, baseX));
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
 
                 if (optionCount > 0)
                 {
-                    // Thin lemonade strip along the visible top edge: playable at a glance.
-                    var strip = UiKit.CreatePanel(frame, "PlayableStrip", UiKit.ButtonColor);
-                    UiKit.Anchor(strip, new Vector2(0f, 1f), new Vector2(1f, 1f),
-                        new Vector2(0, -7f), new Vector2(0, 0));
-
                     // Revealed only when the card rises.
                     var badge = UiKit.CreatePanel(frame, "PlayBadge", UiKit.ButtonColor);
                     UiKit.Anchor(badge, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
@@ -318,6 +776,192 @@ namespace LemonadeWars.Unity
 
                     int captured = card.InstanceId;
                     UiKit.AddClick(image.gameObject, () => OnHandCard?.Invoke(captured));
+                }
+
+                int sibling = i;
+                UiKit.AddHover(image.gameObject,
+                    () =>
+                    {
+                        frame.SetAsLastSibling();
+                        motion.TargetY = raisedY;
+                    },
+                    () =>
+                    {
+                        frame.SetSiblingIndex(sibling);
+                        motion.TargetY = restY;
+                    });
+                _preview.Attach(image.gameObject, texture);
+            }
+        }
+
+        /// <summary>
+        /// Hover-based fan scrolling: with the cursor inside the hand zone, the outer
+        /// 20% on each side auto-scrolls that direction, faster nearer the edge.
+        /// Call every frame.
+        /// </summary>
+        public void TickHandScroll(Vector2 screenPosition)
+        {
+            if (_handMaxScroll <= 0f ||
+                !RectTransformUtility.RectangleContainsScreenPoint(_handHost, screenPosition))
+            {
+                return;
+            }
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _handHost, screenPosition, null, out var local);
+            var rect = _handHost.rect;
+            float fraction = (local.x - rect.xMin) / Mathf.Max(1f, rect.width);
+
+            const float zone = 0.2f;
+            float velocity = 0f;
+            if (fraction < zone)
+            {
+                velocity = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            else if (fraction > 1f - zone)
+            {
+                velocity = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            if (velocity == 0f)
+            {
+                return;
+            }
+
+            _handScroll = Mathf.Clamp(
+                _handScroll + velocity * 900f * Time.deltaTime, 0f, _handMaxScroll);
+            foreach (var (frame, baseX) in _handFrames)
+            {
+                if (frame != null)
+                {
+                    var position = frame.anchoredPosition;
+                    position.x = baseX - _handScroll;
+                    frame.anchoredPosition = position;
+                }
+            }
+        }
+
+        /// <summary>
+        /// First Dibs titles: overlapped peek cards, bottom-left. Unclaimed titles from
+        /// the row first, then claimed ones wearing their claimant's name chip.
+        /// </summary>
+        private void RenderFirstDibs(PlayerView view)
+        {
+            UiKit.Clear(_dibsHost);
+            var entries = new List<(string TitleId, string ClaimedBy)>();
+            foreach (string titleId in view.FirstDibsRow)
+            {
+                entries.Add((titleId, null));
+            }
+            foreach (var player in view.Players)
+            {
+                foreach (string claimed in player.FirstDibsClaimed)
+                {
+                    entries.Add((claimed, player.Name));
+                }
+            }
+            if (entries.Count == 0)
+            {
+                return;
+            }
+
+            const float width = 190f;
+            const float height = 266f;
+            const float raisedY = 12f;
+            const float peek = 158f;
+
+            float available = _dibsHost.rect.width;
+            if (available < 10f)
+            {
+                available = 390f;
+            }
+            // The zone is narrow: compress overlap as needed, hover-raise keeps it readable.
+            float spacing = entries.Count > 1
+                ? Mathf.Min(width * 0.72f, (available - width) / (entries.Count - 1))
+                : 0f;
+            float startX = -(width + spacing * (entries.Count - 1)) / 2f + width / 2f;
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var (titleId, claimedBy) = entries[i];
+                var texture = _art.Title(titleId);
+
+                var image = UiKit.CreateCardImage(_dibsHost, texture, width, height);
+                var frame = (RectTransform)image.transform.parent;
+                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+                frame.pivot = new Vector2(0.5f, 0f);
+                frame.sizeDelta = new Vector2(width, height);
+                float restY = peek - height;
+                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
+                var motion = frame.gameObject.AddComponent<HandCardMotion>();
+                motion.TargetY = restY;
+
+                if (claimedBy != null)
+                {
+                    var chip = UiKit.CreatePanel(frame, "ClaimChip", UiKit.ButtonColor);
+                    UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                    chip.sizeDelta = new Vector2(width - 40f, 24f);
+                    chip.anchoredPosition = new Vector2(0, -24f);
+                    var chipText = UiKit.CreateText(chip, claimedBy.ToUpperInvariant(), 13,
+                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
+                    UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+                }
+
+                int sibling = i;
+                UiKit.AddHover(image.gameObject,
+                    () =>
+                    {
+                        frame.SetAsLastSibling();
+                        motion.TargetY = raisedY;
+                    },
+                    () =>
+                    {
+                        frame.SetSiblingIndex(sibling);
+                        motion.TargetY = restY;
+                    });
+                _preview.Attach(image.gameObject, texture);
+            }
+        }
+
+        /// <summary>Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.</summary>
+        private void RenderLords(PlayerView view)
+        {
+            UiKit.Clear(_lordHost);
+            int count = view.LemonLordStatus.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            const float width = 190f;
+            const float height = 266f;
+            const float raisedY = 12f;
+            const float peek = 158f;
+            float spacing = width * 0.72f;
+            float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
+
+            for (int i = 0; i < count; i++)
+            {
+                var lord = view.LemonLordStatus[i];
+                var texture = _art.Title(lord.TitleId);
+
+                var image = UiKit.CreateCardImage(_lordHost, texture, width, height);
+                var frame = (RectTransform)image.transform.parent;
+                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+                frame.pivot = new Vector2(0.5f, 0f);
+                frame.sizeDelta = new Vector2(width, height);
+                float restY = peek - height;
+                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
+                var motion = frame.gameObject.AddComponent<HandCardMotion>();
+                motion.TargetY = restY;
+
+                if (lord.Met)
+                {
+                    var chip = UiKit.CreatePanel(frame, "MetChip", UiKit.ButtonColor);
+                    UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                    chip.sizeDelta = new Vector2(74f, 24f);
+                    chip.anchoredPosition = new Vector2(0, -24f);
+                    var chipText = UiKit.CreateText(chip, "MET!", 14,
+                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
+                    UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
                 }
 
                 int sibling = i;
@@ -357,6 +1001,36 @@ namespace LemonadeWars.Unity
                 int sold = (braggingPrice - 16) / 2;
                 AddCard(_marketRow, _art.BraggingRights(sold), 154, 216, "", false, null);
             }
+        }
+
+        /// <summary>A discard pile: card back, count on hover, click to browse.</summary>
+        private void BuildDiscardPile(PlayerView view, bool blackMarket)
+        {
+            var back = _art.Back(blackMarket ? "blackMarket" : "lemon");
+            var image = UiKit.CreateCardImage(_marketRow, back, 154, 216);
+            var frame = (RectTransform)image.transform.parent;
+
+            var discards = blackMarket ? view.BlackMarketDiscard : view.LemonDiscard;
+            int count = discards.Count;
+            var chip = UiKit.CreatePanel(frame, "CountChip", new Color(0, 0, 0, 0.78f));
+            UiKit.Anchor(chip, new Vector2(0, 0.5f), new Vector2(1, 0.5f));
+            chip.sizeDelta = new Vector2(0, 36);
+            // Click-transparent, or the chip steals the raycast from the card under the
+            // cursor and hover enters/exits in an endless flicker loop.
+            chip.GetComponent<Image>().raycastTarget = false;
+            var chipText = UiKit.CreateText(chip,
+                count == 1 ? "1 DISCARD" : $"{count} DISCARDS", 16,
+                TextAnchor.MiddleCenter, Color.white);
+            chipText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+            chip.gameObject.SetActive(false);
+
+            UiKit.AddHover(image.gameObject,
+                () => chip.gameObject.SetActive(true),
+                () => chip.gameObject.SetActive(false));
+            UiKit.AddClick(image.gameObject, () => OpenDiscardViewer(
+                blackMarket ? "BLACK MARKET DISCARDS" : "LEMON DISCARDS",
+                discards, blackMarket));
         }
 
         /// <summary>A flexible spacer; multiple gaps in the row share leftover width equally.</summary>
@@ -412,38 +1086,6 @@ namespace LemonadeWars.Unity
                 text.AppendLine();
             }
             _opponentsText.text = text.ToString();
-        }
-
-        private void RenderSide(PlayerView view, CardDatabase db)
-        {
-            var text = new StringBuilder();
-            text.AppendLine($"Lemon deck: {view.LemonDeckCount}   discard: {view.LemonDiscard.Count}");
-            text.AppendLine($"BM deck: {view.BlackMarketDeckCount}   discard: {view.BlackMarketDiscard.Count}");
-            text.AppendLine();
-            text.AppendLine("FIRST DIBS:");
-            foreach (string titleId in view.FirstDibsRow)
-            {
-                var title = db.Title(titleId);
-                text.AppendLine($"  {title.Name} — {title.Condition}");
-            }
-            foreach (var p in view.Players)
-            {
-                foreach (string claimed in p.FirstDibsClaimed)
-                {
-                    text.AppendLine($"  [{p.Name}] {db.Title(claimed).Name}");
-                }
-            }
-            if (view.LemonLordStatus.Count > 0)
-            {
-                text.AppendLine();
-                text.AppendLine("YOUR LEMON LORDS (secret):");
-                foreach (var lord in view.LemonLordStatus)
-                {
-                    var title = db.Title(lord.TitleId);
-                    text.AppendLine($"  {title.Name}{(lord.Met ? " (MET!)" : "")} — {title.Condition}");
-                }
-            }
-            _sideText.text = text.ToString();
         }
 
         // ------------------------------------------- supply drag insertion
@@ -600,7 +1242,7 @@ namespace LemonadeWars.Unity
 
         // --------------------------------------------------------- drop zones
 
-        private void MakeDropTarget(RectTransform cell, int? standInstanceId)
+        private void MakeDropTarget(RectTransform cell, int? standInstanceId, Texture2D art)
         {
             var target = cell.gameObject.AddComponent<DropTarget>();
             target.StandInstanceId = standInstanceId;
@@ -618,6 +1260,7 @@ namespace LemonadeWars.Unity
 
             _dropGlows.Add((standInstanceId, wide));
             _dropGlows.Add((standInstanceId, hot));
+            _dropCells.Add((standInstanceId, cell, art));
         }
 
         public void SetValidDropTargets(ISet<int?> validTargets)
