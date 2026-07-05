@@ -68,6 +68,38 @@ namespace LemonadeWars.Unity
             BuildHud();
         }
 
+        /// <summary>
+        /// Default server URL from StreamingAssets/client-config.json (gitignored; written
+        /// by tools/sync_unity.sh, baked into builds, editable post-build). The last URL a
+        /// player actually connected to takes precedence.
+        /// </summary>
+        private static string LoadConfiguredServerUrl()
+        {
+            string remembered = PlayerPrefs.GetString("lw_server", "");
+            if (!string.IsNullOrEmpty(remembered))
+            {
+                return remembered;
+            }
+            try
+            {
+                string path = Path.Combine(Application.streamingAssetsPath, "client-config.json");
+                if (File.Exists(path))
+                {
+                    var config = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path));
+                    string url = (string)config["serverUrl"];
+                    if (!string.IsNullOrEmpty(url))
+                    {
+                        return url;
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // Malformed config: fall through to the dev default.
+            }
+            return "ws://localhost:5225/ws";
+        }
+
         private void BuildHud()
         {
             var canvas = UiKit.CreateCanvas();
@@ -90,7 +122,7 @@ namespace LemonadeWars.Unity
             _table.OnSupplyDrop = OnSupplyDrop;
             _table.SetVisible(false);
 
-            _lobby = new LobbyUi(root);
+            _lobby = new LobbyUi(root, LoadConfiguredServerUrl());
             _lobby.OnPlayLocal = StartLocalGame;
             _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
             _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");

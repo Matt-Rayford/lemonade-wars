@@ -34,6 +34,14 @@ mkdir -p "$STREAMING/game-data" "$STREAMING/images"
 cp game-data/*.json "$STREAMING/game-data/"
 cp -R game-assets/images/ "$STREAMING/images/"
 
+echo "== client config =="
+# Baked into builds but never committed (StreamingAssets is gitignored).
+# Set LW_SERVER_URL when building for friends:  LW_SERVER_URL=wss://... tools/sync_unity.sh
+if [ ! -f "$STREAMING/client-config.json" ] || [ -n "${LW_SERVER_URL:-}" ]; then
+  echo "{ \"serverUrl\": \"${LW_SERVER_URL:-ws://localhost:5225/ws}\" }" > "$STREAMING/client-config.json"
+  echo "  wrote client-config.json (${LW_SERVER_URL:-ws://localhost:5225/ws})"
+fi
+
 echo "done:"
 echo "  $(ls "$PLUGINS" | grep -c dll) dll(s) in Assets/Plugins"
 echo "  $(ls "$STREAMING/game-data" | wc -l | tr -d ' ') json files, $(find "$STREAMING/images" -type f | wc -l | tr -d ' ') images in StreamingAssets"

@@ -38,7 +38,7 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
-        public LobbyUi(RectTransform canvasRoot)
+        public LobbyUi(RectTransform canvasRoot, string defaultServerUrl)
         {
             // ------------------------------------------------------- menu
             _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", new Color(0.08f, 0.10f, 0.14f, 0.97f));
@@ -58,7 +58,7 @@ namespace LemonadeWars.Unity
             layout.childControlWidth = true;
 
             _nameInput = UiKit.CreateInput(column.transform, "Your name", "Player");
-            _serverInput = UiKit.CreateInput(column.transform, "Server", "ws://localhost:5225/ws");
+            _serverInput = UiKit.CreateInput(column.transform, "Server", defaultServerUrl);
             _serverStatus = UiKit.CreateText(column.transform, "", 14,
                 TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.6f));
 
