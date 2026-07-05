@@ -64,6 +64,7 @@ namespace LemonadeWars.Unity
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
         private string _modalSignature = "";
+        private bool _autoModalOpen; // last prompt/picker came from MaybeShowModal
         private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
@@ -267,6 +268,11 @@ namespace LemonadeWars.Unity
             {
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
             }
+            else if (gameEvent is DieRerolled reroll)
+            {
+                _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
+                    reroll.ByPlayerId == _session.Seat);
+            }
         }
 
         private void Update()
@@ -408,6 +414,7 @@ namespace LemonadeWars.Unity
         {
             _prompt.Hide();
             _picker.Hide();
+            _autoModalOpen = false;
             _session.Submit(action);
             _renderedRevision = -1;
         }
@@ -671,6 +678,20 @@ namespace LemonadeWars.Unity
             _renderedRevision = revision;
 
             var groups = CurrentGroups();
+
+            // A window/decision can dissolve underneath an open modal — the engine
+            // auto-passes players who become ineligible when a window recomputes, and
+            // others' responses can resolve the whole stack. Window prompts have no
+            // Cancel, so a stale one soft-locks the player: dismiss it.
+            if (_autoModalOpen && (_prompt.IsOpen || _picker.IsOpen) &&
+                (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
+            {
+                _prompt.Hide();
+                _picker.Hide();
+                _autoModalOpen = false;
+                _modalSignature = "";
+            }
+
             RenderStatus();
             RenderBanner();
             _table.Render(View, _db, groups);
@@ -816,6 +837,7 @@ namespace LemonadeWars.Unity
             }
             _modalRevision = revision;
             _modalSignature = signature;
+            _autoModalOpen = true;
             if (TryShowPicker())
             {
                 return;
