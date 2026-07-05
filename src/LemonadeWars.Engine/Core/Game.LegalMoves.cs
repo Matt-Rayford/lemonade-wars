@@ -385,10 +385,14 @@ namespace LemonadeWars.Engine.Core
                     {
                         moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
                     }
-                    foreach (int decoy in player.Turf.Equipped
-                        .Where(id => EquippedDef(id).Id == "inflatable-decoy").Take(1))
+                    if (top.AttackTargetId == player.PlayerId)
                     {
-                        moves.Add(new RespondToWindow { PlayerId = player.PlayerId, EquippedInstanceId = decoy });
+                        // The decoy defends its owner only — targets of the attack.
+                        foreach (int decoy in player.Turf.Equipped
+                            .Where(id => EquippedDef(id).Id == "inflatable-decoy").Take(1))
+                        {
+                            moves.Add(new RespondToWindow { PlayerId = player.PlayerId, EquippedInstanceId = decoy });
+                        }
                     }
                 }
                 return;
@@ -459,6 +463,11 @@ namespace LemonadeWars.Engine.Core
             moves.Add(new InitialBuyEnd { PlayerId = player.PlayerId });
             // Optional draft purchase: capped so the later mandatory Stand stays affordable.
             AddBlackMarketBuys(moves, player, SetupSpendingRoom(player));
+            if (!State.MarketRefreshUsedThisTurn &&
+                Db.Config.BlackMarketRefreshCost <= SetupSpendingRoom(player))
+            {
+                moves.Add(new RefreshMarket { PlayerId = player.PlayerId });
+            }
         }
 
         // ------------------------------------------------------- turn moves

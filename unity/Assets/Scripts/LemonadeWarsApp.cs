@@ -50,6 +50,8 @@ namespace LemonadeWars.Unity
         private string _pendingName;
         private string _pendingCode;
         private string _pendingToken;
+        private float _pendingSince;
+        private const float ConnectTimeoutSeconds = 10f;
 
         private LobbyUi _lobby;
         private TableView _table;
@@ -61,6 +63,8 @@ namespace LemonadeWars.Unity
         private Text _statusText;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
+        private string _modalSignature = "";
+        private bool _autoModalOpen; // last prompt/picker came from MaybeShowModal
         private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
@@ -126,8 +130,14 @@ namespace LemonadeWars.Unity
             _table.OnSupplyDrop = OnSupplyDrop;
             _table.SetVisible(false);
 
-            _lobby = new LobbyUi(root, LoadConfiguredServerUrl());
+            _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
+                PlayerPrefs.GetString("lw_name", "Player"));
             _lobby.OnPlayLocal = StartLocalGame;
+            _lobby.OnSaveSettings = name =>
+            {
+                PlayerPrefs.SetString("lw_name", name);
+                PlayerPrefs.Save();
+            };
             _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
             _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");
             _lobby.OnResume = () => ConnectRemote(
@@ -169,7 +179,7 @@ namespace LemonadeWars.Unity
             _remote = null;
             _session?.Dispose();
             _session = new LocalGameSession(_db,
-                new[] { "You", "Benny", "Cleo", "Dex" }, 0,
+                new[] { _lobby.DisplayName, "Benny", "Cleo", "Dex" }, 0,
                 (ulong)System.DateTime.Now.Ticks);
             _session.EventEmitted += OnGameEvent;
             EnterGame();
@@ -182,6 +192,7 @@ namespace LemonadeWars.Unity
             _session = _remote;
             _session.EventEmitted += OnGameEvent;
             _pendingSend = true;
+            _pendingSince = Time.time;
             _pendingCreate = create;
             _pendingName = name;
             _pendingCode = code;
@@ -257,6 +268,11 @@ namespace LemonadeWars.Unity
             {
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
             }
+            else if (gameEvent is DieRerolled reroll)
+            {
+                _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
+                    reroll.ByPlayerId == _session.Seat);
+            }
         }
 
         private void Update()
@@ -281,6 +297,13 @@ namespace LemonadeWars.Unity
                 {
                     _pendingSend = false;
                     BackToMenu(_remote.ConnectionError);
+                }
+                else if (Time.time - _pendingSince > ConnectTimeoutSeconds)
+                {
+                    // A dead host can hang ConnectAsync with no error for minutes —
+                    // give up cleanly instead of trapping the player on CONNECTING.
+                    _pendingSend = false;
+                    BackToMenu("Could not reach the server — check the address and try again.");
                 }
             }
 
@@ -317,6 +340,7 @@ namespace LemonadeWars.Unity
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
+            _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
             RenderIfChanged();
         }
@@ -390,6 +414,7 @@ namespace LemonadeWars.Unity
         {
             _prompt.Hide();
             _picker.Hide();
+            _autoModalOpen = false;
             _session.Submit(action);
             _renderedRevision = -1;
         }
@@ -407,15 +432,20 @@ namespace LemonadeWars.Unity
                 return;
             }
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+            string cardName = _db.Lemon(card?.DefId ?? "").Name;
+            var cardArt = _art.Lemon(card?.DefId ?? "");
 
-            // Take-from-discard variants collapse into one option that opens the
-            // discard picker, instead of flooding the menu with one row per card.
+            // Multi-variant plays collapse into one option that opens a guided flow,
+            // instead of flooding the menu with one text row per combination.
             var bmTakes = moves.OfType<PlayLemonCard>()
                 .Where(m => m.DiscardedBmInstanceId != null).Cast<GameAction>().ToList();
             var lemonTakes = moves.OfType<PlayLemonCard>()
                 .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
+            var equipSteals = moves.OfType<PlayLemonCard>()
+                .Where(m => m.TargetEquippedInstanceId != null).Cast<GameAction>().ToList();
             var direct = moves
-                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m)).ToList();
+                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
+                            !equipSteals.Contains(m)).ToList();
 
             var options = ToOptions(direct);
             if (bmTakes.Count > 0)
@@ -428,15 +458,87 @@ namespace LemonadeWars.Unity
                 options.Add(new Prompt.Option("Take a discarded Lemon card...",
                     () => OpenTakeFromDiscard(lemonTakes, blackMarket: false)));
             }
+            if (equipSteals.Count > 0)
+            {
+                options.Add(new Prompt.Option("Choose a player to target...",
+                    () => OpenEquippedSteal(cardName, cardArt, equipSteals)));
+            }
 
             if (direct.Count == 0 && options.Count == 1)
             {
-                options[0].OnPick(); // a lone "take from discard" — skip the menu
+                options[0].OnPick(); // a lone guided flow — skip the one-button menu
                 return;
             }
-            _prompt.Show(_db.Lemon(card?.DefId ?? "").Name,
-                new[] { _art.Lemon(card?.DefId ?? "") },
-                options, showCancel: true);
+            _prompt.Show(cardName, new[] { cardArt }, options, showCancel: true);
+        }
+
+        /// <summary>
+        /// Two-step flow for cards that target an opponent's equipped Black Market card
+        /// (Finders Keepers, That's Not Fair!): pick the victim, then pick the card off
+        /// their board in the big picker — with BACK to reconsider the victim.
+        /// </summary>
+        private void OpenEquippedSteal(string cardName, Texture2D cardArt, List<GameAction> steals)
+        {
+            var byVictim = steals.Cast<PlayLemonCard>()
+                .GroupBy(m => m.TargetPlayerId ?? FindEquipOwner(m.TargetEquippedInstanceId.Value))
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+
+            void ShowVictims()
+            {
+                _prompt.Show($"{cardName}: choose who to target", new[] { cardArt },
+                    byVictim.Select(kv => new Prompt.Option(
+                        $"{NameOf(kv.Key)} ({EquippedCardInfos(kv.Key, kv.Value).Count} card(s))",
+                        () => ShowCards(kv.Key))).ToList(),
+                    showCancel: true);
+            }
+
+            void ShowCards(int victim)
+            {
+                _prompt.Hide();
+                var victimMoves = byVictim[victim];
+                var byEquipped = victimMoves.Cast<PlayLemonCard>()
+                    .GroupBy(m => m.TargetEquippedInstanceId.Value)
+                    .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+                var cards = EquippedCardInfos(victim, victimMoves);
+                _table.OpenDiscardPicker($"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victim).ToUpperInvariant()}",
+                    cards, blackMarket: true,
+                    c => _db.BlackMarket(c.DefId).Name,
+                    equippedId =>
+                    {
+                        var picked = cards.First(c => c.InstanceId == equippedId);
+                        ResolveEquipDestination(byEquipped[equippedId],
+                            _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
+                    },
+                    onBack: ShowVictims);
+            }
+
+            ShowVictims();
+        }
+
+        /// <summary>The seat whose turf/stand carries this equipped instance.</summary>
+        private int FindEquipOwner(int equippedInstanceId)
+        {
+            foreach (var player in View.Players)
+            {
+                if (player.TurfEquipped.Any(c => c.InstanceId == equippedInstanceId) ||
+                    player.Stands.Any(st => st.Equipped.Any(c => c.InstanceId == equippedInstanceId)))
+                {
+                    return player.PlayerId;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>CardInfos for the equipped instances these moves target, in board order.</summary>
+        private List<PlayerView.CardInfo> EquippedCardInfos(int victim, List<GameAction> moves)
+        {
+            var wanted = moves.Cast<PlayLemonCard>()
+                .Select(m => m.TargetEquippedInstanceId.Value).ToHashSet();
+            var player = View.Players[victim];
+            return player.TurfEquipped
+                .Concat(player.Stands.SelectMany(st => st.Equipped))
+                .Where(c => wanted.Contains(c.InstanceId))
+                .ToList();
         }
 
         /// <summary>Choose which discard to take via the discard-pile picker overlay.</summary>
@@ -455,43 +557,50 @@ namespace LemonadeWars.Unity
                 c => blackMarket ? _db.BlackMarket(c.DefId).Name : _db.Lemon(c.DefId).Name,
                 instanceId =>
                 {
-                    var candidates = byCard[instanceId];
-                    if (candidates.Count == 1)
-                    {
-                        Submit(candidates[0]);
-                        return;
-                    }
                     var picked = pool.First(c => c.InstanceId == instanceId);
                     var texture = blackMarket
                         ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
                         : _art.Lemon(picked.DefId);
-
-                    // Aim the taken card at a turf/stand: float + dashed arrow + click.
-                    var byDest = candidates.Cast<PlayLemonCard>()
-                        .GroupBy(m => m.EquipStandInstanceId)
-                        .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
-                    System.Action<int?> pickDestination = destId =>
-                    {
-                        var atDest = byDest[destId];
-                        if (atDest.Count == 1)
-                        {
-                            Submit(atDest[0]);
-                        }
-                        else
-                        {
-                            _prompt.Show("That slot is full — replace which card?",
-                                new[] { texture }, ToOptions(atDest), showCancel: true);
-                        }
-                    };
-                    if (byDest.Count == 1)
-                    {
-                        // Only one valid target: apply without the selector.
-                        pickDestination(byDest.Keys.First());
-                        return;
-                    }
-                    _table.BeginEquipTargeting(texture,
-                        new HashSet<int?>(byDest.Keys), pickDestination, () => { });
+                    ResolveEquipDestination(byCard[instanceId], texture);
                 });
+        }
+
+        /// <summary>
+        /// Finish a play whose variants differ only by equip destination: one candidate
+        /// submits directly; several open the aim-at-your-board targeting (float card +
+        /// dashed arrow), with a replace-prompt when the chosen slot is full.
+        /// </summary>
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
+        {
+            if (candidates.Count == 1)
+            {
+                Submit(candidates[0]);
+                return;
+            }
+            var byDest = candidates.Cast<PlayLemonCard>()
+                .GroupBy(m => m.EquipStandInstanceId)
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            System.Action<int?> pickDestination = destId =>
+            {
+                var atDest = byDest[destId];
+                if (atDest.Count == 1)
+                {
+                    Submit(atDest[0]);
+                }
+                else
+                {
+                    _prompt.Show("That slot is full — replace which card?",
+                        new[] { texture }, ToOptions(atDest), showCancel: true);
+                }
+            };
+            if (byDest.Count == 1)
+            {
+                // Only one valid target: apply without the selector.
+                pickDestination(byDest.Keys.First());
+                return;
+            }
+            _table.BeginEquipTargeting(texture,
+                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
 
         private void OnMarketDragStart(int marketIndex)
@@ -569,6 +678,20 @@ namespace LemonadeWars.Unity
             _renderedRevision = revision;
 
             var groups = CurrentGroups();
+
+            // A window/decision can dissolve underneath an open modal — the engine
+            // auto-passes players who become ineligible when a window recomputes, and
+            // others' responses can resolve the whole stack. Window prompts have no
+            // Cancel, so a stale one soft-locks the player: dismiss it.
+            if (_autoModalOpen && (_prompt.IsOpen || _picker.IsOpen) &&
+                (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
+            {
+                _prompt.Hide();
+                _picker.Hide();
+                _autoModalOpen = false;
+                _modalSignature = "";
+            }
+
             RenderStatus();
             RenderBanner();
             _table.Render(View, _db, groups);
@@ -662,12 +785,13 @@ namespace LemonadeWars.Unity
             {
                 banner = $"Setup draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
             }
+            else if (View.ActivePlayer == View.ViewerId)
+            {
+                banner = $"Your turn — {View.Phase} ({View.ActionsRemaining} actions left)";
+            }
             else
             {
-                banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}" +
-                         (View.ActivePlayer == View.ViewerId
-                             ? $" ({View.ActionsRemaining} actions left)"
-                             : "");
+                banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
             _table.SetBanner(banner);
         }
@@ -696,11 +820,24 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            // Online, harmless updates (a friend passing their window, bot pacing) bump
+            // the revision while a modal is open. Rebuilding identical buttons under the
+            // cursor eats the player's click — so if the same choice is already on
+            // screen, leave it alone.
+            string signature = ModalTitle() + "|" +
+                string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
+            if ((_prompt.IsOpen || _picker.IsOpen) && signature == _modalSignature)
+            {
+                _modalRevision = revision;
+                return;
+            }
             if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen))
             {
                 return;
             }
             _modalRevision = revision;
+            _modalSignature = signature;
+            _autoModalOpen = true;
             if (TryShowPicker())
             {
                 return;
@@ -737,17 +874,42 @@ namespace LemonadeWars.Unity
             switch (decision.Kind)
             {
                 case DecisionKind.DiscardToHandLimit:
+                    pool = View.Hand.ToList();
+                    required = decision.RequiredCount;
+                    title = $"Timeout! Discard {required} card(s)";
+                    accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    break;
+
                 case DecisionKind.WhiniestBabyDiscard:
-                    // Whiniest Baby restricts the pool to the cards just drawn.
+                {
+                    // Restricted to the cards just drawn — and phrased positively:
+                    // pick what you KEEP, the rest goes to the discard.
                     pool = decision.EligibleCardIds != null
                         ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
                         : View.Hand.ToList();
-                    required = decision.RequiredCount;
-                    title = decision.Kind == DecisionKind.DiscardToHandLimit
-                        ? $"Timeout! Discard {required} card(s)"
-                        : "Whiniest Baby: discard 1 of your new cards";
-                    accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    int keepCount = pool.Count - decision.RequiredCount;
+                    if (keepCount > 0)
+                    {
+                        required = keepCount;
+                        title = keepCount == 1
+                            ? "Whiniest Baby: pick 1 new card to keep"
+                            : $"Whiniest Baby: pick {keepCount} new cards to keep";
+                        var drawnPool = pool;
+                        accept = keptIds => Submit(new SubmitDiscard
+                        {
+                            InstanceIds = drawnPool.Select(c => c.InstanceId)
+                                .Where(id => !keptIds.Contains(id)).ToList(),
+                        });
+                    }
+                    else
+                    {
+                        // Thin deck: everything drawn must go — no keep choice exists.
+                        required = decision.RequiredCount;
+                        title = $"Whiniest Baby: discard {required} card(s)";
+                        accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
+                    }
                     break;
+                }
 
                 case DecisionKind.AbilityDiscard:
                     pool = View.Hand.ToList();

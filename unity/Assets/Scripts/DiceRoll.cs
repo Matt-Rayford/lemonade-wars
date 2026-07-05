@@ -157,9 +157,24 @@ namespace LemonadeWars.Unity
 
         public void Enqueue(string rollerName, int value, bool isYou)
         {
+            EnqueueRoll(
+                isYou ? "YOU ROLL FOR SALES..." : $"{rollerName.ToUpperInvariant()} ROLLS FOR SALES...",
+                value);
+        }
+
+        /// <summary>Out of Stock forced a reroll: show the die landing on its new value.</summary>
+        public void EnqueueReroll(string rollerName, int value, bool isYou)
+        {
+            EnqueueRoll(
+                isYou ? "YOU REROLL THE DIE..." : $"{rollerName.ToUpperInvariant()} REROLLS THE DIE...",
+                value);
+        }
+
+        private void EnqueueRoll(string title, int value)
+        {
             _queue.Enqueue(new Roll
             {
-                Title = isYou ? "YOU ROLL FOR SALES..." : $"{rollerName.ToUpperInvariant()} ROLLS FOR SALES...",
+                Title = title,
                 Value = Mathf.Clamp(value, 1, 6),
             });
             if (_phase == Phase.Idle)

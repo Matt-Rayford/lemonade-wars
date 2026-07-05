@@ -77,10 +77,13 @@ namespace LemonadeWars.Unity
         private RectTransform _dibsHost;
         private RectTransform _discardOverlay;
         private RectTransform _discardGrid;
+        private ScrollRect _discardScrollRect;
         private Text _discardTitle;
         private GameObject _discardTakeButton;
+        private GameObject _discardBackButton;
         private Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
+        private System.Action _discardOnBack;
         private int? _discardSelectedId;
         private readonly Dictionary<int, GameObject> _discardSelectGlows =
             new Dictionary<int, GameObject>();
@@ -471,6 +474,7 @@ namespace LemonadeWars.Unity
             scroll.viewport = (RectTransform)viewportGo.transform;
             scroll.content = content;
             _discardGrid = content;
+            _discardScrollRect = scroll;
 
             // Bottom-center: "TAKE <CARD>" — only exists while a pick is required.
             var buttonGo = new GameObject("TakeButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
@@ -506,6 +510,37 @@ namespace LemonadeWars.Unity
             });
             _discardTakeButton = buttonGo;
 
+            // Bottom-left: BACK — only for multi-step flows (e.g. Finders Keepers,
+            // returning to the victim choice).
+            var backGo = new GameObject("BackButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
+            backGo.transform.SetParent(_discardOverlay, false);
+            var backRect = (RectTransform)backGo.transform;
+            backRect.anchorMin = backRect.anchorMax = new Vector2(0f, 0f);
+            backRect.pivot = new Vector2(0f, 0f);
+            backRect.sizeDelta = new Vector2(180f, 58f);
+            backRect.anchoredPosition = new Vector2(30f, 26f);
+            var backImage = backGo.GetComponent<Image>();
+            backImage.sprite = UiSprites.RoundedRect;
+            backImage.type = Image.Type.Sliced;
+            backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f);
+            var backShadow = backGo.GetComponent<Shadow>();
+            backShadow.effectColor = new Color(0, 0, 0, 0.5f);
+            backShadow.effectDistance = new Vector2(0, -4f);
+            var backLabel = UiKit.CreateText(backGo.transform, "< BACK", 22,
+                TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
+            backLabel.raycastTarget = false;
+            UiKit.Anchor((RectTransform)backLabel.transform, Vector2.zero, Vector2.one);
+            UiKit.AddHover(backGo,
+                () => backImage.color = new Color(0.22f, 0.26f, 0.35f, 0.96f),
+                () => backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f));
+            UiKit.AddClick(backGo, () =>
+            {
+                var back = _discardOnBack;
+                CloseDiscardViewer();
+                back?.Invoke();
+            });
+            _discardBackButton = backGo;
+
             _discardOverlay.gameObject.SetActive(false);
         }
 
@@ -525,11 +560,13 @@ namespace LemonadeWars.Unity
         /// </summary>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
-            System.Action<int> onTake)
+            System.Action<int> onTake, System.Action onBack = null)
         {
             _discardTitle.text = title;
             _discardOnTake = onTake;
+            _discardOnBack = onBack;
             FillDiscardGrid(cards, blackMarket, nameOf);
+            _discardBackButton.SetActive(onBack != null);
             _discardOverlay.gameObject.SetActive(true);
         }
 
@@ -580,12 +617,49 @@ namespace LemonadeWars.Unity
             _discardTakeButton.SetActive(true);
         }
 
+        /// <summary>
+        /// Hover-based scrolling for the discard browser/picker: the top and bottom 20%
+        /// of the screen glide the grid, faster nearer the edge. Call every frame.
+        /// </summary>
+        public void TickDiscardScroll(Vector2 screenPosition)
+        {
+            if (!_discardOverlay.gameObject.activeSelf)
+            {
+                return;
+            }
+            float scrollable = _discardGrid.rect.height - _discardScrollRect.viewport.rect.height;
+            if (scrollable <= 1f)
+            {
+                return; // everything fits, nothing to scroll
+            }
+            float fraction = screenPosition.y / Mathf.Max(1f, Screen.height);
+            const float zone = 0.2f;
+            float direction = 0f;
+            if (fraction > 1f - zone)
+            {
+                direction = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            else if (fraction < zone)
+            {
+                direction = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            if (direction == 0f)
+            {
+                return;
+            }
+            _discardScrollRect.verticalNormalizedPosition = Mathf.Clamp01(
+                _discardScrollRect.verticalNormalizedPosition +
+                direction * 900f * Time.deltaTime / scrollable);
+        }
+
         private void CloseDiscardViewer()
         {
             _discardOverlay.gameObject.SetActive(false);
             _discardOnTake = null;
+            _discardOnBack = null;
             _discardSelectedId = null;
             _discardTakeButton.SetActive(false);
+            _discardBackButton.SetActive(false);
         }
 
         // ------------------------------------------------------------ render
@@ -765,15 +839,6 @@ namespace LemonadeWars.Unity
 
                 if (optionCount > 0)
                 {
-                    // Revealed only when the card rises.
-                    var badge = UiKit.CreatePanel(frame, "PlayBadge", UiKit.ButtonColor);
-                    UiKit.Anchor(badge, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
-                    badge.sizeDelta = new Vector2(width * 0.6f, 26f);
-                    badge.anchoredPosition = new Vector2(0, 20f);
-                    var badgeText = UiKit.CreateText(badge, $"PLAY ({optionCount})", 14,
-                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
-                    UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
-
                     int captured = card.InstanceId;
                     UiKit.AddClick(image.gameObject, () => OnHandCard?.Invoke(captured));
                 }
