@@ -74,12 +74,14 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview);
             _table.OnHandCard = OpenHandMenu;
-            _table.OnSupplyPile = OpenSupplyMenu;
             _table.CanBuyMarket = i =>
                 !_humanAutoplay && MoveGroups.For(_game, HumanSeat).MarketMoves.ContainsKey(i);
             _table.OnMarketDragStart = OnMarketDragStart;
             _table.OnMarketDragEnd = () => _table.ClearDropHighlights();
             _table.OnMarketDrop = OnMarketDrop;
+            _table.CanBuySupply = typeId =>
+                !_humanAutoplay && MoveGroups.For(_game, HumanSeat).SupplyMoves.ContainsKey(typeId);
+            _table.OnSupplyDrop = OnSupplyDrop;
             // Built last: overlays render on top of the table.
             _prompt = new Prompt(root, _art);
             _picker = new CardPicker(root, _preview, this);
@@ -122,6 +124,7 @@ namespace LemonadeWars.Unity
                 _modalRevision = -1;
             }
 
+            _table?.TickSupplyDrag(Input.mousePosition);
             StepBots();
             RenderIfChanged();
         }
@@ -221,18 +224,18 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private void OpenSupplyMenu(string standTypeId)
+        private void OnSupplyDrop(string standTypeId, int insertIndex)
         {
-            var groups = MoveGroups.For(_game, HumanSeat);
-            if (!groups.SupplyMoves.TryGetValue(standTypeId, out var moves))
+            if (!MoveGroups.For(_game, HumanSeat).SupplyMoves.TryGetValue(standTypeId, out var moves))
             {
                 return;
             }
-            var supply = _game.State.StandSupply[standTypeId];
-            var texture = supply.Count > 0 ? _art.Stand(standTypeId, supply[0]) : _art.Stand(standTypeId);
-            _prompt.Show($"Buy a {_db.StandType(standTypeId).Name}?",
-                new[] { texture },
-                ToOptions(moves), showCancel: true);
+            // Match the previewed row position; fall back to the rightmost slot.
+            var pick = moves.FirstOrDefault(m =>
+                    (m as BuyStand)?.InsertIndex == insertIndex ||
+                    (m as InitialBuyStand)?.InsertIndex == insertIndex)
+                ?? moves[moves.Count - 1];
+            ApplyAction(pick);
         }
 
         private List<Prompt.Option> ToOptions(IEnumerable<GameAction> moves)

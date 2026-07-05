@@ -4,22 +4,31 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
+    public enum DragKind
+    {
+        MarketCard,
+        SupplyStand,
+    }
+
     /// <summary>
-    /// Draggable market card: lifts with a glow on hover, spawns a ghost that follows the
-    /// pointer while dragging. Drop resolution happens in <see cref="DropTarget"/>.
+    /// Draggable table object (market card or supply stand): lifts with a glow on hover,
+    /// spawns a ghost that follows the pointer while dragging. Drop resolution happens in
+    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>.
     /// </summary>
     public sealed class DragSource : MonoBehaviour,
         IPointerEnterHandler, IPointerExitHandler,
         IBeginDragHandler, IDragHandler, IEndDragHandler
     {
+        public DragKind Kind;
         public int MarketIndex;
+        public string SupplyTypeId = "";
         public Texture2D Texture;
         public RectTransform CanvasRoot;
         public RectTransform LiftTarget;
         public GameObject GlowInner;
         public GameObject GlowOuter;
-        public System.Func<int, bool> CanAct;
-        public System.Action<int> DragStarted;
+        public System.Func<bool> CanAct;
+        public System.Action DragStarted;
         public System.Action DragEnded;
 
         public bool Dragging { get; private set; }
@@ -28,7 +37,7 @@ namespace LemonadeWars.Unity
 
         public void OnPointerEnter(PointerEventData eventData)
         {
-            if (CanAct == null || !CanAct(MarketIndex))
+            if (CanAct == null || !CanAct())
             {
                 return;
             }
@@ -45,7 +54,7 @@ namespace LemonadeWars.Unity
 
         public void OnBeginDrag(PointerEventData eventData)
         {
-            if (CanAct == null || !CanAct(MarketIndex))
+            if (CanAct == null || !CanAct())
             {
                 return;
             }
@@ -61,7 +70,7 @@ namespace LemonadeWars.Unity
             image.color = new Color(1f, 1f, 1f, 0.92f);
             _ghost.position = eventData.position;
 
-            DragStarted?.Invoke(MarketIndex);
+            DragStarted?.Invoke();
         }
 
         public void OnDrag(PointerEventData eventData)
@@ -119,13 +128,15 @@ namespace LemonadeWars.Unity
         public void OnPointerClick(PointerEventData eventData) => Clicked?.Invoke();
     }
 
-    /// <summary>A board cell (turf or stand) that accepts a dragged market card.</summary>
+    /// <summary>A board cell (turf or stand) that accepts dragged market cards and stands.</summary>
     public sealed class DropTarget : MonoBehaviour, IDropHandler,
         IPointerEnterHandler, IPointerExitHandler
     {
         /// <summary>Stand instance id, or null for the turf.</summary>
         public int? StandInstanceId;
         public System.Action<int, int?> Dropped;
+        /// <summary>Supply stands dropped on a cell still insert at the previewed position.</summary>
+        public System.Action<string> SupplyDropped;
         /// <summary>Fires while a drag hovers this cell (true) or leaves it (false).</summary>
         public System.Action<int?, bool> HoverChanged;
 
@@ -134,7 +145,15 @@ namespace LemonadeWars.Unity
             var source = eventData.pointerDrag != null
                 ? eventData.pointerDrag.GetComponent<DragSource>()
                 : null;
-            if (source != null && source.Dragging)
+            if (source == null || !source.Dragging)
+            {
+                return;
+            }
+            if (source.Kind == DragKind.SupplyStand)
+            {
+                SupplyDropped?.Invoke(source.SupplyTypeId);
+            }
+            else
             {
                 Dropped?.Invoke(source.MarketIndex, StandInstanceId);
             }
@@ -151,6 +170,23 @@ namespace LemonadeWars.Unity
         public void OnPointerExit(PointerEventData eventData)
         {
             HoverChanged?.Invoke(StandInstanceId, false);
+        }
+    }
+
+    /// <summary>The board background: catches supply-stand drops between/around the cells.</summary>
+    public sealed class BoardDropZone : MonoBehaviour, IDropHandler
+    {
+        public System.Action<string> SupplyDropped;
+
+        public void OnDrop(PointerEventData eventData)
+        {
+            var source = eventData.pointerDrag != null
+                ? eventData.pointerDrag.GetComponent<DragSource>()
+                : null;
+            if (source != null && source.Dragging && source.Kind == DragKind.SupplyStand)
+            {
+                SupplyDropped?.Invoke(source.SupplyTypeId);
+            }
         }
     }
 }
