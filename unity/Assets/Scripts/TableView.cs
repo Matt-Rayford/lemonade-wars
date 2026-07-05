@@ -95,6 +95,8 @@ namespace LemonadeWars.Unity
             barLayout.spacing = 8;
             barLayout.childForceExpandHeight = true;
             barLayout.childForceExpandWidth = false;
+            barLayout.childControlWidth = true;
+            barLayout.childControlHeight = true;
             ActionBar = (RectTransform)bar.transform;
 
             // Right: supply, bragging rights, first dibs.
@@ -298,7 +300,10 @@ namespace LemonadeWars.Unity
             layout.childForceExpandWidth = true;
             layout.childControlHeight = true;
             layout.childControlWidth = true;
-            cell.GetComponent<LayoutElement>().preferredWidth = width;
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
 
             var image = UiKit.CreateCardImage((RectTransform)cell.transform, texture, width, height);
             _preview.Attach(image.gameObject, texture);

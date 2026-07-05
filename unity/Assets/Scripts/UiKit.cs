@@ -113,6 +113,9 @@ namespace LemonadeWars.Unity
             var layout = frame.GetComponent<LayoutElement>();
             layout.preferredWidth = width;
             layout.preferredHeight = height;
+            // Never absorb leftover row space — that stretches the art.
+            layout.flexibleWidth = 0;
+            layout.flexibleHeight = 0;
 
             var go = new GameObject("Tex", typeof(RectTransform), typeof(RawImage));
             go.transform.SetParent(frame.transform, false);
@@ -174,6 +177,8 @@ namespace LemonadeWars.Unity
             layout.childAlignment = TextAnchor.MiddleLeft;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             return (RectTransform)go.transform;
         }
 
@@ -214,6 +219,8 @@ namespace LemonadeWars.Unity
             layout.childAlignment = TextAnchor.MiddleLeft;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             contentGo.GetComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             scroll.viewport = (RectTransform)viewportGo.transform;

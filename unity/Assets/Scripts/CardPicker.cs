@@ -91,6 +91,8 @@ namespace LemonadeWars.Unity
             layout.childAlignment = TextAnchor.MiddleCenter;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             _row = (RectTransform)rowGo.transform;
 
             // Accept floats bottom-right of the screen.
@@ -237,6 +239,8 @@ namespace LemonadeWars.Unity
             var layoutElement = cell.GetComponent<LayoutElement>();
             layoutElement.preferredWidth = width + 8;
             layoutElement.preferredHeight = height + LiftHeight + 6;
+            layoutElement.flexibleWidth = 0;
+            layoutElement.flexibleHeight = 0;
 
             // The lifting container: anchored to the cell bottom, eased upward on select.
             var liftGo = new GameObject("Lift", typeof(RectTransform));
