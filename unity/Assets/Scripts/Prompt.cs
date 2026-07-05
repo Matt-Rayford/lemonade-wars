@@ -111,13 +111,26 @@ namespace LemonadeWars.Unity
 
         public CardPreview(RectTransform canvasRoot)
         {
-            _root = UiKit.CreatePanel(canvasRoot, "Preview", new Color(0, 0, 0, 0.55f));
+            _root = UiKit.CreatePanel(canvasRoot, "Preview", new Color(0, 0, 0, 0));
             UiKit.Anchor(_root, new Vector2(0.005f, 0.28f), new Vector2(0.20f, 0.78f));
-            var go = new GameObject("PreviewImage", typeof(RectTransform), typeof(RawImage));
-            go.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)go.transform, Vector2.zero, Vector2.one,
+            _root.GetComponent<Image>().raycastTarget = false;
+
+            // Rounded frame + masked texture, same treatment as table cards.
+            var frame = new GameObject("PreviewFrame", typeof(RectTransform), typeof(Image), typeof(Mask));
+            frame.transform.SetParent(_root, false);
+            UiKit.Anchor((RectTransform)frame.transform, Vector2.zero, Vector2.one,
                 new Vector2(6, 6), new Vector2(-6, -6));
+            var frameImage = frame.GetComponent<Image>();
+            frameImage.sprite = UiSprites.RoundedRect;
+            frameImage.type = Image.Type.Sliced;
+            frameImage.raycastTarget = false;
+            frame.GetComponent<Mask>().showMaskGraphic = true;
+
+            var go = new GameObject("PreviewImage", typeof(RectTransform), typeof(RawImage));
+            go.transform.SetParent(frame.transform, false);
+            UiKit.Anchor((RectTransform)go.transform, Vector2.zero, Vector2.one);
             _image = go.GetComponent<RawImage>();
+            _image.raycastTarget = false;
             _root.gameObject.SetActive(false);
         }
 

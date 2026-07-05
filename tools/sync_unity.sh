@@ -23,6 +23,10 @@ echo "== syncing engine DLL =="
 mkdir -p "$PLUGINS"
 cp src/LemonadeWars.Engine/bin/Release/netstandard2.1/LemonadeWars.Engine.dll "$PLUGINS/"
 
+echo "== syncing fonts =="
+mkdir -p "$UNITY_DIR/Assets/Resources/fonts"
+cp game-assets/fonts/*.ttf "$UNITY_DIR/Assets/Resources/fonts/" 2>/dev/null || true
+
 echo "== syncing game data =="
 rm -rf "$STREAMING/game-data" "$STREAMING/images"
 mkdir -p "$STREAMING/game-data" "$STREAMING/images"

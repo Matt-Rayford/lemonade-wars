@@ -46,6 +46,7 @@ namespace LemonadeWars.Unity
 
         private TableView _table;
         private Prompt _prompt;
+        private CardPicker _picker;
         private CardPreview _preview;
         private Text _statusText;
         private int _renderedRevision = -1;
@@ -75,7 +76,9 @@ namespace LemonadeWars.Unity
             _table.OnHandCard = OpenHandMenu;
             _table.OnMarketCard = OpenMarketMenu;
             _table.OnSupplyPile = OpenSupplyMenu;
-            _prompt = new Prompt(root, _art); // built last: renders on top
+            // Built last: overlays render on top of the table.
+            _prompt = new Prompt(root, _art);
+            _picker = new CardPicker(root, _preview, this);
         }
 
         private void NewGame()
@@ -94,6 +97,7 @@ namespace LemonadeWars.Unity
             _log.Clear();
             Log($"New game — you're up against {Names[1]}, {Names[2]} and {Names[3]}.");
             _prompt?.Hide();
+            _picker?.Hide();
             _renderedRevision = -1;
             _modalRevision = -1;
         }
@@ -108,6 +112,7 @@ namespace LemonadeWars.Unity
             {
                 _humanAutoplay = !_humanAutoplay;
                 _prompt.Hide();
+                _picker.Hide();
                 Log(_humanAutoplay ? "Autopilot ON." : "Autopilot off.");
                 _renderedRevision = -1;
                 _modalRevision = -1;
@@ -143,6 +148,7 @@ namespace LemonadeWars.Unity
         private void ApplyAction(GameAction action)
         {
             _prompt.Hide();
+            _picker.Hide();
             foreach (var gameEvent in _game.Apply(action))
             {
                 Log(gameEvent.ToString());
@@ -294,12 +300,90 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            if (_modalRevision == revision && _prompt.IsOpen)
+            if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen))
             {
                 return;
             }
             _modalRevision = revision;
+            if (TryShowPicker())
+            {
+                return;
+            }
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(groups.ModalMoves), showCancel: false);
+        }
+
+        /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>
+        private bool TryShowPicker()
+        {
+            var s = _game.State;
+
+            if (s.Stage == GameStage.ChoosingLemonLords)
+            {
+                var dealt = s.Players[HumanSeat].LemonLordDealt.ToList();
+                _picker.Show($"Keep {_db.Config.LemonLordKept} secret Lemon Lord titles",
+                    dealt.Select(id => _art.Title(id)).ToList(),
+                    _db.Config.LemonLordKept,
+                    picked => ApplyAction(new ChooseLemonLords
+                    {
+                        PlayerId = HumanSeat,
+                        KeepTitleIds = picked.Select(i => dealt[i]).ToList(),
+                    }));
+                return true;
+            }
+
+            var decision = s.PendingDecisions.FirstOrDefault(d => d.PlayerId == HumanSeat);
+            if (decision == null)
+            {
+                return false;
+            }
+
+            List<int> pool;
+            int required;
+            string title;
+            System.Action<List<int>> accept;
+            switch (decision.Kind)
+            {
+                case DecisionKind.DiscardToHandLimit:
+                case DecisionKind.WhiniestBabyDiscard:
+                    pool = s.Players[HumanSeat].Hand.ToList();
+                    required = decision.RequiredCount;
+                    title = decision.Kind == DecisionKind.DiscardToHandLimit
+                        ? $"Timeout! Discard {required} card(s)"
+                        : "Whiniest Baby: discard 1 card";
+                    accept = ids => ApplyAction(new SubmitDiscard { PlayerId = HumanSeat, InstanceIds = ids });
+                    break;
+
+                case DecisionKind.AbilityDiscard:
+                    pool = s.Players[HumanSeat].Hand.ToList();
+                    required = decision.RequiredCount;
+                    title = $"Discard {required} card(s)";
+                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    break;
+
+                case DecisionKind.AbilityPickCard:
+                    pool = s.Players[decision.ChosenPlayerId ?? 0].Hand.ToList();
+                    required = 1;
+                    title = $"Pick a card from {Names[decision.ChosenPlayerId ?? 0]}'s hand";
+                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    break;
+
+                case DecisionKind.AbilityGiveBack:
+                    pool = s.Players[HumanSeat].Hand.Where(id => id != decision.StolenCardId).ToList();
+                    required = 1;
+                    title = "Give back a different card";
+                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    break;
+
+                default:
+                    return false;
+            }
+
+            var capturedPool = pool;
+            _picker.Show(title,
+                capturedPool.Select(id => _art.Lemon(s.LemonInstances[id].DefId)).ToList(),
+                required,
+                picked => accept(picked.Select(i => capturedPool[i]).ToList()));
+            return true;
         }
 
         private string ModalTitle()
@@ -307,7 +391,7 @@ namespace LemonadeWars.Unity
             var s = _game.State;
             if (s.Stage == GameStage.ChoosingLemonLords)
             {
-                return "Keep 2 secret Lemon Lord titles";
+                return "Pick 2 Lemon Lord titles";
             }
             var decision = s.PendingDecisions.FirstOrDefault(d => d.PlayerId == HumanSeat);
             if (decision != null)
