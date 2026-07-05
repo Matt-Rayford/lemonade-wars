@@ -332,11 +332,12 @@ namespace LemonadeWars.Engine.Tests
                 {
                     case DecisionKind.DiscardToHandLimit:
                     case DecisionKind.WhiniestBabyDiscard:
+                        var pool = decision.EligibleCardIds ?? player.Hand;
                         game.Apply(new SubmitDiscard
                         {
                             PlayerId = player.PlayerId,
-                            InstanceIds = player.Hand
-                                .Skip(player.Hand.Count - decision.RequiredCount).ToList(),
+                            InstanceIds = pool
+                                .Skip(pool.Count - decision.RequiredCount).ToList(),
                         });
                         break;
                     case DecisionKind.TimeoutFine:

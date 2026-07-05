@@ -54,9 +54,8 @@ namespace LemonadeWars.Unity
         private Text _sideText;
         private Text _logText;
         private RectTransform _marketRow;
-        private RectTransform _supplyRow;
         private RectTransform _boardRow;
-        private RectTransform _handRow;
+        private RectTransform _handHost;
         public RectTransform Root { get; private set; }
         public RectTransform ActionBar { get; private set; }
 
@@ -92,37 +91,34 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)_logText.transform, Vector2.zero, Vector2.one,
                 new Vector2(10, 6), new Vector2(-10, -6));
 
-            // Center-top: the Black Market row.
+            // Top: the Black Market row + (after a gap) the stand supply and Bragging
+            // Rights, one full-width shelf of everything buyable.
             var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
-            UiKit.Anchor(market, new Vector2(0.21f, 0.70f), new Vector2(0.79f, 0.95f),
-                new Vector2(3, 4), new Vector2(-3, -4));
+            UiKit.Anchor(market, new Vector2(0.21f, 0.70f), new Vector2(1f, 0.95f),
+                new Vector2(3, 4), new Vector2(-6, -4));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
             // Center band: turn/roll banner.
             var banner = UiKit.CreatePanel(Root, "Banner", new Color(0.16f, 0.20f, 0.28f, 0.95f));
-            UiKit.Anchor(banner, new Vector2(0.21f, 0.63f), new Vector2(0.79f, 0.70f),
+            UiKit.Anchor(banner, new Vector2(0.21f, 0.60f), new Vector2(0.79f, 0.67f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _bannerText = UiKit.CreateText(banner, "", 20, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f));
             UiKit.Anchor((RectTransform)_bannerText.transform, Vector2.zero, Vector2.one);
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
-            var board = UiKit.CreatePanel(Root, "Board", UiKit.PanelColor);
-            UiKit.Anchor(board, new Vector2(0.21f, 0.315f), new Vector2(0.79f, 0.63f),
+            // Transparent — cards float on the table; the Image still catches drops.
+            var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
+            UiKit.Anchor(board, new Vector2(0.21f, 0.22f), new Vector2(0.79f, 0.60f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
 
-            // Bottom-center: your hand.
-            var hand = UiKit.CreatePanel(Root, "Hand", UiKit.PanelColor);
-            UiKit.Anchor(hand, new Vector2(0.21f, 0), new Vector2(0.79f, 0.27f),
-                new Vector2(3, 6), new Vector2(-3, -2));
-            _handRow = UiKit.CreateScrollRow(hand);
-
-            // Bottom-center strip: persistent actions.
-            var actions = UiKit.CreatePanel(Root, "Actions", new Color(0.09f, 0.10f, 0.13f, 0.95f));
-            UiKit.Anchor(actions, new Vector2(0.21f, 0.27f), new Vector2(0.79f, 0.315f),
+            // Persistent actions: a floating button strip above the hand's peek band.
+            var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
+            actions.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(actions, new Vector2(0.21f, 0.17f), new Vector2(0.79f, 0.22f),
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);
@@ -136,18 +132,23 @@ namespace LemonadeWars.Unity
             barLayout.childControlHeight = true;
             ActionBar = (RectTransform)bar.transform;
 
-            // Right: supply, bragging rights, first dibs.
+            // Right: first dibs + deck counts (the supply lives on the market shelf now).
             var side = UiKit.CreatePanel(Root, "Side", UiKit.PanelColor);
-            UiKit.Anchor(side, new Vector2(0.79f, 0), new Vector2(1, 0.95f),
-                new Vector2(3, 6), new Vector2(-6, -4));
-            var supplyHost = UiKit.CreatePanel(side, "SupplyHost", new Color(0, 0, 0, 0.15f));
-            UiKit.Anchor(supplyHost, new Vector2(0, 0.60f), new Vector2(1, 1),
-                new Vector2(4, 2), new Vector2(-4, -4));
-            _supplyRow = UiKit.CreateCardRow(supplyHost, "SupplyRow");
+            UiKit.Anchor(side, new Vector2(0.79f, 0), new Vector2(1, 0.67f),
+                new Vector2(3, 6), new Vector2(-6, -3));
             _sideText = UiKit.CreateText(side, "", 16);
             var sideTextRt = (RectTransform)_sideText.transform;
-            UiKit.Anchor(sideTextRt, new Vector2(0, 0), new Vector2(1, 0.60f),
-                new Vector2(10, 8), new Vector2(-10, -4));
+            UiKit.Anchor(sideTextRt, Vector2.zero, Vector2.one,
+                new Vector2(10, 8), new Vector2(-10, -8));
+
+            // Bottom edge: the hand. Cards peek up from below the screen and rise on
+            // hover, Dune: Imperium style. Built LAST so raised cards overlay the table.
+            _handHost = UiKit.CreatePanel(Root, "Hand", new Color(0, 0, 0, 0));
+            _handHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(_handHost, new Vector2(0.21f, 0f), new Vector2(0.79f, 0f));
+            _handHost.pivot = new Vector2(0.5f, 0f);
+            _handHost.sizeDelta = new Vector2(_handHost.sizeDelta.x, 300f);
+            _handHost.anchoredPosition = Vector2.zero;
         }
 
         // ------------------------------------------------------------ render
@@ -173,27 +174,21 @@ namespace LemonadeWars.Unity
             {
                 var card = view.Market[i];
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
-                int price = i < view.MarketPrices.Count
-                    ? view.MarketPrices[i]
-                    : db.BlackMarket(card.DefId).Cost;
-                bool buyable = groups?.MarketMoves.ContainsKey(i) == true;
-                BuildMarketCell(i, texture, price, buyable);
+                BuildMarketCell(i, texture);
             }
         }
 
-        /// <summary>A market card: hover lifts it with a glow; drag it onto your turf/stands to buy.</summary>
-        private void BuildMarketCell(int marketIndex, Texture2D texture, int price, bool buyable)
+        /// <summary>A market card: hover glows it; drag it onto your turf/stands to buy.</summary>
+        private void BuildMarketCell(int marketIndex, Texture2D texture)
         {
-            const float width = 140f;
-            const float height = 196f;
-            const float badgeHeight = 22f;
-            const float liftRoom = 14f;
+            const float width = 154f;
+            const float height = 216f;
 
             var cell = new GameObject("MarketCell", typeof(RectTransform), typeof(LayoutElement));
             cell.transform.SetParent(_marketRow, false);
             var cellElement = cell.GetComponent<LayoutElement>();
             cellElement.preferredWidth = width + 8;
-            cellElement.preferredHeight = height + badgeHeight + liftRoom + 4;
+            cellElement.preferredHeight = height + 4;
             cellElement.flexibleWidth = 0;
             cellElement.flexibleHeight = 0;
 
@@ -203,13 +198,14 @@ namespace LemonadeWars.Unity
             lift.anchorMin = new Vector2(0.5f, 0f);
             lift.anchorMax = new Vector2(0.5f, 0f);
             lift.pivot = new Vector2(0.5f, 0f);
-            lift.sizeDelta = new Vector2(width, height + badgeHeight + 2);
+            lift.sizeDelta = new Vector2(width, height);
             lift.anchoredPosition = Vector2.zero;
 
+            // Glow margins split evenly above and below: centered on the card.
             var top = new Vector2(0.5f, 1f);
-            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 14),
+            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 22),
                 width + 44, height + 44, GlowOuterColor);
-            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 7),
+            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 10),
                 width + 20, height + 20, GlowInnerColor);
 
             var image = UiKit.CreateCardImage(lift, texture, width, height);
@@ -220,27 +216,12 @@ namespace LemonadeWars.Unity
             frame.anchoredPosition = Vector2.zero;
             frame.sizeDelta = new Vector2(width, height);
 
-            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
-            badgeGo.transform.SetParent(lift, false);
-            var badgeRect = (RectTransform)badgeGo.transform;
-            badgeRect.anchorMin = new Vector2(0, 0);
-            badgeRect.anchorMax = new Vector2(1, 0);
-            badgeRect.pivot = new Vector2(0.5f, 0);
-            badgeRect.sizeDelta = new Vector2(0, badgeHeight);
-            badgeGo.GetComponent<Image>().color =
-                buyable ? UiKit.ButtonColor : new Color(0, 0, 0, 0.55f);
-            var badgeText = UiKit.CreateText(badgeGo.transform,
-                buyable ? $"${price} · drag" : $"${price}", 13, TextAnchor.MiddleCenter,
-                buyable ? UiKit.ButtonTextColor : Color.white);
-            UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
-
             _preview.Attach(image.gameObject, texture);
             var drag = image.gameObject.AddComponent<DragSource>();
             drag.Kind = DragKind.MarketCard;
             drag.MarketIndex = marketIndex;
             drag.Texture = texture;
             drag.CanvasRoot = _canvasRoot;
-            drag.LiftTarget = lift;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
             drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
@@ -260,7 +241,7 @@ namespace LemonadeWars.Unity
 
             var turfTexture = _art.Turf(me.TurfPowerPourNumber);
             var turfCaption = "Pours " + string.Join(",", me.PourNumbers);
-            var turfCell = AddCard(_boardRow, turfTexture, 120, 168, turfCaption, false, null);
+            var turfCell = AddCard(_boardRow, turfTexture, 150, 210, turfCaption, false, null);
             AddEquipList(turfCell, me.TurfEquipped);
             MakeDropTarget(turfCell, null);
 
@@ -268,7 +249,7 @@ namespace LemonadeWars.Unity
             {
                 string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
                 var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId, stand.Shape),
-                    120, 168, caption, false, null);
+                    150, 210, caption, false, null);
                 AddEquipList(cell, stand.Equipped);
                 MakeDropTarget(cell, stand.InstanceId);
                 _standCells.Add(cell);
@@ -277,40 +258,115 @@ namespace LemonadeWars.Unity
 
         private void RenderHand(PlayerView view, MoveGroups groups)
         {
-            UiKit.Clear(_handRow);
-            foreach (var card in view.Hand)
+            UiKit.Clear(_handHost);
+            int count = view.Hand.Count;
+            if (count == 0)
             {
+                return;
+            }
+
+            const float width = 190f;
+            const float height = 266f;
+            const float raisedY = 12f;         // fully visible, floating just off the edge
+            const float peekPlayable = 180f;   // ~2/3 visible at rest
+            const float peekIdle = 158f;       // unplayable cards sit a little lower
+
+            float available = _handHost.rect.width;
+            if (available < 10f)
+            {
+                available = 1100f; // first-frame fallback before canvas layout settles
+            }
+            // Always overlapped, Dune Imperium style; compresses further when the hand grows.
+            float spacing = count > 1
+                ? Mathf.Min(width * 0.72f, (available - width) / (count - 1))
+                : 0f;
+            float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
+
+            for (int i = 0; i < count; i++)
+            {
+                var card = view.Hand[i];
                 int optionCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
                     ? moves.Count
                     : 0;
-                int captured = card.InstanceId;
-                AddCard(_handRow, _art.Lemon(card.DefId), 140, 196,
-                    optionCount > 0 ? $"PLAY ({optionCount})" : "",
-                    optionCount > 0, () => OnHandCard?.Invoke(captured));
+                var texture = _art.Lemon(card.DefId);
+
+                var image = UiKit.CreateCardImage(_handHost, texture, width, height);
+                var frame = (RectTransform)image.transform.parent;
+                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+                frame.pivot = new Vector2(0.5f, 0f);
+                frame.sizeDelta = new Vector2(width, height);
+                float restY = (optionCount > 0 ? peekPlayable : peekIdle) - height;
+                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
+                var motion = frame.gameObject.AddComponent<HandCardMotion>();
+                motion.TargetY = restY;
+
+                if (optionCount > 0)
+                {
+                    // Thin lemonade strip along the visible top edge: playable at a glance.
+                    var strip = UiKit.CreatePanel(frame, "PlayableStrip", UiKit.ButtonColor);
+                    UiKit.Anchor(strip, new Vector2(0f, 1f), new Vector2(1f, 1f),
+                        new Vector2(0, -7f), new Vector2(0, 0));
+
+                    // Revealed only when the card rises.
+                    var badge = UiKit.CreatePanel(frame, "PlayBadge", UiKit.ButtonColor);
+                    UiKit.Anchor(badge, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
+                    badge.sizeDelta = new Vector2(width * 0.6f, 26f);
+                    badge.anchoredPosition = new Vector2(0, 20f);
+                    var badgeText = UiKit.CreateText(badge, $"PLAY ({optionCount})", 14,
+                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
+                    UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
+
+                    int captured = card.InstanceId;
+                    UiKit.AddClick(image.gameObject, () => OnHandCard?.Invoke(captured));
+                }
+
+                int sibling = i;
+                UiKit.AddHover(image.gameObject,
+                    () =>
+                    {
+                        frame.SetAsLastSibling();
+                        motion.TargetY = raisedY;
+                    },
+                    () =>
+                    {
+                        frame.SetSiblingIndex(sibling);
+                        motion.TargetY = restY;
+                    });
+                _preview.Attach(image.gameObject, texture);
             }
         }
 
+        /// <summary>Appends to the market row — call after RenderMarket (which clears it).</summary>
         private void RenderSupply(PlayerView view, CardDatabase db, MoveGroups groups)
         {
-            UiKit.Clear(_supplyRow);
+            // Equal stretchy gaps split the shelf: market | stands | Bragging Rights.
+            AddRowGap();
+
             foreach (var type in db.StandTypes)
             {
-                view.StandSupplyCounts.TryGetValue(type.Id, out int stock);
-                bool buyable = groups?.SupplyMoves.ContainsKey(type.Id) == true;
-                int price = view.SupplyPrices.TryGetValue(type.Id, out int p) ? p : type.BaseCost;
-                string caption = $"${price} x{stock}" + (buyable ? " · drag" : "");
                 var texture = view.SupplyTopShapes.TryGetValue(type.Id, out var shape)
                     ? _art.Stand(type.Id, shape)
                     : _art.Stand(type.Id);
-                BuildSupplyCell(type.Id, texture, caption, buyable);
+                BuildSupplyCell(type.Id, texture);
             }
 
             if (view.NextBraggingRightsPrice is int braggingPrice)
             {
+                AddRowGap();
                 // Index derived from price: $16 base, +$2 per sale.
                 int sold = (braggingPrice - 16) / 2;
-                AddCard(_supplyRow, _art.BraggingRights(sold), 92, 129, $"${braggingPrice}", false, null);
+                AddCard(_marketRow, _art.BraggingRights(sold), 154, 216, "", false, null);
             }
+        }
+
+        /// <summary>A flexible spacer; multiple gaps in the row share leftover width equally.</summary>
+        private void AddRowGap()
+        {
+            var gap = new GameObject("RowGap", typeof(RectTransform), typeof(LayoutElement));
+            gap.transform.SetParent(_marketRow, false);
+            var gapElement = gap.GetComponent<LayoutElement>();
+            gapElement.preferredWidth = 24;
+            gapElement.flexibleWidth = 1;
         }
 
         private void RenderOpponents(PlayerView view, CardDatabase db)
@@ -392,19 +448,17 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------- supply drag insertion
 
-        /// <summary>A supply pile: hover lifts it; drag it into your board row to buy a stand.</summary>
-        private void BuildSupplyCell(string standTypeId, Texture2D texture, string caption, bool buyable)
+        /// <summary>A supply pile: hover glows it; drag it into your board row to buy a stand.</summary>
+        private void BuildSupplyCell(string standTypeId, Texture2D texture)
         {
-            const float width = 92f;
-            const float height = 129f;
-            const float badgeHeight = 20f;
-            const float liftRoom = 12f;
+            const float width = 154f;
+            const float height = 216f;
 
             var cell = new GameObject("SupplyCell", typeof(RectTransform), typeof(LayoutElement));
-            cell.transform.SetParent(_supplyRow, false);
+            cell.transform.SetParent(_marketRow, false);
             var cellElement = cell.GetComponent<LayoutElement>();
-            cellElement.preferredWidth = width + 6;
-            cellElement.preferredHeight = height + badgeHeight + liftRoom + 4;
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + 4;
             cellElement.flexibleWidth = 0;
             cellElement.flexibleHeight = 0;
 
@@ -414,14 +468,15 @@ namespace LemonadeWars.Unity
             lift.anchorMin = new Vector2(0.5f, 0f);
             lift.anchorMax = new Vector2(0.5f, 0f);
             lift.pivot = new Vector2(0.5f, 0f);
-            lift.sizeDelta = new Vector2(width, height + badgeHeight + 2);
+            lift.sizeDelta = new Vector2(width, height);
             lift.anchoredPosition = Vector2.zero;
 
+            // Glow margins split evenly above and below: centered on the card.
             var top = new Vector2(0.5f, 1f);
-            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 10),
-                width + 34, height + 34, GlowOuterColor);
-            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 5),
-                width + 16, height + 16, GlowInnerColor);
+            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 22),
+                width + 44, height + 44, GlowOuterColor);
+            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 10),
+                width + 20, height + 20, GlowInnerColor);
 
             var image = UiKit.CreateCardImage(lift, texture, width, height);
             var frame = (RectTransform)image.transform.parent;
@@ -431,26 +486,12 @@ namespace LemonadeWars.Unity
             frame.anchoredPosition = Vector2.zero;
             frame.sizeDelta = new Vector2(width, height);
 
-            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
-            badgeGo.transform.SetParent(lift, false);
-            var badgeRect = (RectTransform)badgeGo.transform;
-            badgeRect.anchorMin = new Vector2(0, 0);
-            badgeRect.anchorMax = new Vector2(1, 0);
-            badgeRect.pivot = new Vector2(0.5f, 0);
-            badgeRect.sizeDelta = new Vector2(0, badgeHeight);
-            badgeGo.GetComponent<Image>().color =
-                buyable ? UiKit.ButtonColor : new Color(0, 0, 0, 0.55f);
-            var badgeText = UiKit.CreateText(badgeGo.transform, caption, 12,
-                TextAnchor.MiddleCenter, buyable ? UiKit.ButtonTextColor : Color.white);
-            UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
-
             _preview.Attach(image.gameObject, texture);
             var drag = image.gameObject.AddComponent<DragSource>();
             drag.Kind = DragKind.SupplyStand;
             drag.SupplyTypeId = standTypeId;
             drag.Texture = texture;
             drag.CanvasRoot = _canvasRoot;
-            drag.LiftTarget = lift;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
             drag.CanAct = () => CanBuySupply?.Invoke(standTypeId) == true;
@@ -532,7 +573,7 @@ namespace LemonadeWars.Unity
             _spacer.transform.SetSiblingIndex(sibling);
 
             _spacerTween = _spacer.GetComponent<LayoutWidthTween>();
-            _spacerTween.SetTarget(104f);
+            _spacerTween.SetTarget(130f);
         }
 
         private void CollapseActiveSpacer()
@@ -568,11 +609,11 @@ namespace LemonadeWars.Unity
             target.HoverChanged = OnDropTargetHover;
 
             var top = new Vector2(0.5f, 1f);
-            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 24),
-                120 + 60, 168 + 60, DropGlowWide);
+            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 30),
+                150 + 60, 210 + 60, DropGlowWide);
             wide.transform.SetAsFirstSibling();
             var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
-                120 + 28, 168 + 28, DropGlowHot);
+                150 + 28, 210 + 28, DropGlowHot);
             hot.transform.SetSiblingIndex(1);
 
             _dropGlows.Add((standInstanceId, wide));
@@ -660,6 +701,29 @@ namespace LemonadeWars.Unity
             var parts = defId.Split('-');
             return string.Join(" ", parts.Select(p =>
                 p.Length > 0 ? char.ToUpperInvariant(p[0]) + p.Substring(1) : p));
+        }
+    }
+
+    /// <summary>
+    /// Eases a hand card toward its target height — the rise-on-hover, sink-on-exit
+    /// motion. Exponential smoothing: fast start, soft landing.
+    /// </summary>
+    public sealed class HandCardMotion : MonoBehaviour
+    {
+        public float TargetY;
+
+        private RectTransform _rect;
+
+        private void Awake()
+        {
+            _rect = (RectTransform)transform;
+        }
+
+        private void Update()
+        {
+            var position = _rect.anchoredPosition;
+            position.y = Mathf.Lerp(position.y, TargetY, 1f - Mathf.Exp(-14f * Time.deltaTime));
+            _rect.anchoredPosition = position;
         }
     }
 }

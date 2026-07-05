@@ -150,10 +150,20 @@ namespace LemonadeWars.Engine.Core
                         break;
                     case DecisionKind.AbilityDiscard:
                     case DecisionKind.DiscardToHandLimit:
-                    case DecisionKind.WhiniestBabyDiscard:
                         if (player.Hand.Count < decision.RequiredCount)
                         {
                             decision.RequiredCount = player.Hand.Count;
+                            stale = decision.RequiredCount == 0;
+                        }
+                        break;
+                    case DecisionKind.WhiniestBabyDiscard:
+                        // Restricted to the drawn cards; drop any that left the hand since.
+                        decision.EligibleCardIds = decision.EligibleCardIds?
+                            .Where(player.Hand.Contains).ToList();
+                        int eligible = decision.EligibleCardIds?.Count ?? player.Hand.Count;
+                        if (eligible < decision.RequiredCount)
+                        {
+                            decision.RequiredCount = eligible;
                             stale = decision.RequiredCount == 0;
                         }
                         break;
@@ -748,13 +758,15 @@ namespace LemonadeWars.Engine.Core
 
         // ----------------------------------------------------- draw queue
 
-        private void QueueDraws(int playerId, int count, bool countsForRoll = false)
+        private void QueueDraws(int playerId, int count, bool countsForRoll = false,
+            bool trackDrawnIds = false)
         {
             State.PendingDraws.Add(new PendingDraw
             {
                 PlayerId = playerId,
                 Count = count,
                 CountsForRoll = countsForRoll,
+                TrackDrawnIds = trackDrawnIds,
             });
         }
 
@@ -767,7 +779,12 @@ namespace LemonadeWars.Engine.Core
                 while (entry.Count > 0)
                 {
                     entry.Count--;
+                    int handBefore = player.Hand.Count;
                     bool drewCard = DrawOneCard(player, events);
+                    if (entry.TrackDrawnIds && player.Hand.Count > handBefore)
+                    {
+                        State.TrackedDrawnCards.Add(player.Hand[player.Hand.Count - 1]);
+                    }
                     if (drewCard && entry.CountsForRoll)
                     {
                         StatsFor(player.PlayerId).CardsKept++;
@@ -930,6 +947,12 @@ namespace LemonadeWars.Engine.Core
                 throw new InvalidActionException(
                     $"Must discard exactly {decision.RequiredCount} distinct card(s) from your hand.");
             }
+            if (decision.EligibleCardIds != null &&
+                action.InstanceIds.Any(id => !decision.EligibleCardIds.Contains(id)))
+            {
+                throw new InvalidActionException(
+                    "Whiniest Baby must discard one of the cards just drawn.");
+            }
 
             foreach (int id in action.InstanceIds)
             {
@@ -1057,26 +1080,36 @@ namespace LemonadeWars.Engine.Core
                     break;
                 case 1: // Draw: 1 normally, 2 for the Whiniest Baby (who discards 1 below).
                     State.TurnStartStep = 2;
-                    QueueDraws(State.ActivePlayer,
-                        State.WhiniestBabyHolder == State.ActivePlayer
-                            ? Db.Config.TurnStartDraw + 1
-                            : Db.Config.TurnStartDraw);
-                    break;
-                case 2: // Whiniest Baby: discard 1 of the 2 drawn.
-                    State.TurnStartStep = 3;
-                    if (State.WhiniestBabyHolder == State.ActivePlayer && active.Hand.Count > 0)
+                    bool isBaby = State.WhiniestBabyHolder == State.ActivePlayer;
+                    if (isBaby)
                     {
-                        State.PendingDecisions.Add(new PendingDecision
+                        State.TrackedDrawnCards.Clear();
+                    }
+                    QueueDraws(State.ActivePlayer,
+                        isBaby ? Db.Config.TurnStartDraw + 1 : Db.Config.TurnStartDraw,
+                        trackDrawnIds: isBaby);
+                    break;
+                case 2: // Whiniest Baby: discard 1 — of the cards just drawn, not the whole hand.
+                    State.TurnStartStep = 3;
+                    if (State.WhiniestBabyHolder == State.ActivePlayer)
+                    {
+                        var drawn = State.TrackedDrawnCards
+                            .Where(active.Hand.Contains).ToList();
+                        if (drawn.Count > 0)
                         {
-                            PlayerId = State.ActivePlayer,
-                            Kind = DecisionKind.WhiniestBabyDiscard,
-                            RequiredCount = 1,
-                        });
-                        events.Add(new DecisionRequired
-                        {
-                            PlayerId = State.ActivePlayer,
-                            Kind = DecisionKind.WhiniestBabyDiscard,
-                        });
+                            State.PendingDecisions.Add(new PendingDecision
+                            {
+                                PlayerId = State.ActivePlayer,
+                                Kind = DecisionKind.WhiniestBabyDiscard,
+                                RequiredCount = 1,
+                                EligibleCardIds = drawn,
+                            });
+                            events.Add(new DecisionRequired
+                            {
+                                PlayerId = State.ActivePlayer,
+                                Kind = DecisionKind.WhiniestBabyDiscard,
+                            });
+                        }
                     }
                     break;
                 default:

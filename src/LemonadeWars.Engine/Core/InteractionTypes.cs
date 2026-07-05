@@ -91,6 +91,8 @@ namespace LemonadeWars.Engine.Core
         public int Count { get; set; }
         /// <summary>True when the draw came from a roll trigger (Double Scoop tracking).</summary>
         public bool CountsForRoll { get; set; }
+        /// <summary>Record drawn instance ids (Whiniest Baby must discard one of them).</summary>
+        public bool TrackDrawnIds { get; set; }
     }
 
     /// <summary>Per-player accumulators for the current roll episode ("on a single roll" titles).</summary>
@@ -161,6 +163,8 @@ namespace LemonadeWars.Engine.Core
         public int? ChosenPlayerId { get; set; }
         /// <summary>Card stolen in an earlier stage (the give-back must differ from it).</summary>
         public int? StolenCardId { get; set; }
+        /// <summary>When set, the answer may only use these cards (Whiniest Baby: the cards just drawn).</summary>
+        public List<int>? EligibleCardIds { get; set; }
     }
 
     /// <summary>A tantrum sitting in a player's pile, with the order it was gained (Whiniest Baby tiebreak).</summary>

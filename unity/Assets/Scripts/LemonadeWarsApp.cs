@@ -25,7 +25,8 @@ namespace LemonadeWars.Unity
                 var cam = new GameObject("Main Camera", typeof(Camera));
                 cam.tag = "MainCamera";
                 cam.GetComponent<Camera>().clearFlags = CameraClearFlags.SolidColor;
-                cam.GetComponent<Camera>().backgroundColor = new Color(0.93f, 0.85f, 0.25f);
+                // Neutral dark table until a proper game background exists.
+                cam.GetComponent<Camera>().backgroundColor = new Color(0.06f, 0.075f, 0.10f);
             }
             new GameObject("LemonadeWarsApp", typeof(LemonadeWarsApp));
         }
@@ -55,9 +56,12 @@ namespace LemonadeWars.Unity
         private Prompt _prompt;
         private CardPicker _picker;
         private CardPreview _preview;
+        private TurnBanner _turnBanner;
+        private DiceRoller _dice;
         private Text _statusText;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
+        private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
 
@@ -141,6 +145,20 @@ namespace LemonadeWars.Unity
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
+            _dice = new DiceRoller(root);
+            _dice.OnFinished = () =>
+            {
+                // Re-render so anything held back during the roll opens now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
+            _turnBanner = new TurnBanner(root, this);
+            _turnBanner.OnDismiss = () =>
+            {
+                // Re-render so any decision deferred behind the banner opens now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
         }
 
         // ------------------------------------------------------------ flows
@@ -153,6 +171,7 @@ namespace LemonadeWars.Unity
             _session = new LocalGameSession(_db,
                 new[] { "You", "Benny", "Cleo", "Dex" }, 0,
                 (ulong)System.DateTime.Now.Ticks);
+            _session.EventEmitted += OnGameEvent;
             EnterGame();
         }
 
@@ -161,6 +180,7 @@ namespace LemonadeWars.Unity
             _session?.Dispose();
             _remote = RemoteGameSession.Connect(url);
             _session = _remote;
+            _session.EventEmitted += OnGameEvent;
             _pendingSend = true;
             _pendingCreate = create;
             _pendingName = name;
@@ -219,8 +239,24 @@ namespace LemonadeWars.Unity
             _table.SetVisible(true);
             _prompt.Hide();
             _picker.Hide();
+            _turnBanner.Hide();
+            _dice.Clear();
             _renderedRevision = -1;
             _modalRevision = -1;
+            _wasMyTurn = false;
+        }
+
+        /// <summary>Typed engine events drive presentation moments (dice, later: effects).</summary>
+        private void OnGameEvent(GameEvent gameEvent)
+        {
+            if (_session == null || _session.HumanAutoplay)
+            {
+                return; // autopilot is for fast testing — no theatre
+            }
+            if (gameEvent is SaleRolled roll)
+            {
+                _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
+            }
         }
 
         private void Update()
@@ -272,11 +308,14 @@ namespace LemonadeWars.Unity
                 _session.HumanAutoplay = !_session.HumanAutoplay;
                 _prompt.Hide();
                 _picker.Hide();
+                _turnBanner.Hide();
+                _dice.Clear();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
 
             _table.TickSupplyDrag(Input.mousePosition);
+            _dice.Tick();
             RenderIfChanged();
         }
 
@@ -289,6 +328,8 @@ namespace LemonadeWars.Unity
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();
+            _turnBanner.Hide();
+            _dice.Clear();
             _lobby.ShowMenu(status);
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
@@ -449,7 +490,58 @@ namespace LemonadeWars.Unity
             _table.Render(View, _db, groups);
             _table.SetLog(_session.Log);
             RenderActionBar(groups);
+            MaybeAnnounceTurn();
+            if (_turnBanner.IsOpen || _dice.IsBusy)
+            {
+                return; // decisions wait behind the ONWARD! button / the die
+            }
             MaybeShowModal(groups, revision);
+        }
+
+        /// <summary>Show the YOUR TURN interstitial when the turn passes to the viewer.</summary>
+        private void MaybeAnnounceTurn()
+        {
+            bool myTurn = IsMyTurn();
+            if (myTurn && !_wasMyTurn && _dice.IsBusy)
+            {
+                // Let the die finish first; OnFinished forces a re-render that lands
+                // back here with the turn edge still unconsumed.
+                return;
+            }
+            bool becameMyTurn = myTurn && !_wasMyTurn;
+            _wasMyTurn = myTurn;
+            if (!becameMyTurn || _session.HumanAutoplay || _turnBanner.IsOpen)
+            {
+                return;
+            }
+            // Anything left open from the previous turn yields to the banner; the
+            // forced re-render on dismiss re-opens whatever is still relevant.
+            _prompt.Hide();
+            _picker.Hide();
+            _turnBanner.Show(TurnSubtitle());
+        }
+
+        private bool IsMyTurn()
+        {
+            if (View.Stage == GameStage.InitialBuys)
+            {
+                return View.CurrentInitialBuyer == View.ViewerId;
+            }
+            return (View.Stage == GameStage.Playing || View.Stage == GameStage.FinalRound)
+                && View.ActivePlayer == View.ViewerId;
+        }
+
+        private string TurnSubtitle()
+        {
+            if (View.Stage == GameStage.InitialBuys)
+            {
+                return "Setup draft — pick out your stands";
+            }
+            if (View.Stage == GameStage.FinalRound)
+            {
+                return "Final round — make it count!";
+            }
+            return $"{View.ActionsRemaining} actions — the market awaits";
         }
 
         private void RenderStatus()
@@ -562,11 +654,14 @@ namespace LemonadeWars.Unity
             {
                 case DecisionKind.DiscardToHandLimit:
                 case DecisionKind.WhiniestBabyDiscard:
-                    pool = View.Hand.ToList();
+                    // Whiniest Baby restricts the pool to the cards just drawn.
+                    pool = decision.EligibleCardIds != null
+                        ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
+                        : View.Hand.ToList();
                     required = decision.RequiredCount;
                     title = decision.Kind == DecisionKind.DiscardToHandLimit
                         ? $"Timeout! Discard {required} card(s)"
-                        : "Whiniest Baby: discard 1 card";
+                        : "Whiniest Baby: discard 1 of your new cards";
                     accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
                     break;
 

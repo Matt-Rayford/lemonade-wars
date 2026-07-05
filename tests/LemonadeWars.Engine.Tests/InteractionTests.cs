@@ -727,20 +727,51 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
-        public void WhiniestBabyDrawsTwoAndDiscardsOne()
+        public void WhiniestBabyDiscardsOneOfTheTwoDrawnCards()
         {
             var game = ReadyToPlay();
             StripHands(game, "tantrum", "out-of-stock");
+            var s = game.State;
+            // Keep the turn-start draws deterministic: no Timeout interruptions.
+            s.LemonDeck.RemoveAll(id => s.LemonInstances[id].DefId == "timeout");
             int a = Active(game);
             int next = Seat(game, 1);
-            game.State.WhiniestBabyHolder = next;
+            s.WhiniestBabyHolder = next;
+            var handBefore = s.Players[next].Hand.ToList();
 
-            GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = a });
+            game.Apply(new EndTurn { PlayerId = a });
+            while (s.AwaitingResponse.Count > 0)
+            {
+                game.Apply(new PassWindow { PlayerId = s.AwaitingResponse[0] });
+            }
 
-            // The baby's turn-start forced a draw-2-discard-1 (handled by PassAll's default);
-            // net hand change is +1, same as a normal draw.
-            Assert.Equal(next, game.State.ActivePlayer);
-            Assert.Equal(TurnPhase.Play, game.State.Phase);
+            // The discard is restricted to exactly the 2 drawn cards, not the whole hand.
+            var decision = Assert.Single(s.PendingDecisions);
+            Assert.Equal(DecisionKind.WhiniestBabyDiscard, decision.Kind);
+            var drawn = s.Players[next].Hand.Except(handBefore).ToList();
+            Assert.Equal(2, drawn.Count);
+            Assert.Equal(drawn.OrderBy(x => x), decision.EligibleCardIds!.OrderBy(x => x));
+
+            // Legal moves only offer the drawn pair; an old hand card is rejected.
+            var offered = game.LegalMovesFor(next).OfType<SubmitDiscard>().ToList();
+            Assert.Equal(2, offered.Count);
+            Assert.All(offered, m => Assert.Contains(Assert.Single(m.InstanceIds), drawn));
+            Assert.Throws<InvalidActionException>(() => game.Apply(new SubmitDiscard
+            {
+                PlayerId = next,
+                InstanceIds = new List<int> { handBefore[0] },
+            }));
+
+            game.Apply(new SubmitDiscard
+            {
+                PlayerId = next,
+                InstanceIds = new List<int> { drawn[0] },
+            });
+            Assert.Equal(TurnPhase.Play, s.Phase);
+            Assert.Contains(drawn[1], s.Players[next].Hand);
+            Assert.Contains(drawn[0], s.LemonDiscard);
+            // Net effect matches a normal turn: hand grew by exactly 1.
+            Assert.Equal(handBefore.Count + 1, s.Players[next].Hand.Count);
         }
 
         [Fact]

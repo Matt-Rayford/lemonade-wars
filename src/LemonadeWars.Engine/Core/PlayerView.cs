@@ -123,6 +123,8 @@ namespace LemonadeWars.Engine.Core
             public int? ChosenPlayerId { get; set; }
             public int? CardInstanceId { get; set; }
             public int? StackItemId { get; set; }
+            /// <summary>When set, only these hand cards may answer (Whiniest Baby's drawn pair).</summary>
+            public List<int>? EligibleCardIds { get; set; }
         }
     }
 
@@ -202,6 +204,7 @@ namespace LemonadeWars.Engine.Core
                         ChosenPlayerId = d.ChosenPlayerId,
                         CardInstanceId = d.CardInstanceId,
                         StackItemId = d.StackItemId,
+                        EligibleCardIds = d.EligibleCardIds?.ToList(),
                     }).ToList(),
                 Winners = State.Winners.ToList(),
             };

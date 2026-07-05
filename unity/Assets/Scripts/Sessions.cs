@@ -29,6 +29,8 @@ namespace LemonadeWars.Unity
         int Revision { get; }
         int Seat { get; }
         bool HumanAutoplay { get; set; }
+        /// <summary>Typed engine events as they arrive, for presentation (dice, effects).</summary>
+        event Action<GameEvent> EventEmitted;
 
         string LabelFor(GameAction move);
         void Submit(GameAction action);
@@ -55,6 +57,7 @@ namespace LemonadeWars.Unity
         public int Revision { get; private set; }
         public int Seat { get; }
         public bool HumanAutoplay { get; set; }
+        public event Action<GameEvent> EventEmitted;
 
         public LocalGameSession(CardDatabase db, string[] names, int humanSeat, ulong seed)
         {
@@ -79,6 +82,7 @@ namespace LemonadeWars.Unity
             foreach (var gameEvent in _game.Apply(action))
             {
                 AddLog(gameEvent.ToString());
+                EventEmitted?.Invoke(gameEvent);
             }
             Refresh();
         }
@@ -102,6 +106,7 @@ namespace LemonadeWars.Unity
                 foreach (var gameEvent in _game.Apply(bot.Choose(_game, actor)))
                 {
                     AddLog(gameEvent.ToString());
+                    EventEmitted?.Invoke(gameEvent);
                 }
                 Refresh();
                 return;
@@ -167,6 +172,7 @@ namespace LemonadeWars.Unity
         public int Revision { get; private set; }
         public int Seat => Room.YourSeat;
         public bool HumanAutoplay { get; set; }
+        public event Action<GameEvent> EventEmitted;
 
         public static RemoteGameSession Connect(string url)
         {
@@ -294,6 +300,11 @@ namespace LemonadeWars.Unity
                         foreach (var entry in events.OfType<JObject>())
                         {
                             AddLog((string)entry["label"] ?? "");
+                            var decoded = WireCodec.DecodeEvent(entry);
+                            if (decoded != null)
+                            {
+                                EventEmitted?.Invoke(decoded);
+                            }
                         }
                     }
                     Revision++;

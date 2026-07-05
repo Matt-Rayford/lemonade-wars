@@ -149,6 +149,8 @@ namespace LemonadeWars.Engine.Core
         public List<PendingDecision> PendingDecisions { get; } = new List<PendingDecision>();
         /// <summary>Draws still owed, possibly to several players (e.g. sale triggers); FIFO.</summary>
         public List<PendingDraw> PendingDraws { get; } = new List<PendingDraw>();
+        /// <summary>Instance ids drawn by a TrackDrawnIds draw (Whiniest Baby's discard pool).</summary>
+        public List<int> TrackedDrawnCards { get; } = new List<int>();
         /// <summary>True while resolving a turn-start (Spoiled Rotten roll / Whiniest Baby draw) before Play.</summary>
         public bool TurnStartInProgress { get; set; }
         /// <summary>Progress through turn-start steps: 0 = Spoiled Rotten roll, 1 = draws, 2 = baby discard, 3 = enter Play.</summary>
