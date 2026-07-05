@@ -14,3 +14,15 @@ game-assets/Supporting Cards.pdf
 game-assets/Title Cards.pdf
 game-assets/csv/
 game-assets/Money_2.5x3.5.pdf
+
+# Unity (project lives in unity/)
+unity/Library/
+unity/Temp/
+unity/Logs/
+unity/UserSettings/
+unity/Build/
+unity/*.csproj
+unity/*.sln
+# synced from game-data/ and game-assets/ by tools/sync_unity.sh
+unity/Assets/StreamingAssets/
+unity/Assets/StreamingAssets.meta
