@@ -88,5 +88,17 @@ namespace LemonadeWars.Protocol
         }
 
         public static string EventTypeName(JObject json) => (string?)json["$type"] ?? "";
+
+        /// <summary>
+        /// Decode a wire event back into its typed form. Returns null for unknown types
+        /// so an older client shrugs at events a newer server invents.
+        /// </summary>
+        public static GameEvent? DecodeEvent(JObject json)
+        {
+            string name = (string?)json["$type"] ?? "";
+            return EventTypes.TryGetValue(name, out var type)
+                ? (GameEvent?)json.ToObject(type, Serializer)
+                : null;
+        }
     }
 }

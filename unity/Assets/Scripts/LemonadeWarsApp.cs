@@ -56,6 +56,7 @@ namespace LemonadeWars.Unity
         private CardPicker _picker;
         private CardPreview _preview;
         private TurnBanner _turnBanner;
+        private DiceRoller _dice;
         private Text _statusText;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
@@ -143,6 +144,13 @@ namespace LemonadeWars.Unity
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
+            _dice = new DiceRoller(root);
+            _dice.OnFinished = () =>
+            {
+                // Re-render so anything held back during the roll opens now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
             _turnBanner = new TurnBanner(root, this);
             _turnBanner.OnDismiss = () =>
             {
@@ -162,6 +170,7 @@ namespace LemonadeWars.Unity
             _session = new LocalGameSession(_db,
                 new[] { "You", "Benny", "Cleo", "Dex" }, 0,
                 (ulong)System.DateTime.Now.Ticks);
+            _session.EventEmitted += OnGameEvent;
             EnterGame();
         }
 
@@ -170,6 +179,7 @@ namespace LemonadeWars.Unity
             _session?.Dispose();
             _remote = RemoteGameSession.Connect(url);
             _session = _remote;
+            _session.EventEmitted += OnGameEvent;
             _pendingSend = true;
             _pendingCreate = create;
             _pendingName = name;
@@ -229,9 +239,23 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             _picker.Hide();
             _turnBanner.Hide();
+            _dice.Clear();
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
+        }
+
+        /// <summary>Typed engine events drive presentation moments (dice, later: effects).</summary>
+        private void OnGameEvent(GameEvent gameEvent)
+        {
+            if (_session == null || _session.HumanAutoplay)
+            {
+                return; // autopilot is for fast testing — no theatre
+            }
+            if (gameEvent is SaleRolled roll)
+            {
+                _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
+            }
         }
 
         private void Update()
@@ -284,11 +308,13 @@ namespace LemonadeWars.Unity
                 _prompt.Hide();
                 _picker.Hide();
                 _turnBanner.Hide();
+                _dice.Clear();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
 
             _table.TickSupplyDrag(Input.mousePosition);
+            _dice.Tick();
             RenderIfChanged();
         }
 
@@ -302,6 +328,7 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             _picker.Hide();
             _turnBanner.Hide();
+            _dice.Clear();
             _lobby.ShowMenu(status);
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
@@ -463,9 +490,9 @@ namespace LemonadeWars.Unity
             _table.SetLog(_session.Log);
             RenderActionBar(groups);
             MaybeAnnounceTurn();
-            if (_turnBanner.IsOpen)
+            if (_turnBanner.IsOpen || _dice.IsBusy)
             {
-                return; // decisions wait behind the ONWARD! button
+                return; // decisions wait behind the ONWARD! button / the die
             }
             MaybeShowModal(groups, revision);
         }
@@ -474,6 +501,12 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
+            if (myTurn && !_wasMyTurn && _dice.IsBusy)
+            {
+                // Let the die finish first; OnFinished forces a re-render that lands
+                // back here with the turn edge still unconsumed.
+                return;
+            }
             bool becameMyTurn = myTurn && !_wasMyTurn;
             _wasMyTurn = myTurn;
             if (!becameMyTurn || _session.HumanAutoplay || _turnBanner.IsOpen)
