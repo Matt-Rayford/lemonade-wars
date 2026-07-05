@@ -1,0 +1,149 @@
+using System.Linq;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace LemonadeWars.Unity
+{
+    /// <summary>
+    /// Main menu + online lobby, code-built like everything else. The app supplies the
+    /// callbacks; this class only owns widgets.
+    /// </summary>
+    public sealed class LobbyUi
+    {
+        public System.Action OnPlayLocal;
+        public System.Action<string, string> OnHost;          // serverUrl, name
+        public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
+        public System.Action OnAddBot;
+        public System.Action OnStart;
+        public System.Action<bool> OnReadyToggle;
+        public System.Action OnLeave;
+
+        private readonly RectTransform _menuRoot;
+        private readonly RectTransform _lobbyRoot;
+        private readonly InputField _nameInput;
+        private readonly InputField _serverInput;
+        private readonly InputField _codeInput;
+        private readonly Text _lobbyTitle;
+        private readonly Text _lobbySeats;
+        private readonly Text _lobbyStatus;
+        private readonly Text _menuStatus;
+        private readonly Text _readyLabel;
+        private readonly RectTransform _hostControls;
+        private bool _myReady;
+
+        public LobbyUi(RectTransform canvasRoot)
+        {
+            // ------------------------------------------------------- menu
+            _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            UiKit.Anchor(_menuRoot, Vector2.zero, Vector2.one);
+
+            var title = UiKit.CreateText(_menuRoot, "LEMONADE WARS", 64,
+                TextAnchor.MiddleCenter, new Color(0.98f, 0.83f, 0.10f));
+            UiKit.Anchor((RectTransform)title.transform, new Vector2(0, 0.78f), new Vector2(1, 0.95f));
+
+            var column = new GameObject("MenuColumn", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            column.transform.SetParent(_menuRoot, false);
+            UiKit.Anchor((RectTransform)column.transform, new Vector2(0.34f, 0.16f), new Vector2(0.66f, 0.76f));
+            var layout = column.GetComponent<VerticalLayoutGroup>();
+            layout.spacing = 12;
+            layout.childForceExpandHeight = false;
+            layout.childControlHeight = true;
+            layout.childControlWidth = true;
+
+            _nameInput = UiKit.CreateInput(column.transform, "Your name", "Player");
+            _serverInput = UiKit.CreateInput(column.transform, "Server", "ws://localhost:5225/ws");
+
+            UiKit.CreateButton(column.transform, "Play vs bots (offline)", 20,
+                () => OnPlayLocal?.Invoke());
+            UiKit.CreateButton(column.transform, "Host online room", 20,
+                () => OnHost?.Invoke(_serverInput.text, _nameInput.text));
+
+            _codeInput = UiKit.CreateInput(column.transform, "Room code (e.g. ABCDE)");
+            UiKit.CreateButton(column.transform, "Join room", 20,
+                () => OnJoin?.Invoke(_serverInput.text, _nameInput.text,
+                    _codeInput.text.Trim().ToUpperInvariant()));
+
+            _menuStatus = UiKit.CreateText(column.transform, "", 16,
+                TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f));
+
+            // ------------------------------------------------------ lobby
+            _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
+
+            _lobbyTitle = UiKit.CreateText(_lobbyRoot, "", 48,
+                TextAnchor.MiddleCenter, new Color(0.98f, 0.83f, 0.10f));
+            UiKit.Anchor((RectTransform)_lobbyTitle.transform, new Vector2(0, 0.74f), new Vector2(1, 0.92f));
+
+            _lobbySeats = UiKit.CreateText(_lobbyRoot, "", 26, TextAnchor.UpperCenter);
+            UiKit.Anchor((RectTransform)_lobbySeats.transform, new Vector2(0.2f, 0.30f), new Vector2(0.8f, 0.72f));
+
+            // Everyone: ready toggle + leave. Host additionally: add bot + start.
+            var everyoneControls = new GameObject("EveryoneControls",
+                typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            everyoneControls.transform.SetParent(_lobbyRoot, false);
+            UiKit.Anchor((RectTransform)everyoneControls.transform,
+                new Vector2(0.30f, 0.145f), new Vector2(0.70f, 0.225f));
+            var everyoneLayout = everyoneControls.GetComponent<HorizontalLayoutGroup>();
+            everyoneLayout.spacing = 14;
+            everyoneLayout.childForceExpandWidth = true;
+            everyoneLayout.childForceExpandHeight = true;
+            everyoneLayout.childControlWidth = true;
+            everyoneLayout.childControlHeight = true;
+            var readyButton = UiKit.CreateButton((RectTransform)everyoneControls.transform,
+                "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
+            _readyLabel = readyButton.GetComponentInChildren<Text>();
+            UiKit.CreateButton((RectTransform)everyoneControls.transform, "Leave", 20,
+                () => OnLeave?.Invoke());
+
+            var controls = new GameObject("LobbyControls", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            controls.transform.SetParent(_lobbyRoot, false);
+            UiKit.Anchor((RectTransform)controls.transform, new Vector2(0.3f, 0.05f), new Vector2(0.7f, 0.13f));
+            var controlsLayout = controls.GetComponent<HorizontalLayoutGroup>();
+            controlsLayout.spacing = 14;
+            controlsLayout.childForceExpandWidth = true;
+            controlsLayout.childForceExpandHeight = true;
+            controlsLayout.childControlWidth = true;
+            controlsLayout.childControlHeight = true;
+            _hostControls = (RectTransform)controls.transform;
+            UiKit.CreateButton(_hostControls, "Add bot", 20, () => OnAddBot?.Invoke());
+            UiKit.CreateButton(_hostControls, "Start game", 20, () => OnStart?.Invoke());
+
+            _lobbyStatus = UiKit.CreateText(_lobbyRoot, "", 18,
+                TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f));
+            UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.24f), new Vector2(0.9f, 0.29f));
+
+            ShowMenu("");
+        }
+
+        public void ShowMenu(string status)
+        {
+            _menuRoot.gameObject.SetActive(true);
+            _lobbyRoot.gameObject.SetActive(false);
+            _menuStatus.text = status ?? "";
+        }
+
+        public void ShowLobby(RemoteRoomState room, string status, bool myReady)
+        {
+            _menuRoot.gameObject.SetActive(false);
+            _lobbyRoot.gameObject.SetActive(true);
+            _myReady = myReady;
+            _lobbyTitle.text = string.IsNullOrEmpty(room.Code) ? "CONNECTING..." : $"ROOM {room.Code}";
+            _lobbySeats.text = room.Seats.Count == 0
+                ? "Waiting for the server..."
+                : string.Join("\n", room.Seats.Select(s =>
+                    $"{s.Seat + 1}. {s.Name}" +
+                    (s.Ready ? "   READY" : s.IsBot ? "" : "   ...") +
+                    (s.IsBot || s.Connected ? "" : "  (disconnected)") +
+                    (s.Seat == room.YourSeat ? "   <- you" : "")));
+            _readyLabel.text = myReady ? "READY! (click to undo)" : "READY UP";
+            _lobbyStatus.text = status ?? "";
+            _hostControls.gameObject.SetActive(room.YourSeat == 0);
+        }
+
+        public void HideAll()
+        {
+            _menuRoot.gameObject.SetActive(false);
+            _lobbyRoot.gameObject.SetActive(false);
+        }
+    }
+}

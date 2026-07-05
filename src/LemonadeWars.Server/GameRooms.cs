@@ -17,6 +17,8 @@ public sealed class Seat
     public string Name { get; set; } = "";
     public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     public bool IsBot { get; set; }
+    /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
+    public bool Ready { get; set; }
     public WebSocket? Socket { get; set; }
     public SemaphoreSlim SendLock { get; } = new(1, 1);
 
@@ -149,11 +151,29 @@ public sealed class Room
                 Index = _seats.Count,
                 Name = botNames[_seats.Count % botNames.Length] + " (bot)",
                 IsBot = true,
+                Ready = true,
             });
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);
         return "";
+    }
+
+    /// <summary>Toggle a human seat's ready flag in the lobby.</summary>
+    public void SetReady(int seatIndex, bool ready)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            var seat = _seats.FirstOrDefault(s => s.Index == seatIndex && !s.IsBot);
+            if (seat == null || _game != null)
+            {
+                return;
+            }
+            seat.Ready = ready;
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
     }
 
     public string Start(int requestingSeat)
@@ -171,6 +191,12 @@ public sealed class Room
             if (_seats.Count < _db.Config.MinPlayers)
             {
                 return $"Need at least {_db.Config.MinPlayers} players.";
+            }
+            // Everyone except the host (whose Start click implies readiness) must be ready.
+            var notReady = _seats.Where(s => !s.Ready && s.Index != requestingSeat).ToList();
+            if (notReady.Count > 0)
+            {
+                return "Waiting for: " + string.Join(", ", notReady.Select(s => s.Name));
             }
 
             ulong seed = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8));
@@ -316,6 +342,7 @@ public sealed class Room
                     Name = s.Name,
                     IsBot = s.IsBot,
                     Connected = s.IsBot || s.Connected,
+                    Ready = s.Ready,
                 }).ToList(),
             };
             _ = seat.SendAsync(message);

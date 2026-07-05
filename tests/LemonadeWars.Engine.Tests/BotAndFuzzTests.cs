@@ -146,7 +146,7 @@ namespace LemonadeWars.Engine.Tests
             Assert.All(view.Players.Where(p => p.PlayerId != 0),
                 p => Assert.Equal(game.State.Players[p.PlayerId].Hand.Count, p.HandCount));
             // Own secret titles visible; the view type carries no field for anyone else's.
-            Assert.Equal(2, view.LemonLordKept.Count);
+            Assert.Equal(2, view.LemonLordStatus.Count);
             // Deck contents are hidden — only counts cross the wire.
             Assert.Equal(game.State.LemonDeck.Count, view.LemonDeckCount);
 

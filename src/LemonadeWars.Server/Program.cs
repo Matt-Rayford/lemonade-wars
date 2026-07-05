@@ -1,6 +1,9 @@
 using LemonadeWars.Server;
 
 var builder = WebApplication.CreateBuilder(args);
+// Predictable local port (matches the Unity client default); Railway injects PORT.
+string port = Environment.GetEnvironmentVariable("PORT") ?? "5225";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 var app = builder.Build();
 
 var db = GameDataLocator.LoadDatabase();

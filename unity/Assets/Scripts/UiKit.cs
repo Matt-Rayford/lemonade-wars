@@ -269,6 +269,33 @@ namespace LemonadeWars.Unity
             return go;
         }
 
+        /// <summary>Single-line text input with placeholder (legacy InputField).</summary>
+        public static InputField CreateInput(Transform parent, string placeholder, string initial = "")
+        {
+            var go = new GameObject("Input", typeof(RectTransform), typeof(Image),
+                typeof(InputField), typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            var background = go.GetComponent<Image>();
+            background.sprite = UiSprites.RoundedRect;
+            background.type = Image.Type.Sliced;
+            background.color = new Color(0.09f, 0.11f, 0.15f, 0.95f);
+            go.GetComponent<LayoutElement>().minHeight = 44;
+
+            var textGo = CreateText(go.transform, "", 18, TextAnchor.MiddleLeft);
+            Anchor((RectTransform)textGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(12, 4), new Vector2(-12, -4));
+            var placeholderGo = CreateText(go.transform, placeholder, 18, TextAnchor.MiddleLeft,
+                new Color(0.6f, 0.6f, 0.6f));
+            Anchor((RectTransform)placeholderGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(12, 4), new Vector2(-12, -4));
+
+            var input = go.GetComponent<InputField>();
+            input.textComponent = textGo;
+            input.placeholder = placeholderGo;
+            input.text = initial;
+            return input;
+        }
+
         /// <summary>Small caption under/over a card.</summary>
         public static Text CreateBadge(Transform parent, string content, int size, Color background)
         {

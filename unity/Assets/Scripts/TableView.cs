@@ -9,9 +9,9 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The game table: market, supply piles, opponents, your board, and your hand — all
-    /// rendered from engine state with real card art. Interactive elements (cards with
-    /// legal moves) get a yellow option badge and click through to the app's handlers.
+    /// The game table, rendered purely from a PlayerView (+ static CardDatabase for names
+    /// and costs) — identical for local and networked sessions. Interactive elements get
+    /// glow affordances and click/drag through to the app's handlers.
     /// </summary>
     public sealed class TableView
     {
@@ -32,6 +32,7 @@ namespace LemonadeWars.Unity
         /// <summary>Drop zones glow lemonade-yellow while a card is being dragged.</summary>
         private static readonly Color DropGlowHot = new Color(1f, 0.93f, 0.45f, 1f);
         private static readonly Color DropGlowWide = new Color(1f, 0.82f, 0.10f, 1f);
+
         private readonly List<(int? StandId, GameObject Glow)> _dropGlows =
             new List<(int?, GameObject)>();
         private readonly HashSet<int?> _validDropTargets = new HashSet<int?>();
@@ -56,6 +57,7 @@ namespace LemonadeWars.Unity
         private RectTransform _supplyRow;
         private RectTransform _boardRow;
         private RectTransform _handRow;
+        public RectTransform Root { get; private set; }
         public RectTransform ActionBar { get; private set; }
 
         public TableView(RectTransform canvasRoot, CardArt art, CardPreview preview)
@@ -66,10 +68,16 @@ namespace LemonadeWars.Unity
             Build(canvasRoot);
         }
 
+        public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
+
         private void Build(RectTransform root)
         {
+            Root = UiKit.CreatePanel(root, "Table", new Color(0, 0, 0, 0));
+            UiKit.Anchor(Root, Vector2.zero, Vector2.one);
+            Root.GetComponent<Image>().raycastTarget = false;
+
             // Left: opponents.
-            var opponents = UiKit.CreatePanel(root, "Opponents", UiKit.PanelColor);
+            var opponents = UiKit.CreatePanel(Root, "Opponents", UiKit.PanelColor);
             UiKit.Anchor(opponents, new Vector2(0, 0.30f), new Vector2(0.21f, 0.95f),
                 new Vector2(6, 4), new Vector2(-3, -4));
             _opponentsText = UiKit.CreateText(opponents, "", 17);
@@ -77,7 +85,7 @@ namespace LemonadeWars.Unity
                 new Vector2(10, 8), new Vector2(-10, -8));
 
             // Left-bottom: event log.
-            var log = UiKit.CreatePanel(root, "Log", UiKit.PanelColor);
+            var log = UiKit.CreatePanel(Root, "Log", UiKit.PanelColor);
             UiKit.Anchor(log, new Vector2(0, 0), new Vector2(0.21f, 0.30f),
                 new Vector2(6, 6), new Vector2(-3, -3));
             _logText = UiKit.CreateText(log, "", 14, TextAnchor.LowerLeft, new Color(0.8f, 0.9f, 0.8f));
@@ -85,13 +93,13 @@ namespace LemonadeWars.Unity
                 new Vector2(10, 6), new Vector2(-10, -6));
 
             // Center-top: the Black Market row.
-            var market = UiKit.CreatePanel(root, "Market", UiKit.PanelColor);
+            var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
             UiKit.Anchor(market, new Vector2(0.21f, 0.70f), new Vector2(0.79f, 0.95f),
                 new Vector2(3, 4), new Vector2(-3, -4));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
             // Center band: turn/roll banner.
-            var banner = UiKit.CreatePanel(root, "Banner", new Color(0.16f, 0.20f, 0.28f, 0.95f));
+            var banner = UiKit.CreatePanel(Root, "Banner", new Color(0.16f, 0.20f, 0.28f, 0.95f));
             UiKit.Anchor(banner, new Vector2(0.21f, 0.63f), new Vector2(0.79f, 0.70f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _bannerText = UiKit.CreateText(banner, "", 20, TextAnchor.MiddleCenter,
@@ -99,7 +107,7 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)_bannerText.transform, Vector2.zero, Vector2.one);
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
-            var board = UiKit.CreatePanel(root, "Board", UiKit.PanelColor);
+            var board = UiKit.CreatePanel(Root, "Board", UiKit.PanelColor);
             UiKit.Anchor(board, new Vector2(0.21f, 0.315f), new Vector2(0.79f, 0.63f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
@@ -107,13 +115,13 @@ namespace LemonadeWars.Unity
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
 
             // Bottom-center: your hand.
-            var hand = UiKit.CreatePanel(root, "Hand", UiKit.PanelColor);
+            var hand = UiKit.CreatePanel(Root, "Hand", UiKit.PanelColor);
             UiKit.Anchor(hand, new Vector2(0.21f, 0), new Vector2(0.79f, 0.27f),
                 new Vector2(3, 6), new Vector2(-3, -2));
             _handRow = UiKit.CreateScrollRow(hand);
 
             // Bottom-center strip: persistent actions.
-            var actions = UiKit.CreatePanel(root, "Actions", new Color(0.09f, 0.10f, 0.13f, 0.95f));
+            var actions = UiKit.CreatePanel(Root, "Actions", new Color(0.09f, 0.10f, 0.13f, 0.95f));
             UiKit.Anchor(actions, new Vector2(0.21f, 0.27f), new Vector2(0.79f, 0.315f),
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
@@ -129,7 +137,7 @@ namespace LemonadeWars.Unity
             ActionBar = (RectTransform)bar.transform;
 
             // Right: supply, bragging rights, first dibs.
-            var side = UiKit.CreatePanel(root, "Side", UiKit.PanelColor);
+            var side = UiKit.CreatePanel(Root, "Side", UiKit.PanelColor);
             UiKit.Anchor(side, new Vector2(0.79f, 0), new Vector2(1, 0.95f),
                 new Vector2(3, 6), new Vector2(-6, -4));
             var supplyHost = UiKit.CreatePanel(side, "SupplyHost", new Color(0, 0, 0, 0.15f));
@@ -148,27 +156,28 @@ namespace LemonadeWars.Unity
 
         public void SetLog(IEnumerable<string> lines) => _logText.text = string.Join("\n", lines);
 
-        public void Render(Game game, int humanSeat, MoveGroups groups)
+        public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
-            RenderMarket(game, humanSeat, groups);
-            RenderBoard(game, humanSeat);
-            RenderHand(game, humanSeat, groups);
-            RenderSupply(game, humanSeat, groups);
-            RenderOpponents(game, humanSeat);
-            RenderSide(game);
+            RenderMarket(view, db, groups);
+            RenderBoard(view);
+            RenderHand(view, groups);
+            RenderSupply(view, db, groups);
+            RenderOpponents(view, db);
+            RenderSide(view, db);
         }
 
-        private void RenderMarket(Game game, int humanSeat, MoveGroups groups)
+        private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             UiKit.Clear(_marketRow);
-            var s = game.State;
-            for (int i = 0; i < s.Market.Count; i++)
+            for (int i = 0; i < view.Market.Count; i++)
             {
-                var instance = s.BlackMarketInstances[s.Market[i]];
-                var def = game.Db.BlackMarket(instance.DefId);
-                var texture = _art.BlackMarket(instance.DefId, instance.Shape);
+                var card = view.Market[i];
+                var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                int price = i < view.MarketPrices.Count
+                    ? view.MarketPrices[i]
+                    : db.BlackMarket(card.DefId).Cost;
                 bool buyable = groups?.MarketMoves.ContainsKey(i) == true;
-                BuildMarketCell(i, texture, game.BlackMarketPrice(humanSeat, def), buyable);
+                BuildMarketCell(i, texture, price, buyable);
             }
         }
 
@@ -211,7 +220,6 @@ namespace LemonadeWars.Unity
             frame.anchoredPosition = Vector2.zero;
             frame.sizeDelta = new Vector2(width, height);
 
-            // Price badge pinned under the card.
             var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
             badgeGo.transform.SetParent(lift, false);
             var badgeRect = (RectTransform)badgeGo.transform;
@@ -240,7 +248,7 @@ namespace LemonadeWars.Unity
             drag.DragEnded = () => OnMarketDragEnd?.Invoke();
         }
 
-        private void RenderBoard(Game game, int humanSeat)
+        private void RenderBoard(PlayerView view)
         {
             UiKit.Clear(_boardRow);
             _dropGlows.Clear();
@@ -248,129 +256,141 @@ namespace LemonadeWars.Unity
             _spacer = null; // destroyed with the row; recreated lazily
             _spacerTween = null;
             _supplyInsertIndex = -1;
-            var s = game.State;
-            var me = s.Players[humanSeat];
+            var me = view.Players[view.ViewerId];
 
-            var turfTexture = _art.Turf(me.Turf.PowerPourNumber);
-            var turfCaption = "Pours " + string.Join(",", game.PourNumbersOf(me).OrderBy(x => x));
+            var turfTexture = _art.Turf(me.TurfPowerPourNumber);
+            var turfCaption = "Pours " + string.Join(",", me.PourNumbers);
             var turfCell = AddCard(_boardRow, turfTexture, 120, 168, turfCaption, false, null);
-            AddEquipList(turfCell, game, me.Turf.Equipped);
+            AddEquipList(turfCell, me.TurfEquipped);
             MakeDropTarget(turfCell, null);
 
             foreach (var stand in me.Stands)
             {
-                var type = game.Db.StandType(stand.StandTypeId);
-                string caption = $"[{string.Join(",", game.SaleNumbersOf(stand).OrderBy(x => x))}] " +
-                                 $"${game.StandEarnings(me, stand)}";
+                string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
                 var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId, stand.Shape),
                     120, 168, caption, false, null);
-                AddEquipList(cell, game, stand.Equipped);
+                AddEquipList(cell, stand.Equipped);
                 MakeDropTarget(cell, stand.InstanceId);
                 _standCells.Add(cell);
             }
         }
 
+        private void RenderHand(PlayerView view, MoveGroups groups)
+        {
+            UiKit.Clear(_handRow);
+            foreach (var card in view.Hand)
+            {
+                int optionCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
+                    ? moves.Count
+                    : 0;
+                int captured = card.InstanceId;
+                AddCard(_handRow, _art.Lemon(card.DefId), 140, 196,
+                    optionCount > 0 ? $"PLAY ({optionCount})" : "",
+                    optionCount > 0, () => OnHandCard?.Invoke(captured));
+            }
+        }
+
+        private void RenderSupply(PlayerView view, CardDatabase db, MoveGroups groups)
+        {
+            UiKit.Clear(_supplyRow);
+            foreach (var type in db.StandTypes)
+            {
+                view.StandSupplyCounts.TryGetValue(type.Id, out int stock);
+                bool buyable = groups?.SupplyMoves.ContainsKey(type.Id) == true;
+                int price = view.SupplyPrices.TryGetValue(type.Id, out int p) ? p : type.BaseCost;
+                string caption = $"${price} x{stock}" + (buyable ? " · drag" : "");
+                var texture = view.SupplyTopShapes.TryGetValue(type.Id, out var shape)
+                    ? _art.Stand(type.Id, shape)
+                    : _art.Stand(type.Id);
+                BuildSupplyCell(type.Id, texture, caption, buyable);
+            }
+
+            if (view.NextBraggingRightsPrice is int braggingPrice)
+            {
+                // Index derived from price: $16 base, +$2 per sale.
+                int sold = (braggingPrice - 16) / 2;
+                AddCard(_supplyRow, _art.BraggingRights(sold), 92, 129, $"${braggingPrice}", false, null);
+            }
+        }
+
+        private void RenderOpponents(PlayerView view, CardDatabase db)
+        {
+            var text = new StringBuilder();
+            foreach (var p in view.Players)
+            {
+                if (p.PlayerId == view.ViewerId)
+                {
+                    continue;
+                }
+                text.Append(p.PlayerId == view.ActivePlayer ? "> " : "  ")
+                    .Append($"{p.Name}  ${p.Money}  {p.HandCount} cards  {p.InGameVictoryPoints} VP");
+                if (view.WhiniestBabyHolder == p.PlayerId)
+                {
+                    text.Append("  BABY");
+                }
+                if (view.SpoiledRottenHolder == p.PlayerId)
+                {
+                    text.Append("  SPOILED");
+                }
+                if (p.TantrumCount > 0)
+                {
+                    text.Append($"  {p.TantrumCount}xTANTRUM");
+                }
+                text.AppendLine();
+                text.Append("   Turf ").Append(string.Join(",", p.PourNumbers));
+                foreach (var equip in p.TurfEquipped)
+                {
+                    text.Append(" | ").Append(db.BlackMarket(equip.DefId).Name);
+                }
+                text.AppendLine();
+                foreach (var stand in p.Stands)
+                {
+                    text.Append($"   {db.StandType(stand.StandTypeId).Name} " +
+                                $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}");
+                    foreach (var equip in stand.Equipped)
+                    {
+                        text.Append(" | ").Append(db.BlackMarket(equip.DefId).Name);
+                    }
+                    text.AppendLine();
+                }
+                text.AppendLine();
+            }
+            _opponentsText.text = text.ToString();
+        }
+
+        private void RenderSide(PlayerView view, CardDatabase db)
+        {
+            var text = new StringBuilder();
+            text.AppendLine($"Lemon deck: {view.LemonDeckCount}   discard: {view.LemonDiscard.Count}");
+            text.AppendLine($"BM deck: {view.BlackMarketDeckCount}   discard: {view.BlackMarketDiscard.Count}");
+            text.AppendLine();
+            text.AppendLine("FIRST DIBS:");
+            foreach (string titleId in view.FirstDibsRow)
+            {
+                var title = db.Title(titleId);
+                text.AppendLine($"  {title.Name} — {title.Condition}");
+            }
+            foreach (var p in view.Players)
+            {
+                foreach (string claimed in p.FirstDibsClaimed)
+                {
+                    text.AppendLine($"  [{p.Name}] {db.Title(claimed).Name}");
+                }
+            }
+            if (view.LemonLordStatus.Count > 0)
+            {
+                text.AppendLine();
+                text.AppendLine("YOUR LEMON LORDS (secret):");
+                foreach (var lord in view.LemonLordStatus)
+                {
+                    var title = db.Title(lord.TitleId);
+                    text.AppendLine($"  {title.Name}{(lord.Met ? " (MET!)" : "")} — {title.Condition}");
+                }
+            }
+            _sideText.text = text.ToString();
+        }
+
         // ------------------------------------------- supply drag insertion
-
-        /// <summary>Called every frame by the app while a supply stand is being dragged.</summary>
-        public void TickSupplyDrag(Vector2 screenPosition)
-        {
-            if (!_supplyDragActive)
-            {
-                return;
-            }
-            if (!RectTransformUtility.RectangleContainsScreenPoint(_boardPanel, screenPosition))
-            {
-                HideInsertPreview();
-                return;
-            }
-            int index = ComputeInsertIndex(screenPosition);
-            if (index != _supplyInsertIndex)
-            {
-                _supplyInsertIndex = index;
-                ShowInsertPreview(index);
-            }
-        }
-
-        /// <summary>
-        /// Row position from the pointer: crossing ~40% into a stand's left half inserts
-        /// before it, past 60% inserts after; the middle band keeps the current choice.
-        /// </summary>
-        private int ComputeInsertIndex(Vector2 screenPosition)
-        {
-            for (int i = 0; i < _standCells.Count; i++)
-            {
-                var cell = _standCells[i];
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                    cell, screenPosition, null, out var local);
-                float fraction = (local.x - cell.rect.xMin) / Mathf.Max(1f, cell.rect.width);
-                if (fraction < 0f)
-                {
-                    return i; // pointer is left of this cell
-                }
-                if (fraction <= 1f)
-                {
-                    if (fraction < 0.4f)
-                    {
-                        return i;
-                    }
-                    if (fraction > 0.6f)
-                    {
-                        return i + 1;
-                    }
-                    // Dead zone: stick with the previous answer to avoid flicker.
-                    return _supplyInsertIndex >= 0 ? _supplyInsertIndex : i;
-                }
-            }
-            return _standCells.Count; // right of everything
-        }
-
-        private void ShowInsertPreview(int index)
-        {
-            // The previous gap eases closed in place while a fresh one opens at the new
-            // position — both sides of the move animate instead of the old gap snapping shut.
-            CollapseActiveSpacer();
-
-            _spacer = new GameObject("InsertSpacer", typeof(RectTransform),
-                typeof(LayoutElement), typeof(LayoutWidthTween));
-            _spacer.transform.SetParent(_boardRow, false);
-            var element = _spacer.GetComponent<LayoutElement>();
-            element.preferredWidth = 0;
-            element.preferredHeight = 10;
-            element.flexibleWidth = 0;
-
-            // Place it just before the stand it displaces (collapsing spacers may still be
-            // in the row, so anchor off the live stand cell rather than a fixed index).
-            int sibling = index < _standCells.Count
-                ? _standCells[index].GetSiblingIndex()
-                : _boardRow.childCount - 1;
-            _spacer.transform.SetSiblingIndex(sibling);
-
-            _spacerTween = _spacer.GetComponent<LayoutWidthTween>();
-            _spacerTween.SetTarget(104f);
-        }
-
-        private void CollapseActiveSpacer()
-        {
-            if (_spacerTween != null)
-            {
-                _spacerTween.SetTarget(0f, destroyAtZero: true);
-                _spacer = null;
-                _spacerTween = null;
-            }
-        }
-
-        private void HideInsertPreview()
-        {
-            _supplyInsertIndex = -1;
-            CollapseActiveSpacer();
-        }
-
-        private void HandleSupplyDrop(string standTypeId)
-        {
-            int index = _supplyInsertIndex >= 0 ? _supplyInsertIndex : _standCells.Count;
-            OnSupplyDrop?.Invoke(standTypeId, index);
-        }
 
         /// <summary>A supply pile: hover lifts it; drag it into your board row to buy a stand.</summary>
         private void BuildSupplyCell(string standTypeId, Texture2D texture, string caption, bool buyable)
@@ -446,29 +466,119 @@ namespace LemonadeWars.Unity
             };
         }
 
-        /// <summary>Register a board cell as a market-card drop zone with a highlight glow.</summary>
+        /// <summary>Called every frame by the app while a supply stand is being dragged.</summary>
+        public void TickSupplyDrag(Vector2 screenPosition)
+        {
+            if (!_supplyDragActive)
+            {
+                return;
+            }
+            if (!RectTransformUtility.RectangleContainsScreenPoint(_boardPanel, screenPosition))
+            {
+                HideInsertPreview();
+                return;
+            }
+            int index = ComputeInsertIndex(screenPosition);
+            if (index != _supplyInsertIndex)
+            {
+                _supplyInsertIndex = index;
+                ShowInsertPreview(index);
+            }
+        }
+
+        private int ComputeInsertIndex(Vector2 screenPosition)
+        {
+            for (int i = 0; i < _standCells.Count; i++)
+            {
+                var cell = _standCells[i];
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    cell, screenPosition, null, out var local);
+                float fraction = (local.x - cell.rect.xMin) / Mathf.Max(1f, cell.rect.width);
+                if (fraction < 0f)
+                {
+                    return i;
+                }
+                if (fraction <= 1f)
+                {
+                    if (fraction < 0.4f)
+                    {
+                        return i;
+                    }
+                    if (fraction > 0.6f)
+                    {
+                        return i + 1;
+                    }
+                    return _supplyInsertIndex >= 0 ? _supplyInsertIndex : i;
+                }
+            }
+            return _standCells.Count;
+        }
+
+        private void ShowInsertPreview(int index)
+        {
+            CollapseActiveSpacer();
+
+            _spacer = new GameObject("InsertSpacer", typeof(RectTransform),
+                typeof(LayoutElement), typeof(LayoutWidthTween));
+            _spacer.transform.SetParent(_boardRow, false);
+            var element = _spacer.GetComponent<LayoutElement>();
+            element.preferredWidth = 0;
+            element.preferredHeight = 10;
+            element.flexibleWidth = 0;
+
+            int sibling = index < _standCells.Count
+                ? _standCells[index].GetSiblingIndex()
+                : _boardRow.childCount - 1;
+            _spacer.transform.SetSiblingIndex(sibling);
+
+            _spacerTween = _spacer.GetComponent<LayoutWidthTween>();
+            _spacerTween.SetTarget(104f);
+        }
+
+        private void CollapseActiveSpacer()
+        {
+            if (_spacerTween != null)
+            {
+                _spacerTween.SetTarget(0f, destroyAtZero: true);
+                _spacer = null;
+                _spacerTween = null;
+            }
+        }
+
+        private void HideInsertPreview()
+        {
+            _supplyInsertIndex = -1;
+            CollapseActiveSpacer();
+        }
+
+        private void HandleSupplyDrop(string standTypeId)
+        {
+            int index = _supplyInsertIndex >= 0 ? _supplyInsertIndex : _standCells.Count;
+            OnSupplyDrop?.Invoke(standTypeId, index);
+        }
+
+        // --------------------------------------------------------- drop zones
+
         private void MakeDropTarget(RectTransform cell, int? standInstanceId)
         {
             var target = cell.gameObject.AddComponent<DropTarget>();
             target.StandInstanceId = standInstanceId;
             target.Dropped = (marketIndex, standId) => OnMarketDrop?.Invoke(marketIndex, standId);
-            target.SupplyDropped = HandleSupplyDrop; // stands dropped on a cell use the preview index
+            target.SupplyDropped = HandleSupplyDrop;
             target.HoverChanged = OnDropTargetHover;
 
-            // Double layer at full alpha so the highlight reads instantly against the dark panel.
             var top = new Vector2(0.5f, 1f);
             var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 24),
                 120 + 60, 168 + 60, DropGlowWide);
             wide.transform.SetAsFirstSibling();
             var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
                 120 + 28, 168 + 28, DropGlowHot);
-            hot.transform.SetSiblingIndex(1); // both behind the card
+            hot.transform.SetSiblingIndex(1);
 
             _dropGlows.Add((standInstanceId, wide));
             _dropGlows.Add((standInstanceId, hot));
         }
 
-        /// <summary>Remember which cells accept the dragged card; they glow on hover only.</summary>
         public void SetValidDropTargets(ISet<int?> validTargets)
         {
             _validDropTargets.Clear();
@@ -499,131 +609,8 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private void RenderHand(Game game, int humanSeat, MoveGroups groups)
-        {
-            UiKit.Clear(_handRow);
-            var s = game.State;
-            foreach (int id in s.Players[humanSeat].Hand)
-            {
-                string defId = s.LemonInstances[id].DefId;
-                int optionCount = groups?.HandMoves.TryGetValue(id, out var moves) == true ? moves.Count : 0;
-                int captured = id;
-                AddCard(_handRow, _art.Lemon(defId), 140, 196,
-                    optionCount > 0 ? $"PLAY ({optionCount})" : "",
-                    optionCount > 0, () => OnHandCard?.Invoke(captured));
-            }
-        }
-
-        private void RenderSupply(Game game, int humanSeat, MoveGroups groups)
-        {
-            UiKit.Clear(_supplyRow);
-            foreach (var type in game.Db.StandTypes)
-            {
-                var supply = game.State.StandSupply[type.Id];
-                bool buyable = groups?.SupplyMoves.ContainsKey(type.Id) == true;
-                string caption = $"${game.StandPrice(humanSeat, type.Id)} x{supply.Count}" +
-                                 (buyable ? " · drag" : "");
-                string captured = type.Id;
-                // Show the shape you'd actually get: the top of the shuffled supply stack.
-                var texture = supply.Count > 0
-                    ? _art.Stand(type.Id, supply[0])
-                    : _art.Stand(type.Id);
-                BuildSupplyCell(captured, texture, caption, buyable);
-            }
-
-            int sold = game.State.BraggingRightsSold;
-            var prices = game.Db.Supporting.BraggingRightsPrices;
-            if (sold < prices.Count)
-            {
-                AddCard(_supplyRow, _art.BraggingRights(sold), 92, 129, $"${prices[sold]}", false, null);
-            }
-        }
-
-        private void RenderOpponents(Game game, int humanSeat)
-        {
-            var s = game.State;
-            var text = new StringBuilder();
-            foreach (var p in s.Players)
-            {
-                if (p.PlayerId == humanSeat)
-                {
-                    continue;
-                }
-                text.Append(p.PlayerId == s.ActivePlayer ? "> " : "  ")
-                    .Append($"{p.Name}  ${p.Money}  {p.Hand.Count} cards  {p.InGameVictoryPoints} VP");
-                if (s.WhiniestBabyHolder == p.PlayerId)
-                {
-                    text.Append("  BABY");
-                }
-                if (s.SpoiledRottenHolder == p.PlayerId)
-                {
-                    text.Append("  SPOILED");
-                }
-                if (p.TantrumPile.Count > 0)
-                {
-                    text.Append($"  {p.TantrumPile.Count}xTANTRUM");
-                }
-                text.AppendLine();
-                text.Append("   Turf ").Append(string.Join(",", game.PourNumbersOf(p).OrderBy(x => x)));
-                foreach (int id in p.Turf.Equipped)
-                {
-                    text.Append(" | ").Append(game.Db.BlackMarket(s.BlackMarketInstances[id].DefId).Name);
-                }
-                text.AppendLine();
-                foreach (var stand in p.Stands)
-                {
-                    var type = game.Db.StandType(stand.StandTypeId);
-                    text.Append($"   {type.Name} [{string.Join(",", game.SaleNumbersOf(stand).OrderBy(x => x))}]" +
-                                $" ${game.StandEarnings(p, stand)}");
-                    foreach (int id in stand.Equipped)
-                    {
-                        text.Append(" | ").Append(game.Db.BlackMarket(s.BlackMarketInstances[id].DefId).Name);
-                    }
-                    text.AppendLine();
-                }
-                text.AppendLine();
-            }
-            _opponentsText.text = text.ToString();
-        }
-
-        private void RenderSide(Game game)
-        {
-            var s = game.State;
-            var me = s.Players.Count > 0 ? s.Players[0] : null;
-            var text = new StringBuilder();
-            text.AppendLine($"Lemon deck: {s.LemonDeck.Count}   discard: {s.LemonDiscard.Count}");
-            text.AppendLine($"BM deck: {s.BlackMarketDeck.Count}   discard: {s.BlackMarketDiscard.Count}");
-            text.AppendLine();
-            text.AppendLine("FIRST DIBS:");
-            foreach (string titleId in s.FirstDibsRow)
-            {
-                var title = game.Db.Title(titleId);
-                text.AppendLine($"  {title.Name} — {title.Condition}");
-            }
-            foreach (var p in s.Players)
-            {
-                foreach (string claimed in p.FirstDibsClaimed)
-                {
-                    text.AppendLine($"  [{p.Name}] {game.Db.Title(claimed).Name}");
-                }
-            }
-            if (me != null && me.LemonLordKept.Count > 0)
-            {
-                text.AppendLine();
-                text.AppendLine("YOUR LEMON LORDS (secret):");
-                foreach (string titleId in me.LemonLordKept)
-                {
-                    var title = game.Db.Title(titleId);
-                    string met = game.MeetsLemonLord(me, titleId) ? " (MET!)" : "";
-                    text.AppendLine($"  {title.Name}{met} — {title.Condition}");
-                }
-            }
-            _sideText.text = text.ToString();
-        }
-
         // ----------------------------------------------------------- helpers
 
-        /// <summary>A card image with caption badge; hover previews, optional click.</summary>
         private RectTransform AddCard(RectTransform parent, Texture2D texture,
             float width, float height, string caption, bool clickable, System.Action onClick)
         {
@@ -657,17 +644,22 @@ namespace LemonadeWars.Unity
             return (RectTransform)cell.transform;
         }
 
-        /// <summary>Names of equipped Black Market cards under a board cell.</summary>
-        private void AddEquipList(RectTransform cell, Game game, List<int> equipped)
+        private void AddEquipList(RectTransform cell, List<PlayerView.CardInfo> equipped)
         {
-            foreach (int id in equipped)
+            foreach (var equip in equipped)
             {
-                var instance = game.State.BlackMarketInstances[id];
-                var badge = UiKit.CreateBadge(cell, game.Db.BlackMarket(instance.DefId).Name, 12,
+                var texture = _art.BlackMarket(equip.DefId, equip.Shape ?? Shape.Square);
+                var badge = UiKit.CreateBadge(cell, PrettyName(equip.DefId), 12,
                     new Color(0.20f, 0.32f, 0.24f, 0.9f));
-                _preview.Attach(badge.transform.parent.gameObject,
-                    _art.BlackMarket(instance.DefId, instance.Shape));
+                _preview.Attach(badge.transform.parent.gameObject, texture);
             }
+        }
+
+        private static string PrettyName(string defId)
+        {
+            var parts = defId.Split('-');
+            return string.Join(" ", parts.Select(p =>
+                p.Length > 0 ? char.ToUpperInvariant(p[0]) + p.Substring(1) : p));
         }
     }
 }

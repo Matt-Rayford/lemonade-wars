@@ -156,6 +156,8 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         var room = await host.NextOfTypeAsync("room");
         string code = (string)room["code"]!;
         Assert.Equal(5, code.Length);
+        // Regression guard: a freshly created room must NOT report started.
+        Assert.False((bool)room["started"]!);
 
         var guests = new List<TestClient>();
         for (int i = 1; i <= 3; i++)
@@ -166,6 +168,18 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
             await guest.NextOfTypeAsync("room");
         }
 
+        // Starting before everyone readies is rejected.
+        await host.SendAsync(new { type = "start_game" });
+        var refused = await host.NextOfTypeAsync("error");
+        Assert.Contains("Waiting for", (string)refused["message"]!);
+
+        foreach (var guest in guests)
+        {
+            await guest.SendAsync(new { type = "ready", ready = true });
+        }
+        // Wait until the host sees all guests ready, then start for real.
+        await host.NextAsync(m => (string?)m["type"] == "room" &&
+            m["seats"]!.Count(s => (bool)s["ready"]!) >= 3);
         await host.SendAsync(new { type = "start_game" });
 
         var players = new List<TestClient> { host };

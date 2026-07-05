@@ -86,6 +86,12 @@ public static class ClientSession
                         room = found;
                         break;
                     }
+                    case MessageType.Ready when room != null:
+                    {
+                        room.SetReady(room.SeatIndexOf(socket),
+                            (bool?)message["ready"] ?? true);
+                        break;
+                    }
                     case MessageType.AddBot when room != null:
                     {
                         string error = room.AddBot(room.SeatIndexOf(socket));
