@@ -405,9 +405,71 @@ namespace LemonadeWars.Unity
                 return;
             }
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+
+            // Take-from-discard variants collapse into one option that opens the
+            // discard picker, instead of flooding the menu with one row per card.
+            var bmTakes = moves.OfType<PlayLemonCard>()
+                .Where(m => m.DiscardedBmInstanceId != null).Cast<GameAction>().ToList();
+            var lemonTakes = moves.OfType<PlayLemonCard>()
+                .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
+            var direct = moves
+                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m)).ToList();
+
+            var options = ToOptions(direct);
+            if (bmTakes.Count > 0)
+            {
+                options.Add(new Prompt.Option("Take a discarded Black Market card...",
+                    () => OpenTakeFromDiscard(bmTakes, blackMarket: true)));
+            }
+            if (lemonTakes.Count > 0)
+            {
+                options.Add(new Prompt.Option("Take a discarded Lemon card...",
+                    () => OpenTakeFromDiscard(lemonTakes, blackMarket: false)));
+            }
+
+            if (direct.Count == 0 && options.Count == 1)
+            {
+                options[0].OnPick(); // a lone "take from discard" — skip the menu
+                return;
+            }
             _prompt.Show(_db.Lemon(card?.DefId ?? "").Name,
                 new[] { _art.Lemon(card?.DefId ?? "") },
-                ToOptions(moves), showCancel: true);
+                options, showCancel: true);
+        }
+
+        /// <summary>Choose which discard to take via the discard-pile picker overlay.</summary>
+        private void OpenTakeFromDiscard(List<GameAction> takes, bool blackMarket)
+        {
+            _prompt.Hide();
+            var byCard = takes.Cast<PlayLemonCard>()
+                .GroupBy(m => (blackMarket ? m.DiscardedBmInstanceId : m.DiscardedLemonInstanceId).Value)
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            var pool = (blackMarket ? View.BlackMarketDiscard : View.LemonDiscard)
+                .Where(c => byCard.ContainsKey(c.InstanceId)).ToList();
+
+            _table.OpenDiscardPicker(
+                blackMarket ? "TAKE A DISCARDED BLACK MARKET CARD" : "TAKE A DISCARDED LEMON CARD",
+                pool, blackMarket,
+                c => blackMarket ? _db.BlackMarket(c.DefId).Name : _db.Lemon(c.DefId).Name,
+                instanceId =>
+                {
+                    var candidates = byCard[instanceId];
+                    if (candidates.Count == 1)
+                    {
+                        Submit(candidates[0]);
+                        return;
+                    }
+                    // Several equip destinations for the taken card: pick one.
+                    var picked = pool.First(c => c.InstanceId == instanceId);
+                    _prompt.Show("Where should it go?",
+                        new[]
+                        {
+                            blackMarket
+                                ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
+                                : _art.Lemon(picked.DefId),
+                        },
+                        ToOptions(candidates), showCancel: true);
+                });
         }
 
         private void OnMarketDragStart(int marketIndex)
