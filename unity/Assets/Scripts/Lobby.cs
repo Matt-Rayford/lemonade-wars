@@ -18,13 +18,21 @@ namespace LemonadeWars.Unity
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;
+        public System.Action<string> OnSaveSettings;           // display name
 
         public string ServerUrl => _serverInput.text;
         public bool MenuVisible => _menuRoot.gameObject.activeSelf;
 
+        /// <summary>The name used at the table, from Settings; never empty.</summary>
+        public string DisplayName =>
+            string.IsNullOrWhiteSpace(_displayNameInput.text)
+                ? "Player"
+                : _displayNameInput.text.Trim();
+
         private readonly RectTransform _menuRoot;
         private readonly RectTransform _lobbyRoot;
-        private readonly InputField _nameInput;
+        private readonly RectTransform _settingsRoot;
+        private readonly InputField _displayNameInput;
         private readonly InputField _serverInput;
         private readonly InputField _codeInput;
         private readonly Text _lobbyTitle;
@@ -38,7 +46,7 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
-        public LobbyUi(RectTransform canvasRoot, string defaultServerUrl)
+        public LobbyUi(RectTransform canvasRoot, string defaultServerUrl, string defaultName)
         {
             // ------------------------------------------------------- menu
             _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", new Color(0.08f, 0.10f, 0.14f, 0.97f));
@@ -57,7 +65,6 @@ namespace LemonadeWars.Unity
             layout.childControlHeight = true;
             layout.childControlWidth = true;
 
-            _nameInput = UiKit.CreateInput(column.transform, "Your name", "Player");
             _serverInput = UiKit.CreateInput(column.transform, "Server", defaultServerUrl);
             _serverStatus = UiKit.CreateText(column.transform, "", 14,
                 TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.6f));
@@ -65,19 +72,52 @@ namespace LemonadeWars.Unity
             UiKit.CreateButton(column.transform, "Play vs bots (offline)", 20,
                 () => OnPlayLocal?.Invoke());
             UiKit.CreateButton(column.transform, "Host online room", 20,
-                () => OnHost?.Invoke(_serverInput.text, _nameInput.text));
+                () => OnHost?.Invoke(_serverInput.text, DisplayName));
 
             _codeInput = UiKit.CreateInput(column.transform, "Room code (e.g. ABCDE)");
             UiKit.CreateButton(column.transform, "Join room", 20,
-                () => OnJoin?.Invoke(_serverInput.text, _nameInput.text,
+                () => OnJoin?.Invoke(_serverInput.text, DisplayName,
                     _codeInput.text.Trim().ToUpperInvariant()));
 
             _resumeButton = UiKit.CreateButton(column.transform, "", 20, () => OnResume?.Invoke());
             _resumeLabel = _resumeButton.GetComponentInChildren<Text>();
             _resumeButton.gameObject.SetActive(false);
 
+            UiKit.CreateButton(column.transform, "Settings", 20, ShowSettings);
+
             _menuStatus = UiKit.CreateText(column.transform, "", 16,
                 TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f));
+
+            // ---------------------------------------------------- settings
+            _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            UiKit.Anchor(_settingsRoot, Vector2.zero, Vector2.one);
+
+            var settingsTitle = UiKit.CreateText(_settingsRoot, "SETTINGS", 48,
+                TextAnchor.MiddleCenter, new Color(0.98f, 0.83f, 0.10f));
+            UiKit.Anchor((RectTransform)settingsTitle.transform, new Vector2(0, 0.74f), new Vector2(1, 0.92f));
+
+            var settingsColumn = new GameObject("SettingsColumn",
+                typeof(RectTransform), typeof(VerticalLayoutGroup));
+            settingsColumn.transform.SetParent(_settingsRoot, false);
+            UiKit.Anchor((RectTransform)settingsColumn.transform,
+                new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.70f));
+            var settingsLayout = settingsColumn.GetComponent<VerticalLayoutGroup>();
+            settingsLayout.spacing = 12;
+            settingsLayout.childForceExpandHeight = false;
+            settingsLayout.childControlHeight = true;
+            settingsLayout.childControlWidth = true;
+
+            var nameLabel = UiKit.CreateText(settingsColumn.transform,
+                "Display Name — shown at the table on your turn", 16,
+                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f));
+            nameLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
+            _displayNameInput = UiKit.CreateInput(settingsColumn.transform, "Display Name", defaultName);
+            UiKit.CreateButton(settingsColumn.transform, "Save & back", 20, () =>
+            {
+                OnSaveSettings?.Invoke(DisplayName);
+                ShowMenu("");
+            });
+            _settingsRoot.gameObject.SetActive(false);
 
             // ------------------------------------------------------ lobby
             _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", new Color(0.08f, 0.10f, 0.14f, 0.97f));
@@ -132,13 +172,22 @@ namespace LemonadeWars.Unity
         {
             _menuRoot.gameObject.SetActive(true);
             _lobbyRoot.gameObject.SetActive(false);
+            _settingsRoot.gameObject.SetActive(false);
             _menuStatus.text = status ?? "";
+        }
+
+        public void ShowSettings()
+        {
+            _menuRoot.gameObject.SetActive(false);
+            _lobbyRoot.gameObject.SetActive(false);
+            _settingsRoot.gameObject.SetActive(true);
         }
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
         {
             _menuRoot.gameObject.SetActive(false);
             _lobbyRoot.gameObject.SetActive(true);
+            _settingsRoot.gameObject.SetActive(false);
             _myReady = myReady;
             _lobbyTitle.text = string.IsNullOrEmpty(room.Code) ? "CONNECTING..." : $"ROOM {room.Code}";
             _lobbySeats.text = room.Seats.Count == 0
@@ -157,6 +206,7 @@ namespace LemonadeWars.Unity
         {
             _menuRoot.gameObject.SetActive(false);
             _lobbyRoot.gameObject.SetActive(false);
+            _settingsRoot.gameObject.SetActive(false);
         }
 
         /// <summary>Show the Resume button when a previous online game is remembered.</summary>

@@ -127,8 +127,14 @@ namespace LemonadeWars.Unity
             _table.OnSupplyDrop = OnSupplyDrop;
             _table.SetVisible(false);
 
-            _lobby = new LobbyUi(root, LoadConfiguredServerUrl());
+            _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
+                PlayerPrefs.GetString("lw_name", "Player"));
             _lobby.OnPlayLocal = StartLocalGame;
+            _lobby.OnSaveSettings = name =>
+            {
+                PlayerPrefs.SetString("lw_name", name);
+                PlayerPrefs.Save();
+            };
             _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
             _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");
             _lobby.OnResume = () => ConnectRemote(
@@ -170,7 +176,7 @@ namespace LemonadeWars.Unity
             _remote = null;
             _session?.Dispose();
             _session = new LocalGameSession(_db,
-                new[] { "You", "Benny", "Cleo", "Dex" }, 0,
+                new[] { _lobby.DisplayName, "Benny", "Cleo", "Dex" }, 0,
                 (ulong)System.DateTime.Now.Ticks);
             _session.EventEmitted += OnGameEvent;
             EnterGame();
@@ -664,12 +670,13 @@ namespace LemonadeWars.Unity
             {
                 banner = $"Setup draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
             }
+            else if (View.ActivePlayer == View.ViewerId)
+            {
+                banner = $"Your turn — {View.Phase} ({View.ActionsRemaining} actions left)";
+            }
             else
             {
-                banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}" +
-                         (View.ActivePlayer == View.ViewerId
-                             ? $" ({View.ActionsRemaining} actions left)"
-                             : "");
+                banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
             _table.SetBanner(banner);
         }
