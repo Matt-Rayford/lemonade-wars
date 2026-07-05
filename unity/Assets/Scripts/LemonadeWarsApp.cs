@@ -25,7 +25,8 @@ namespace LemonadeWars.Unity
                 var cam = new GameObject("Main Camera", typeof(Camera));
                 cam.tag = "MainCamera";
                 cam.GetComponent<Camera>().clearFlags = CameraClearFlags.SolidColor;
-                cam.GetComponent<Camera>().backgroundColor = new Color(0.93f, 0.85f, 0.25f);
+                // Neutral dark table until a proper game background exists.
+                cam.GetComponent<Camera>().backgroundColor = new Color(0.06f, 0.075f, 0.10f);
             }
             new GameObject("LemonadeWarsApp", typeof(LemonadeWarsApp));
         }
