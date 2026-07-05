@@ -13,10 +13,14 @@ namespace LemonadeWars.Unity
         public System.Action OnPlayLocal;
         public System.Action<string, string> OnHost;          // serverUrl, name
         public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
+        public System.Action OnResume;
         public System.Action OnAddBot;
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;
+
+        public string ServerUrl => _serverInput.text;
+        public bool MenuVisible => _menuRoot.gameObject.activeSelf;
 
         private readonly RectTransform _menuRoot;
         private readonly RectTransform _lobbyRoot;
@@ -27,7 +31,10 @@ namespace LemonadeWars.Unity
         private readonly Text _lobbySeats;
         private readonly Text _lobbyStatus;
         private readonly Text _menuStatus;
+        private readonly Text _serverStatus;
         private readonly Text _readyLabel;
+        private readonly Button _resumeButton;
+        private readonly Text _resumeLabel;
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
@@ -52,6 +59,8 @@ namespace LemonadeWars.Unity
 
             _nameInput = UiKit.CreateInput(column.transform, "Your name", "Player");
             _serverInput = UiKit.CreateInput(column.transform, "Server", "ws://localhost:5225/ws");
+            _serverStatus = UiKit.CreateText(column.transform, "", 14,
+                TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.6f));
 
             UiKit.CreateButton(column.transform, "Play vs bots (offline)", 20,
                 () => OnPlayLocal?.Invoke());
@@ -62,6 +71,10 @@ namespace LemonadeWars.Unity
             UiKit.CreateButton(column.transform, "Join room", 20,
                 () => OnJoin?.Invoke(_serverInput.text, _nameInput.text,
                     _codeInput.text.Trim().ToUpperInvariant()));
+
+            _resumeButton = UiKit.CreateButton(column.transform, "", 20, () => OnResume?.Invoke());
+            _resumeLabel = _resumeButton.GetComponentInChildren<Text>();
+            _resumeButton.gameObject.SetActive(false);
 
             _menuStatus = UiKit.CreateText(column.transform, "", 16,
                 TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f));
@@ -144,6 +157,26 @@ namespace LemonadeWars.Unity
         {
             _menuRoot.gameObject.SetActive(false);
             _lobbyRoot.gameObject.SetActive(false);
+        }
+
+        /// <summary>Show the Resume button when a previous online game is remembered.</summary>
+        public void SetResumeInfo(string roomCode)
+        {
+            bool available = !string.IsNullOrEmpty(roomCode);
+            _resumeButton.gameObject.SetActive(available);
+            if (available)
+            {
+                _resumeLabel.text = $"Resume game ({roomCode})";
+            }
+        }
+
+        /// <summary>Live server reachability line under the server field.</summary>
+        public void SetServerStatus(bool reachable, string detail)
+        {
+            _serverStatus.text = reachable ? "● server online" : $"○ {detail}";
+            _serverStatus.color = reachable
+                ? new Color(0.45f, 0.85f, 0.45f)
+                : new Color(0.85f, 0.55f, 0.45f);
         }
     }
 }

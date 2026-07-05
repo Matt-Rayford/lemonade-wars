@@ -17,6 +17,14 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly WebApplicationFactory<Program> _factory;
 
+    static ServerTests()
+    {
+        // Instant bots and an isolated data dir for the shared factory.
+        Environment.SetEnvironmentVariable("BOT_DELAY_MS", "0");
+        Environment.SetEnvironmentVariable("DATA_DIR",
+            Path.Combine(Path.GetTempPath(), "lw-tests-" + Guid.NewGuid().ToString("N")));
+    }
+
     public ServerTests(WebApplicationFactory<Program> factory)
     {
         _factory = factory;

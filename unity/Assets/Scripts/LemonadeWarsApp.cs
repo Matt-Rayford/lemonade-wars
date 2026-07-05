@@ -42,7 +42,13 @@ namespace LemonadeWars.Unity
         private IGameSession _session;
         private RemoteGameSession _remote; // same object as _session when online
         private Screen _screen = Screen.Menu;
-        private string _pendingVerb; // create:<name> or join:<name>:<code>, sent once connected
+
+        // Lobby verb deferred until the socket opens.
+        private bool _pendingSend;
+        private bool _pendingCreate;
+        private string _pendingName;
+        private string _pendingCode;
+        private string _pendingToken;
 
         private LobbyUi _lobby;
         private TableView _table;
@@ -86,12 +92,19 @@ namespace LemonadeWars.Unity
 
             _lobby = new LobbyUi(root);
             _lobby.OnPlayLocal = StartLocalGame;
-            _lobby.OnHost = (url, name) => ConnectRemote(url, $"create:{name}");
-            _lobby.OnJoin = (url, name, code) => ConnectRemote(url, $"join:{name}:{code}");
+            _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
+            _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");
+            _lobby.OnResume = () => ConnectRemote(
+                PlayerPrefs.GetString("lw_server"), false,
+                PlayerPrefs.GetString("lw_name"),
+                PlayerPrefs.GetString("lw_code"),
+                PlayerPrefs.GetString("lw_token"));
             _lobby.OnAddBot = () => _remote?.AddBot();
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");
+            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
+            StartCoroutine(ServerStatusLoop());
 
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
@@ -111,15 +124,33 @@ namespace LemonadeWars.Unity
             EnterGame();
         }
 
-        private void ConnectRemote(string url, string verb)
+        private void ConnectRemote(string url, bool create, string name, string code, string token)
         {
             _session?.Dispose();
             _remote = RemoteGameSession.Connect(url);
             _session = _remote;
-            _pendingVerb = verb;
+            _pendingSend = true;
+            _pendingCreate = create;
+            _pendingName = name;
+            _pendingCode = code;
+            _pendingToken = token;
+            PlayerPrefs.SetString("lw_server", url);
+            PlayerPrefs.SetString("lw_name", name);
             _screen = Screen.Lobby;
             _lobbyRevision = -1;
             _lobby.ShowLobby(_remote.Room, "Connecting to " + url + "...", false);
+        }
+
+        /// <summary>Remember enough to resume this room after a crash or redeploy.</summary>
+        private void SaveResume()
+        {
+            if (_remote == null || string.IsNullOrEmpty(_remote.Room.Token))
+            {
+                return;
+            }
+            PlayerPrefs.SetString("lw_code", _remote.Room.Code);
+            PlayerPrefs.SetString("lw_token", _remote.Room.Token);
+            PlayerPrefs.Save();
         }
 
         private int _lobbyRevision = -1;
@@ -145,11 +176,13 @@ namespace LemonadeWars.Unity
                 ? _remote.ConnectionError
                 : _remote.Log.LastOrDefault(l => l.StartsWith("!")) ?? "";
             _lobby.ShowLobby(_remote.Room, status, _remote.MyReady);
+            SaveResume();
         }
 
         private void EnterGame()
         {
             _screen = Screen.Game;
+            SaveResume();
             _lobby.HideAll();
             _table.SetVisible(true);
             _prompt.Hide();
@@ -161,26 +194,33 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             // Deferred lobby verb once the socket is open.
-            if (_remote != null && _pendingVerb != null)
+            if (_remote != null && _pendingSend)
             {
                 if (_remote.Connected)
                 {
-                    var parts = _pendingVerb.Split(new[] { ':' }, 3);
-                    if (parts[0] == "create")
+                    _pendingSend = false;
+                    if (_pendingCreate)
                     {
-                        _remote.CreateRoom(parts[1]);
+                        _remote.CreateRoom(_pendingName);
                     }
                     else
                     {
-                        _remote.JoinRoom(parts[2], parts[1]);
+                        _remote.JoinRoom(_pendingCode, _pendingName,
+                            string.IsNullOrEmpty(_pendingToken) ? null : _pendingToken);
                     }
-                    _pendingVerb = null;
                 }
                 else if (_remote.ConnectionError.Length > 0)
                 {
-                    _pendingVerb = null;
+                    _pendingSend = false;
                     BackToMenu(_remote.ConnectionError);
                 }
+            }
+
+            // Mid-game connection loss: back to menu; the saved token allows Resume.
+            if (_screen == Screen.Game && _remote != null && _remote.ConnectionError.Length > 0)
+            {
+                BackToMenu("Connection lost — use Resume to rejoin.");
+                return;
             }
 
             _session?.Tick();
@@ -218,6 +258,46 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             _picker.Hide();
             _lobby.ShowMenu(status);
+            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
+        }
+
+        /// <summary>Ping the server's /health while the menu is visible: the status dot.</summary>
+        private System.Collections.IEnumerator ServerStatusLoop()
+        {
+            while (true)
+            {
+                if (_lobby.MenuVisible)
+                {
+                    string healthUrl = ToHealthUrl(_lobby.ServerUrl);
+                    if (healthUrl != null)
+                    {
+                        using (var request = UnityEngine.Networking.UnityWebRequest.Get(healthUrl))
+                        {
+                            request.timeout = 3;
+                            yield return request.SendWebRequest();
+                            bool ok = request.result ==
+                                UnityEngine.Networking.UnityWebRequest.Result.Success;
+                            _lobby.SetServerStatus(ok, ok ? "" : "server unreachable");
+                        }
+                    }
+                    else
+                    {
+                        _lobby.SetServerStatus(false, "invalid server url");
+                    }
+                }
+                yield return new WaitForSeconds(3f);
+            }
+        }
+
+        /// <summary>ws://host:port/ws -> http://host:port/health (and wss -> https).</summary>
+        private static string ToHealthUrl(string wsUrl)
+        {
+            if (!System.Uri.TryCreate(wsUrl, System.UriKind.Absolute, out var uri))
+            {
+                return null;
+            }
+            string scheme = uri.Scheme == "wss" ? "https" : "http";
+            return $"{scheme}://{uri.Authority}/health";
         }
 
         // ------------------------------------------------------------ input

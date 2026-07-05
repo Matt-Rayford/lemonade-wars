@@ -7,7 +7,13 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 var app = builder.Build();
 
 var db = GameDataLocator.LoadDatabase();
-var rooms = new RoomManager(db);
+// DATA_DIR: room action logs (mount a Railway volume here to survive redeploys).
+string dataDir = Environment.GetEnvironmentVariable("DATA_DIR")
+    ?? Path.Combine(AppContext.BaseDirectory, "rooms");
+int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int d)
+    ? d
+    : 600;
+var rooms = new RoomManager(db, dataDir, botDelayMs);
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 

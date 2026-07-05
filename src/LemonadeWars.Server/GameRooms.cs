@@ -15,7 +15,7 @@ public sealed class Seat
 {
     public int Index { get; init; }
     public string Name { get; set; } = "";
-    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+    public string Token { get; set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     public bool IsBot { get; set; }
     /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
     public bool Ready { get; set; }
@@ -66,12 +66,113 @@ public sealed class Room
     private readonly object _sync = new();
     private readonly List<Seat> _seats = new();
     private readonly Dictionary<int, GreedyBot> _bots = new();
+    private readonly string? _storePath;
+    private readonly int _botDelayMs;
+    private bool _botPumpActive;
     private Game? _game;
 
-    public Room(string code, CardDatabase db)
+    public Room(string code, CardDatabase db, string? storePath, int botDelayMs)
     {
         Code = code;
         _db = db;
+        _storePath = storePath;
+        _botDelayMs = botDelayMs;
+    }
+
+    /// <summary>
+    /// Rebuild a started room from its persisted seed + action log (deterministic replay).
+    /// Returns null for finished or unreadable games.
+    /// </summary>
+    public static Room? LoadFromFile(string code, CardDatabase db, string path, int botDelayMs)
+    {
+        try
+        {
+            var lines = File.ReadAllLines(path).Where(l => l.Length > 0).ToArray();
+            if (lines.Length == 0)
+            {
+                return null;
+            }
+            var header = JObject.Parse(lines[0])["header"] as JObject;
+            if (header == null)
+            {
+                return null;
+            }
+
+            var room = new Room(code, db, path, botDelayMs);
+            var names = header["names"]!.Select(n => (string)n!).ToArray();
+            var bots = header["bots"]!.Select(b => (bool)b!).ToArray();
+            var tokens = header["tokens"]!.Select(t => (string)t!).ToArray();
+            for (int i = 0; i < names.Length; i++)
+            {
+                room._seats.Add(new Seat
+                {
+                    Index = i,
+                    Name = names[i],
+                    IsBot = bots[i],
+                    Ready = true,
+                    Token = tokens[i],
+                });
+                if (bots[i])
+                {
+                    room._bots[i] = new GreedyBot();
+                }
+            }
+
+            room._game = Game.Create(db, names, ulong.Parse((string)header["seed"]!));
+            for (int i = 1; i < lines.Length; i++)
+            {
+                room._game.Apply(WireCodec.DecodeAction(JObject.Parse(lines[i])));
+            }
+            return room._game.State.Stage == GameStage.Finished ? null : room;
+        }
+        catch (Exception)
+        {
+            return null; // corrupt log: better to drop the room than crash the server
+        }
+    }
+
+    /// <summary>Kick the bot pump (used after rehydration when a bot is up).</summary>
+    public void PumpBots() => _ = EnsureBotPumpAsync();
+
+    // -------------------------------------------------------- persistence
+
+    private void PersistHeader(ulong seed)
+    {
+        if (_storePath == null)
+        {
+            return;
+        }
+        var header = new JObject
+        {
+            ["header"] = new JObject
+            {
+                ["seed"] = seed.ToString(),
+                ["names"] = new JArray(_seats.Select(s => s.Name)),
+                ["bots"] = new JArray(_seats.Select(s => s.IsBot)),
+                ["tokens"] = new JArray(_seats.Select(s => s.Token)),
+            },
+        };
+        AppendLine(header.ToString(Newtonsoft.Json.Formatting.None));
+    }
+
+    private void PersistAction(GameAction action)
+    {
+        if (_storePath != null)
+        {
+            AppendLine(WireCodec.EncodeAction(action).ToString(Newtonsoft.Json.Formatting.None));
+        }
+    }
+
+    private void AppendLine(string line)
+    {
+        try
+        {
+            File.AppendAllText(_storePath!, line + "\n");
+        }
+        catch (IOException)
+        {
+            // Persistence is best-effort; a full disk must not kill the game.
+        }
     }
 
     public bool Started
@@ -205,10 +306,11 @@ public sealed class Room
             {
                 _bots[seat.Index] = new GreedyBot();
             }
+            PersistHeader(seed);
         }
 
         BroadcastRoom(SeatsSnapshot());
-        _ = RunBotsAndBroadcastAsync(new List<GameEvent>());
+        _ = BroadcastThenPumpAsync(new List<GameEvent>());
         return "";
     }
 
@@ -256,6 +358,7 @@ public sealed class Room
             try
             {
                 events.AddRange(_game.Apply(action));
+                PersistAction(action);
             }
             catch (InvalidActionException e)
             {
@@ -264,29 +367,65 @@ public sealed class Room
             }
         }
 
-        await RunBotsAndBroadcastAsync(events);
+        await BroadcastThenPumpAsync(events);
     }
 
-    /// <summary>Let server-side bots take their turns, then push updates to every human.</summary>
-    private async Task RunBotsAndBroadcastAsync(List<GameEvent> events)
+    private async Task BroadcastThenPumpAsync(List<GameEvent> events)
+    {
+        await BroadcastGameAsync(events);
+        await EnsureBotPumpAsync();
+    }
+
+    /// <summary>
+    /// Paced bot turns: one action per BOT_DELAY_MS with a broadcast after each, so humans
+    /// watch bot turns unfold instead of the whole thing flashing past. At most one pump
+    /// runs per room; human actions interleave safely through the room lock.
+    /// </summary>
+    private async Task EnsureBotPumpAsync()
     {
         lock (_sync)
         {
-            if (_game != null)
+            if (_botPumpActive || _game == null)
             {
-                int steps = 0;
-                while (_game.State.Stage != GameStage.Finished && steps++ < MaxBotSteps)
+                return;
+            }
+            _botPumpActive = true;
+        }
+
+        try
+        {
+            for (int steps = 0; steps < MaxBotSteps; steps++)
+            {
+                var events = new List<GameEvent>();
+                lock (_sync)
                 {
+                    if (_game == null || _game.State.Stage == GameStage.Finished)
+                    {
+                        return;
+                    }
                     int actor = _game.ActingPlayers().FirstOrDefault(a => _bots.ContainsKey(a), -1);
                     if (actor < 0)
                     {
-                        break;
+                        return;
                     }
-                    events.AddRange(_game.Apply(_bots[actor].Choose(_game, actor)));
+                    var action = _bots[actor].Choose(_game, actor);
+                    events.AddRange(_game.Apply(action));
+                    PersistAction(action);
+                }
+                await BroadcastGameAsync(events);
+                if (_botDelayMs > 0)
+                {
+                    await Task.Delay(_botDelayMs);
                 }
             }
         }
-        await BroadcastGameAsync(events);
+        finally
+        {
+            lock (_sync)
+            {
+                _botPumpActive = false;
+            }
+        }
     }
 
     // ---------------------------------------------------------- broadcast
@@ -387,11 +526,32 @@ public sealed class RoomManager
     private const string CodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 
     private readonly CardDatabase _db;
+    private readonly string _dataDir;
+    private readonly int _botDelayMs;
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
 
-    public RoomManager(CardDatabase db)
+    public RoomManager(CardDatabase db, string dataDir, int botDelayMs)
     {
         _db = db;
+        _dataDir = dataDir;
+        _botDelayMs = botDelayMs;
+        Directory.CreateDirectory(dataDir);
+        LoadPersistedRooms();
+    }
+
+    /// <summary>Rebuild every unfinished game from its action log (e.g. after a redeploy).</summary>
+    private void LoadPersistedRooms()
+    {
+        foreach (string path in Directory.GetFiles(_dataDir, "*.jsonl"))
+        {
+            string code = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
+            var room = Room.LoadFromFile(code, _db, path, _botDelayMs);
+            if (room != null)
+            {
+                _rooms.TryAdd(code, room);
+                room.PumpBots(); // in case a bot was mid-turn when the server died
+            }
+        }
     }
 
     public Room Create()
@@ -401,7 +561,7 @@ public sealed class RoomManager
             var code = new string(Enumerable.Range(0, 5)
                 .Select(_ => CodeAlphabet[RandomNumberGenerator.GetInt32(CodeAlphabet.Length)])
                 .ToArray());
-            var room = new Room(code, _db);
+            var room = new Room(code, _db, Path.Combine(_dataDir, code + ".jsonl"), _botDelayMs);
             if (_rooms.TryAdd(code, room))
             {
                 return room;
