@@ -154,5 +154,86 @@ namespace LemonadeWars.Unity
                 Object.Destroy(container.GetChild(i).gameObject);
             }
         }
+
+        /// <summary>Horizontal scroll strip (for hands and long rows); returns the content container.</summary>
+        public static RectTransform CreateScrollRow(RectTransform host)
+        {
+            var scrollGo = new GameObject("ScrollRow", typeof(RectTransform), typeof(ScrollRect), typeof(Image));
+            scrollGo.transform.SetParent(host, false);
+            Anchor((RectTransform)scrollGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(4, 4), new Vector2(-4, -4));
+            scrollGo.GetComponent<Image>().color = new Color(0, 0, 0, 0.15f);
+            var scroll = scrollGo.GetComponent<ScrollRect>();
+            scroll.vertical = false;
+
+            var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
+            viewportGo.transform.SetParent(scrollGo.transform, false);
+            Anchor((RectTransform)viewportGo.transform, Vector2.zero, Vector2.one);
+            viewportGo.GetComponent<Mask>().showMaskGraphic = false;
+
+            var contentGo = new GameObject("Content", typeof(RectTransform),
+                typeof(HorizontalLayoutGroup), typeof(ContentSizeFitter));
+            contentGo.transform.SetParent(viewportGo.transform, false);
+            var content = (RectTransform)contentGo.transform;
+            content.anchorMin = new Vector2(0, 0);
+            content.anchorMax = new Vector2(0, 1);
+            content.pivot = new Vector2(0, 0.5f);
+            var layout = contentGo.GetComponent<HorizontalLayoutGroup>();
+            layout.spacing = 8;
+            layout.padding = new RectOffset(8, 8, 6, 6);
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            contentGo.GetComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            scroll.viewport = (RectTransform)viewportGo.transform;
+            scroll.content = content;
+            return content;
+        }
+
+        /// <summary>Attach pointer-enter/exit hover callbacks to any UI object.</summary>
+        public static void AddHover(GameObject go,
+            UnityEngine.Events.UnityAction onEnter, UnityEngine.Events.UnityAction onExit)
+        {
+            var trigger = go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
+            var enter = new UnityEngine.EventSystems.EventTrigger.Entry
+            {
+                eventID = UnityEngine.EventSystems.EventTriggerType.PointerEnter,
+            };
+            enter.callback.AddListener(_ => onEnter());
+            var exit = new UnityEngine.EventSystems.EventTrigger.Entry
+            {
+                eventID = UnityEngine.EventSystems.EventTriggerType.PointerExit,
+            };
+            exit.callback.AddListener(_ => onExit());
+            trigger.triggers.Add(enter);
+            trigger.triggers.Add(exit);
+        }
+
+        /// <summary>Make any UI object clickable.</summary>
+        public static void AddClick(GameObject go, UnityEngine.Events.UnityAction onClick)
+        {
+            var trigger = go.GetComponent<UnityEngine.EventSystems.EventTrigger>()
+                ?? go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
+            var click = new UnityEngine.EventSystems.EventTrigger.Entry
+            {
+                eventID = UnityEngine.EventSystems.EventTriggerType.PointerClick,
+            };
+            click.callback.AddListener(_ => onClick());
+            trigger.triggers.Add(click);
+        }
+
+        /// <summary>Small caption under/over a card.</summary>
+        public static Text CreateBadge(Transform parent, string content, int size, Color background)
+        {
+            var go = new GameObject("Badge", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            go.GetComponent<Image>().color = background;
+            go.GetComponent<LayoutElement>().minHeight = size + 8;
+            var text = CreateText(go.transform, content, size, TextAnchor.MiddleCenter);
+            Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
+                new Vector2(4, 1), new Vector2(-4, -1));
+            return text;
+        }
     }
 }

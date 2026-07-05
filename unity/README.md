@@ -11,6 +11,11 @@ The Unity front end for the C# rules engine in `../src/LemonadeWars.Engine`.
 
 You play seat 0 against three GreedyBots.
 
+**Click to act**: hand cards to play them, market cards to buy, supply piles for
+stands; the bottom bar holds turn actions (draw, end turn, refresh, Bragging
+Rights, abilities). Tantrum windows, decisions, and setup choices appear as
+modal prompts. Hover any card to enlarge it.
+
 | Key | Action |
 |-----|--------|
 | `B` | Toggle autopilot for your seat (watch 4 bots play) |
