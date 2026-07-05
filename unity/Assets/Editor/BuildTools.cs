@@ -14,10 +14,17 @@ namespace LemonadeWars.UnityEditorTools
     public static class BuildTools
     {
         private const string ScenePath = "Assets/Scenes/Main.unity";
-        private const string OutputPath = "Build/LemonadeWars.app";
 
         [MenuItem("Lemonade Wars/Build macOS Player")]
-        public static void BuildMac()
+        public static void BuildMac() =>
+            Build(BuildTarget.StandaloneOSX, "Build/LemonadeWars.app");
+
+        /// <summary>Needs "Windows Build Support (Mono)" installed via Unity Hub.</summary>
+        [MenuItem("Lemonade Wars/Build Windows Player")]
+        public static void BuildWindows() =>
+            Build(BuildTarget.StandaloneWindows64, "Build/Windows/LemonadeWars.exe");
+
+        private static void Build(BuildTarget target, string outputPath)
         {
             EnsureBootScene();
 
@@ -30,12 +37,12 @@ namespace LemonadeWars.UnityEditorTools
             var options = new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },
-                locationPathName = OutputPath,
-                target = BuildTarget.StandaloneOSX,
+                locationPathName = outputPath,
+                target = target,
                 options = BuildOptions.None,
             };
             var report = BuildPipeline.BuildPlayer(options);
-            Debug.Log($"Build {report.summary.result}: {OutputPath} " +
+            Debug.Log($"Build {report.summary.result}: {outputPath} " +
                       $"({report.summary.totalSize / (1024 * 1024)} MB)");
         }
 
