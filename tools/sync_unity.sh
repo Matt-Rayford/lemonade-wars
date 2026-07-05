@@ -16,12 +16,13 @@ UNITY_DIR="unity"
 PLUGINS="$UNITY_DIR/Assets/Plugins"
 STREAMING="$UNITY_DIR/Assets/StreamingAssets"
 
-echo "== building engine =="
-"$DOTNET" build src/LemonadeWars.Engine -c Release --nologo -v quiet
+echo "== building engine + protocol =="
+"$DOTNET" build src/LemonadeWars.Protocol -c Release --nologo -v quiet
 
-echo "== syncing engine DLL =="
+echo "== syncing DLLs =="
 mkdir -p "$PLUGINS"
 cp src/LemonadeWars.Engine/bin/Release/netstandard2.1/LemonadeWars.Engine.dll "$PLUGINS/"
+cp src/LemonadeWars.Protocol/bin/Release/netstandard2.1/LemonadeWars.Protocol.dll "$PLUGINS/"
 
 echo "== syncing fonts =="
 mkdir -p "$UNITY_DIR/Assets/Resources/fonts"

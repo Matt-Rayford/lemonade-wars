@@ -5,9 +5,10 @@ using LemonadeWars.Engine.Core;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Buckets a player's legal moves by the on-table thing they belong to, so the UI can
-    /// present click-to-act instead of a flat button list. When the engine is blocked on a
-    /// window/decision/setup choice, everything routes to the modal bucket instead.
+    /// Buckets a seat's legal moves by the on-table thing they belong to, so the UI can
+    /// present click/drag-to-act instead of a flat button list. When the engine is blocked
+    /// on a window/decision/setup choice, everything routes to the modal bucket instead.
+    /// Purely view-driven: works identically for local and remote sessions.
     /// </summary>
     public sealed class MoveGroups
     {
@@ -19,20 +20,18 @@ namespace LemonadeWars.Unity
         /// <summary>True when the player must answer through the modal (window/decision/setup).</summary>
         public bool IsModal { get; private set; }
 
-        public static MoveGroups For(Game game, int playerId)
+        public static MoveGroups From(PlayerView view, IReadOnlyList<GameAction> moves)
         {
             var groups = new MoveGroups();
-            var moves = game.LegalMovesFor(playerId);
-            if (moves.Count == 0)
+            if (view == null || moves == null || moves.Count == 0)
             {
                 return groups;
             }
 
-            var s = game.State;
             groups.IsModal =
-                s.Stage == GameStage.ChoosingLemonLords ||
-                s.AwaitingResponse.Contains(playerId) ||
-                s.PendingDecisions.Any(d => d.PlayerId == playerId);
+                view.Stage == GameStage.ChoosingLemonLords ||
+                view.AwaitingResponse.Contains(view.ViewerId) ||
+                view.MyDecisions.Count > 0;
 
             if (groups.IsModal)
             {

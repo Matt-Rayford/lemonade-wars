@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using UnityEngine;
@@ -10,18 +9,14 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The playable table: you (seat 0) vs three GreedyBots. Click cards to act — hand
-    /// cards to play them, market cards to buy, supply piles for stands; windows and
-    /// decisions appear as modal prompts. Spawns itself on Play in any scene.
+    /// The shell: menu -> (lobby) -> table. The table renders from PlayerView + typed
+    /// legal moves through IGameSession, so offline play and networked play share every
+    /// pixel of UI. Spawns itself on Play in any scene.
     ///
-    /// Keys: [B] autopilot for your seat, [N] new game.
+    /// Keys in game: [B] autopilot, [N] new local game (offline only).
     /// </summary>
     public sealed class LemonadeWarsApp : MonoBehaviour
     {
-        private const int HumanSeat = 0;
-        private const float BotStepSeconds = 0.35f;
-        private static readonly string[] Names = { "You", "Benny", "Cleo", "Dex" };
-
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
         {
@@ -35,15 +30,27 @@ namespace LemonadeWars.Unity
             new GameObject("LemonadeWarsApp", typeof(LemonadeWarsApp));
         }
 
+        private enum Screen
+        {
+            Menu,
+            Lobby,
+            Game,
+        }
+
         private CardDatabase _db;
         private CardArt _art;
-        private Game _game;
-        private Dictionary<int, IBot> _bots;
-        private GreedyBot _autopilot;
-        private bool _humanAutoplay;
-        private float _nextBotStep;
-        private readonly List<string> _log = new List<string>();
+        private IGameSession _session;
+        private RemoteGameSession _remote; // same object as _session when online
+        private Screen _screen = Screen.Menu;
 
+        // Lobby verb deferred until the socket opens.
+        private bool _pendingSend;
+        private bool _pendingCreate;
+        private string _pendingName;
+        private string _pendingCode;
+        private string _pendingToken;
+
+        private LobbyUi _lobby;
         private TableView _table;
         private Prompt _prompt;
         private CardPicker _picker;
@@ -52,12 +59,13 @@ namespace LemonadeWars.Unity
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
 
+        private PlayerView View => _session?.View;
+
         private void Start()
         {
             _db = CardDatabase.Load(Path.Combine(Application.streamingAssetsPath, "game-data"));
             _art = new CardArt(Application.streamingAssetsPath);
             BuildHud();
-            NewGame();
         }
 
         private void BuildHud()
@@ -74,123 +82,266 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview);
             _table.OnHandCard = OpenHandMenu;
-            _table.CanBuyMarket = i =>
-                !_humanAutoplay && MoveGroups.For(_game, HumanSeat).MarketMoves.ContainsKey(i);
+            _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
             _table.OnMarketDragStart = OnMarketDragStart;
             _table.OnMarketDragEnd = () => _table.ClearDropHighlights();
             _table.OnMarketDrop = OnMarketDrop;
-            _table.CanBuySupply = typeId =>
-                !_humanAutoplay && MoveGroups.For(_game, HumanSeat).SupplyMoves.ContainsKey(typeId);
+            _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
-            // Built last: overlays render on top of the table.
+            _table.SetVisible(false);
+
+            _lobby = new LobbyUi(root);
+            _lobby.OnPlayLocal = StartLocalGame;
+            _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
+            _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");
+            _lobby.OnResume = () => ConnectRemote(
+                PlayerPrefs.GetString("lw_server"), false,
+                PlayerPrefs.GetString("lw_name"),
+                PlayerPrefs.GetString("lw_code"),
+                PlayerPrefs.GetString("lw_token"));
+            _lobby.OnAddBot = () => _remote?.AddBot();
+            _lobby.OnStart = () => _remote?.StartGame();
+            _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
+            _lobby.OnLeave = () => BackToMenu("");
+            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
+            StartCoroutine(ServerStatusLoop());
+
+            // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
         }
 
-        private void NewGame()
+        // ------------------------------------------------------------ flows
+
+        private void StartLocalGame()
         {
-            ulong seed = (ulong)System.DateTime.Now.Ticks;
-            _game = Game.Create(_db, Names, seed);
-            _bots = new Dictionary<int, IBot>();
-            for (int i = 0; i < Names.Length; i++)
+            _remote?.Dispose();
+            _remote = null;
+            _session?.Dispose();
+            _session = new LocalGameSession(_db,
+                new[] { "You", "Benny", "Cleo", "Dex" }, 0,
+                (ulong)System.DateTime.Now.Ticks);
+            EnterGame();
+        }
+
+        private void ConnectRemote(string url, bool create, string name, string code, string token)
+        {
+            _session?.Dispose();
+            _remote = RemoteGameSession.Connect(url);
+            _session = _remote;
+            _pendingSend = true;
+            _pendingCreate = create;
+            _pendingName = name;
+            _pendingCode = code;
+            _pendingToken = token;
+            PlayerPrefs.SetString("lw_server", url);
+            PlayerPrefs.SetString("lw_name", name);
+            _screen = Screen.Lobby;
+            _lobbyRevision = -1;
+            _lobby.ShowLobby(_remote.Room, "Connecting to " + url + "...", false);
+        }
+
+        /// <summary>Remember enough to resume this room after a crash or redeploy.</summary>
+        private void SaveResume()
+        {
+            if (_remote == null || string.IsNullOrEmpty(_remote.Room.Token))
             {
-                if (i != HumanSeat)
-                {
-                    _bots[i] = new GreedyBot();
-                }
+                return;
             }
-            _autopilot = new GreedyBot();
-            _log.Clear();
-            Log($"New game — you're up against {Names[1]}, {Names[2]} and {Names[3]}.");
-            _prompt?.Hide();
-            _picker?.Hide();
+            PlayerPrefs.SetString("lw_code", _remote.Room.Code);
+            PlayerPrefs.SetString("lw_token", _remote.Room.Token);
+            PlayerPrefs.Save();
+        }
+
+        private int _lobbyRevision = -1;
+
+        /// <summary>Lobby refresh + started transition, driven off the session revision.</summary>
+        private void TickLobby()
+        {
+            if (_remote == null || _screen != Screen.Lobby)
+            {
+                return;
+            }
+            if (_remote.Room.Started)
+            {
+                EnterGame();
+                return;
+            }
+            if (_remote.Revision == _lobbyRevision)
+            {
+                return;
+            }
+            _lobbyRevision = _remote.Revision;
+            string status = _remote.ConnectionError.Length > 0
+                ? _remote.ConnectionError
+                : _remote.Log.LastOrDefault(l => l.StartsWith("!")) ?? "";
+            _lobby.ShowLobby(_remote.Room, status, _remote.MyReady);
+            SaveResume();
+        }
+
+        private void EnterGame()
+        {
+            _screen = Screen.Game;
+            SaveResume();
+            _lobby.HideAll();
+            _table.SetVisible(true);
+            _prompt.Hide();
+            _picker.Hide();
             _renderedRevision = -1;
             _modalRevision = -1;
         }
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.N))
+            // Deferred lobby verb once the socket is open.
+            if (_remote != null && _pendingSend)
             {
-                NewGame();
+                if (_remote.Connected)
+                {
+                    _pendingSend = false;
+                    if (_pendingCreate)
+                    {
+                        _remote.CreateRoom(_pendingName);
+                    }
+                    else
+                    {
+                        _remote.JoinRoom(_pendingCode, _pendingName,
+                            string.IsNullOrEmpty(_pendingToken) ? null : _pendingToken);
+                    }
+                }
+                else if (_remote.ConnectionError.Length > 0)
+                {
+                    _pendingSend = false;
+                    BackToMenu(_remote.ConnectionError);
+                }
             }
-            if (Input.GetKeyDown(KeyCode.B))
+
+            // Mid-game connection loss: back to menu; the saved token allows Resume.
+            if (_screen == Screen.Game && _remote != null && _remote.ConnectionError.Length > 0)
             {
-                _humanAutoplay = !_humanAutoplay;
+                BackToMenu("Connection lost — use Resume to rejoin.");
+                return;
+            }
+
+            _session?.Tick();
+            TickLobby();
+
+            if (_screen != Screen.Game)
+            {
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.N) && _session is LocalGameSession)
+            {
+                StartLocalGame();
+            }
+            if (Input.GetKeyDown(KeyCode.B) && _session != null)
+            {
+                _session.HumanAutoplay = !_session.HumanAutoplay;
                 _prompt.Hide();
                 _picker.Hide();
-                Log(_humanAutoplay ? "Autopilot ON." : "Autopilot off.");
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
 
-            _table?.TickSupplyDrag(Input.mousePosition);
-            StepBots();
+            _table.TickSupplyDrag(Input.mousePosition);
             RenderIfChanged();
         }
 
-        private void StepBots()
+        private void BackToMenu(string status)
         {
-            if (_game.State.Stage == GameStage.Finished || Time.time < _nextBotStep)
+            _session?.Dispose();
+            _session = null;
+            _remote = null;
+            _screen = Screen.Menu;
+            _table.SetVisible(false);
+            _prompt.Hide();
+            _picker.Hide();
+            _lobby.ShowMenu(status);
+            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
+        }
+
+        /// <summary>Ping the server's /health while the menu is visible: the status dot.</summary>
+        private System.Collections.IEnumerator ServerStatusLoop()
+        {
+            while (true)
             {
-                return;
-            }
-            var acting = _game.ActingPlayers();
-            // Windows can await several players at once: step the first bot among them,
-            // regardless of whether the human is also being waited on.
-            foreach (int actor in acting)
-            {
-                bool isBot = actor != HumanSeat || _humanAutoplay;
-                if (!isBot)
+                if (_lobby.MenuVisible)
                 {
-                    continue;
+                    string healthUrl = ToHealthUrl(_lobby.ServerUrl);
+                    if (healthUrl != null)
+                    {
+                        using (var request = UnityEngine.Networking.UnityWebRequest.Get(healthUrl))
+                        {
+                            request.timeout = 3;
+                            yield return request.SendWebRequest();
+                            bool ok = request.result ==
+                                UnityEngine.Networking.UnityWebRequest.Result.Success;
+                            _lobby.SetServerStatus(ok, ok ? "" : "server unreachable");
+                        }
+                    }
+                    else
+                    {
+                        _lobby.SetServerStatus(false, "invalid server url");
+                    }
                 }
-                _nextBotStep = Time.time + BotStepSeconds;
-                var bot = actor == HumanSeat ? _autopilot : (GreedyBot)_bots[actor];
-                ApplyAction(bot.Choose(_game, actor));
-                return;
+                yield return new WaitForSeconds(3f);
             }
         }
 
-        private void ApplyAction(GameAction action)
+        /// <summary>ws://host:port/ws -> http://host:port/health (and wss -> https).</summary>
+        private static string ToHealthUrl(string wsUrl)
+        {
+            if (!System.Uri.TryCreate(wsUrl, System.UriKind.Absolute, out var uri))
+            {
+                return null;
+            }
+            string scheme = uri.Scheme == "wss" ? "https" : "http";
+            return $"{scheme}://{uri.Authority}/health";
+        }
+
+        // ------------------------------------------------------------ input
+
+        private MoveGroups CurrentGroups()
+        {
+            if (_session == null || _session.HumanAutoplay || View == null)
+            {
+                return null;
+            }
+            return MoveGroups.From(View, _session.Moves);
+        }
+
+        private void Submit(GameAction action)
         {
             _prompt.Hide();
             _picker.Hide();
-            foreach (var gameEvent in _game.Apply(action))
-            {
-                Log(gameEvent.ToString());
-            }
+            _session.Submit(action);
             _renderedRevision = -1;
         }
 
-        private void Log(string line)
-        {
-            _log.Add(line);
-            if (_log.Count > 18)
-            {
-                _log.RemoveAt(0);
-            }
-        }
-
-        // ---------------------------------------------------------- contextual menus
+        private string NameOf(int playerId) =>
+            View != null && playerId >= 0 && playerId < View.Players.Count
+                ? View.Players[playerId].Name
+                : $"P{playerId}";
 
         private void OpenHandMenu(int cardInstanceId)
         {
-            var groups = MoveGroups.For(_game, HumanSeat);
-            if (!groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
             {
                 return;
             }
-            string defId = _game.State.LemonInstances[cardInstanceId].DefId;
-            _prompt.Show(_db.Lemon(defId).Name,
-                new[] { _art.Lemon(defId) },
+            var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+            _prompt.Show(_db.Lemon(card?.DefId ?? "").Name,
+                new[] { _art.Lemon(card?.DefId ?? "") },
                 ToOptions(moves), showCancel: true);
         }
 
         private void OnMarketDragStart(int marketIndex)
         {
             _preview.Hide();
-            if (!MoveGroups.For(_game, HumanSeat).MarketMoves.TryGetValue(marketIndex, out var moves))
+            var groups = CurrentGroups();
+            if (groups == null || !groups.MarketMoves.TryGetValue(marketIndex, out var moves))
             {
                 return;
             }
@@ -202,7 +353,8 @@ namespace LemonadeWars.Unity
         private void OnMarketDrop(int marketIndex, int? standInstanceId)
         {
             _table.ClearDropHighlights();
-            if (!MoveGroups.For(_game, HumanSeat).MarketMoves.TryGetValue(marketIndex, out var moves))
+            var groups = CurrentGroups();
+            if (groups == null || !groups.MarketMoves.TryGetValue(marketIndex, out var moves))
             {
                 return;
             }
@@ -212,101 +364,102 @@ namespace LemonadeWars.Unity
                 .ToList();
             if (matching.Count == 1)
             {
-                ApplyAction(matching[0]);
+                Submit(matching[0]);
             }
             else if (matching.Count > 1)
             {
-                // The slot is full: the buyer picks which equipped card to replace.
-                var instance = _game.State.BlackMarketInstances[_game.State.Market[marketIndex]];
+                var card = View.Market[marketIndex];
                 _prompt.Show("That slot is full — replace which card?",
-                    new[] { _art.BlackMarket(instance.DefId, instance.Shape) },
+                    new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
                     ToOptions(matching), showCancel: true);
             }
         }
 
         private void OnSupplyDrop(string standTypeId, int insertIndex)
         {
-            if (!MoveGroups.For(_game, HumanSeat).SupplyMoves.TryGetValue(standTypeId, out var moves))
+            var groups = CurrentGroups();
+            if (groups == null || !groups.SupplyMoves.TryGetValue(standTypeId, out var moves))
             {
                 return;
             }
-            // Match the previewed row position; fall back to the rightmost slot.
             var pick = moves.FirstOrDefault(m =>
                     (m as BuyStand)?.InsertIndex == insertIndex ||
                     (m as InitialBuyStand)?.InsertIndex == insertIndex)
                 ?? moves[moves.Count - 1];
-            ApplyAction(pick);
+            Submit(pick);
         }
 
         private List<Prompt.Option> ToOptions(IEnumerable<GameAction> moves)
         {
             return moves
-                .Select(m => new Prompt.Option(MoveDescriber.Describe(_game, m), () => ApplyAction(m)))
+                .Select(m => new Prompt.Option(_session.LabelFor(m), () => Submit(m)))
                 .ToList();
         }
 
-        // ------------------------------------------------------------------- render
+        // ----------------------------------------------------------- render
 
         private void RenderIfChanged()
         {
-            var s = _game.State;
-            int revision = s.InteractionRevision * 100003 + s.LemonDeck.Count * 101 +
-                           s.PendingDecisions.Count * 7 + (int)s.Stage + s.ActionsRemaining * 13 +
-                           _log.Count * 3;
+            if (View == null)
+            {
+                return;
+            }
+            int revision = _session.Revision;
             if (revision == _renderedRevision)
             {
                 return;
             }
             _renderedRevision = revision;
 
-            var groups = _humanAutoplay ? null : MoveGroups.For(_game, HumanSeat);
+            var groups = CurrentGroups();
             RenderStatus();
             RenderBanner();
-            _table.Render(_game, HumanSeat, groups);
-            _table.SetLog(_log);
+            _table.Render(View, _db, groups);
+            _table.SetLog(_session.Log);
             RenderActionBar(groups);
             MaybeShowModal(groups, revision);
         }
 
         private void RenderStatus()
         {
-            var s = _game.State;
-            var me = s.Players[HumanSeat];
-            string status = s.Stage == GameStage.Finished
-                ? $"GAME OVER — winner: {string.Join(", ", s.Winners.Select(w => Names[w]))}   [N] new game"
-                : $"You: ${me.Money}  |  {me.InGameVictoryPoints} VP" +
-                  (s.WhiniestBabyHolder == HumanSeat ? "  |  WHINIEST BABY" : "") +
-                  (s.SpoiledRottenHolder == HumanSeat ? "  |  SPOILED ROTTEN" : "") +
-                  (me.TantrumPile.Count > 0 ? $"  |  {me.TantrumPile.Count} tantrums" : "") +
-                  (_humanAutoplay ? "  |  AUTOPILOT [B]" : "  |  [B] autopilot  [N] new game");
+            var me = View.Players[View.ViewerId];
+            string status = View.Stage == GameStage.Finished
+                ? $"GAME OVER — winner: {string.Join(", ", View.Winners.Select(NameOf))}" +
+                  (_session is LocalGameSession ? "   [N] new game" : "")
+                : $"{me.Name}: ${me.Money}  |  {me.InGameVictoryPoints} VP" +
+                  (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
+                  (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
+                  (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
+                  (_session.HumanAutoplay ? "  |  AUTOPILOT [B]" : "  |  [B] autopilot") +
+                  (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
             _statusText.text = status;
         }
 
         private void RenderBanner()
         {
-            var s = _game.State;
             string banner;
-            if (s.Stage == GameStage.Finished)
+            if (View.Stage == GameStage.Finished)
             {
                 banner = "Thanks for playing!";
             }
-            else if (s.PendingRoll != null)
+            else if (View.PendingRollValue is int roll)
             {
-                banner = $"SALE ROLL: {s.PendingRoll.Value}";
+                banner = $"SALE ROLL: {roll}";
             }
-            else if (s.Stage == GameStage.ChoosingLemonLords)
+            else if (View.Stage == GameStage.ChoosingLemonLords)
             {
                 banner = "Choose your secret Lemon Lord titles";
             }
-            else if (s.Stage == GameStage.InitialBuys)
+            else if (View.Stage == GameStage.InitialBuys)
             {
-                int buyer = s.InitialBuyQueue.Count > 0 ? s.InitialBuyQueue[0] : 0;
-                banner = $"Setup draft — {Names[buyer]} is buying";
+                banner = $"Setup draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
             }
             else
             {
-                banner = $"{Names[s.ActivePlayer]}'s turn — {s.Phase}" +
-                         (s.ActivePlayer == HumanSeat ? $" ({s.ActionsRemaining} actions left)" : "");
+                banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}" +
+                         (View.ActivePlayer == View.ViewerId
+                             ? $" ({View.ActionsRemaining} actions left)"
+                             : "");
             }
             _table.SetBanner(banner);
         }
@@ -322,10 +475,12 @@ namespace LemonadeWars.Unity
             {
                 var captured = move;
                 var button = UiKit.CreateButton(_table.ActionBar,
-                    MoveDescriber.Describe(_game, captured), 15, () => ApplyAction(captured));
+                    _session.LabelFor(captured), 15, () => Submit(captured));
                 button.GetComponent<LayoutElement>().minWidth = 150;
             }
         }
+
+        // ------------------------------------------------------------ modal
 
         private void MaybeShowModal(MoveGroups groups, int revision)
         {
@@ -348,29 +503,26 @@ namespace LemonadeWars.Unity
         /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>
         private bool TryShowPicker()
         {
-            var s = _game.State;
-
-            if (s.Stage == GameStage.ChoosingLemonLords)
+            if (View.Stage == GameStage.ChoosingLemonLords)
             {
-                var dealt = s.Players[HumanSeat].LemonLordDealt.ToList();
+                var dealt = View.LemonLordDealt.ToList();
                 _picker.Show($"Keep {_db.Config.LemonLordKept} secret Lemon Lord titles",
                     dealt.Select(id => _art.Title(id)).ToList(),
                     _db.Config.LemonLordKept,
-                    picked => ApplyAction(new ChooseLemonLords
+                    picked => Submit(new ChooseLemonLords
                     {
-                        PlayerId = HumanSeat,
                         KeepTitleIds = picked.Select(i => dealt[i]).ToList(),
                     }));
                 return true;
             }
 
-            var decision = s.PendingDecisions.FirstOrDefault(d => d.PlayerId == HumanSeat);
+            var decision = View.MyDecisions.FirstOrDefault();
             if (decision == null)
             {
                 return false;
             }
 
-            List<int> pool;
+            List<PlayerView.CardInfo> pool;
             int required;
             string title;
             System.Action<List<int>> accept;
@@ -378,33 +530,33 @@ namespace LemonadeWars.Unity
             {
                 case DecisionKind.DiscardToHandLimit:
                 case DecisionKind.WhiniestBabyDiscard:
-                    pool = s.Players[HumanSeat].Hand.ToList();
+                    pool = View.Hand.ToList();
                     required = decision.RequiredCount;
                     title = decision.Kind == DecisionKind.DiscardToHandLimit
                         ? $"Timeout! Discard {required} card(s)"
                         : "Whiniest Baby: discard 1 card";
-                    accept = ids => ApplyAction(new SubmitDiscard { PlayerId = HumanSeat, InstanceIds = ids });
+                    accept = ids => Submit(new SubmitDiscard { InstanceIds = ids });
                     break;
 
                 case DecisionKind.AbilityDiscard:
-                    pool = s.Players[HumanSeat].Hand.ToList();
+                    pool = View.Hand.ToList();
                     required = decision.RequiredCount;
                     title = $"Discard {required} card(s)";
-                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
                 case DecisionKind.AbilityPickCard:
-                    pool = s.Players[decision.ChosenPlayerId ?? 0].Hand.ToList();
+                    pool = View.RevealedHand ?? new List<PlayerView.CardInfo>();
                     required = 1;
-                    title = $"Pick a card from {Names[decision.ChosenPlayerId ?? 0]}'s hand";
-                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    title = $"Pick a card from {NameOf(decision.ChosenPlayerId ?? 0)}'s hand";
+                    accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
                 case DecisionKind.AbilityGiveBack:
-                    pool = s.Players[HumanSeat].Hand.Where(id => id != decision.StolenCardId).ToList();
+                    pool = View.Hand.Where(c => c.InstanceId != decision.StolenCardId).ToList();
                     required = 1;
                     title = "Give back a different card";
-                    accept = ids => ApplyAction(new SubmitAbilityChoice { PlayerId = HumanSeat, CardInstanceIds = ids });
+                    accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
                 default:
@@ -413,54 +565,47 @@ namespace LemonadeWars.Unity
 
             var capturedPool = pool;
             _picker.Show(title,
-                capturedPool.Select(id => _art.Lemon(s.LemonInstances[id].DefId)).ToList(),
+                capturedPool.Select(c => _art.Lemon(c.DefId)).ToList(),
                 required,
-                picked => accept(picked.Select(i => capturedPool[i]).ToList()));
+                picked => accept(picked.Select(i => capturedPool[i].InstanceId).ToList()));
             return true;
         }
 
         private string ModalTitle()
         {
-            var s = _game.State;
-            if (s.Stage == GameStage.ChoosingLemonLords)
-            {
-                return "Pick 2 Lemon Lord titles";
-            }
-            var decision = s.PendingDecisions.FirstOrDefault(d => d.PlayerId == HumanSeat);
+            var decision = View.MyDecisions.FirstOrDefault();
             if (decision != null)
             {
                 switch (decision.Kind)
                 {
-                    case DecisionKind.DiscardToHandLimit: return "Timeout! Discard down to 10";
-                    case DecisionKind.WhiniestBabyDiscard: return "Whiniest Baby: discard 1";
                     case DecisionKind.TimeoutFine: return "Timeout! Pay your tantrum fine";
                     case DecisionKind.AttackRetarget: return "Your attack was redirected — pick a new target";
                     case DecisionKind.FreePlayOffer: return "Smear Campaign: free play?";
                     case DecisionKind.ForcedPlay: return "Reverse Engineer: play the recovered card";
                     case DecisionKind.BouncerAttack: return "Bouncer: strike back?";
                     case DecisionKind.AbilityVictim: return "Choose who to rob";
-                    case DecisionKind.AbilityPickCard: return "Pick a card from their hand";
-                    case DecisionKind.AbilityGiveBack: return "Give back a different card";
-                    case DecisionKind.AbilityDiscard: return "Discard a card";
                     case DecisionKind.InnovationCopy: return "Innovation: copy which ability?";
                     case DecisionKind.WordOfMouthStand: return "Word of Mouth: which stand sells?";
                     default: return decision.Kind.ToString();
                 }
             }
-            if (s.ResponseStack.Count > 0)
+            if (View.StackTop != null)
             {
-                var top = s.ResponseStack[s.ResponseStack.Count - 1];
-                string what = top.Kind == StackItemKind.BlackMarketPurchase
-                    ? $"{Names[top.OwnerId]} is buying {_db.BlackMarket(s.BlackMarketInstances[top.BmInstanceId.Value].DefId).Name}"
-                    : $"{Names[top.OwnerId]} played {_db.Lemon(top.LemonDefId).Name}" +
-                      (top.AttackTargetId is int t ? $" at {Names[t]}" : "");
+                var top = View.StackTop;
+                string cardName = top.IsPurchase
+                    ? _db.BlackMarket(top.DefId).Name
+                    : _db.Lemon(top.DefId).Name;
+                string what = top.IsPurchase
+                    ? $"{NameOf(top.OwnerId)} is buying {cardName}"
+                    : $"{NameOf(top.OwnerId)} played {cardName}" +
+                      (top.AttackTargetId is int t ? $" at {NameOf(t)}" : "");
                 return $"{what} — respond?";
             }
-            if (s.PendingRoll != null)
+            if (View.PendingRollValue is int roll)
             {
-                return $"The die shows {s.PendingRoll.Value} — respond?";
+                return $"The die shows {roll} — respond?";
             }
-            if (s.TheftQueue.Count > 0)
+            if (View.TheftOnMe)
             {
                 return "You were robbed — Profit Share?";
             }
@@ -469,33 +614,13 @@ namespace LemonadeWars.Unity
 
         private List<Texture2D> ModalCards()
         {
-            var s = _game.State;
             var cards = new List<Texture2D>();
-            if (s.Stage == GameStage.ChoosingLemonLords)
+            if (View.StackTop != null)
             {
-                foreach (string id in s.Players[HumanSeat].LemonLordDealt)
-                {
-                    cards.Add(_art.Title(id));
-                }
-                return cards;
-            }
-            if (s.ResponseStack.Count > 0)
-            {
-                var top = s.ResponseStack[s.ResponseStack.Count - 1];
-                cards.Add(top.Kind == StackItemKind.BlackMarketPurchase
-                    ? _art.BlackMarket(s.BlackMarketInstances[top.BmInstanceId.Value].DefId,
-                        s.BlackMarketInstances[top.BmInstanceId.Value].Shape)
-                    : _art.Lemon(top.LemonDefId));
-                return cards;
-            }
-            var pick = s.PendingDecisions.FirstOrDefault(d =>
-                d.PlayerId == HumanSeat && d.Kind == DecisionKind.AbilityPickCard);
-            if (pick?.ChosenPlayerId is int victim)
-            {
-                foreach (int id in s.Players[victim].Hand.Take(8))
-                {
-                    cards.Add(_art.Lemon(s.LemonInstances[id].DefId));
-                }
+                var top = View.StackTop;
+                cards.Add(top.IsPurchase
+                    ? _art.BlackMarket(top.DefId, top.Shape ?? Shape.Square)
+                    : _art.Lemon(top.DefId));
             }
             return cards;
         }
