@@ -1,0 +1,5 @@
+**/bin/
+**/obj/
+unity/
+game-assets/
+.git/

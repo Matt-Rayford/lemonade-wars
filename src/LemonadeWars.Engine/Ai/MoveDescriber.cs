@@ -2,7 +2,7 @@ using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 
-namespace LemonadeWars.Unity
+namespace LemonadeWars.Engine.Ai
 {
     /// <summary>Human-readable labels for engine actions, used by the move buttons.</summary>
     public static class MoveDescriber
