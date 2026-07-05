@@ -228,8 +228,10 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            var supply = _game.State.StandSupply[standTypeId];
+            var texture = supply.Count > 0 ? _art.Stand(standTypeId, supply[0]) : _art.Stand(standTypeId);
             _prompt.Show($"Buy a {_db.StandType(standTypeId).Name}?",
-                new[] { _art.Stand(standTypeId) },
+                new[] { texture },
                 ToOptions(moves), showCancel: true);
         }
 

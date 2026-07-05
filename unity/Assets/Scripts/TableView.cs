@@ -244,7 +244,8 @@ namespace LemonadeWars.Unity
                 var type = game.Db.StandType(stand.StandTypeId);
                 string caption = $"[{string.Join(",", game.SaleNumbersOf(stand).OrderBy(x => x))}] " +
                                  $"${game.StandEarnings(me, stand)}";
-                var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId), 120, 168, caption, false, null);
+                var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId, stand.Shape),
+                    120, 168, caption, false, null);
                 AddEquipList(cell, game, stand.Equipped);
                 MakeDropTarget(cell, stand.InstanceId);
             }
@@ -322,11 +323,15 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_supplyRow);
             foreach (var type in game.Db.StandTypes)
             {
-                int stock = game.State.StandSupply[type.Id].Count;
+                var supply = game.State.StandSupply[type.Id];
                 bool clickable = groups?.SupplyMoves.ContainsKey(type.Id) == true;
-                string caption = $"${game.StandPrice(humanSeat, type.Id)} x{stock}";
+                string caption = $"${game.StandPrice(humanSeat, type.Id)} x{supply.Count}";
                 string captured = type.Id;
-                AddCard(_supplyRow, _art.Stand(type.Id), 92, 129, caption,
+                // Show the shape you'd actually get: the top of the shuffled supply stack.
+                var texture = supply.Count > 0
+                    ? _art.Stand(type.Id, supply[0])
+                    : _art.Stand(type.Id);
+                AddCard(_supplyRow, texture, 92, 129, caption,
                     clickable, () => OnSupplyPile?.Invoke(captured));
             }
 

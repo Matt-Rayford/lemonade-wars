@@ -35,8 +35,13 @@ namespace LemonadeWars.Unity
         public Texture2D Turf(int powerPourNumber) =>
             Load((string)_manifest["turf"]?[powerPourNumber.ToString()]);
 
-        public Texture2D Stand(string standTypeId) =>
-            Load((string)(_manifest["stands"]?[standTypeId] as JArray)?[0]);
+        /// <summary>Stand art for a specific printed shape (each type has 3 shape variants).</summary>
+        public Texture2D Stand(string standTypeId, Shape shape) =>
+            Load((string)(_manifest["stands"]?[standTypeId]?[shape.ToString().ToLowerInvariant()]
+                as JArray)?[0]);
+
+        /// <summary>Any stand art of the type (used when no specific copy is in question).</summary>
+        public Texture2D Stand(string standTypeId) => Stand(standTypeId, Shape.Square);
 
         public Texture2D BraggingRights(int index)
         {

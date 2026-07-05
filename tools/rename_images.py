@@ -152,7 +152,12 @@ for base, start, end in SUPPORTING_RANGES:
 
         path = f"supporting-cards/{new_name}"
         if base.endswith("-stand"):
-            manifest["stands"][base.replace("-stand", "")].append(path)
+            # Shapes run in equal blocks per type: square, then diamond, then circle
+            # (verified visually against the printed shape badges).
+            per_shape = count // 3
+            shape = ("square", "diamond", "circle")[(idx - 1) // per_shape]
+            manifest["stands"].setdefault(base.replace("-stand", ""), {}) \
+                .setdefault(shape, []).append(path)
         elif base == "turf":
             manifest["turf"][str(idx)] = path
         elif base == "bragging-rights":
