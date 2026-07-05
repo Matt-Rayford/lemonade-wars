@@ -253,8 +253,11 @@ namespace LemonadeWars.Unity
             lift.anchoredPosition = Vector2.zero;
 
             // Soft glow halo (hidden until selected): wide faint layer + tighter bright layer.
-            var glowOuter = MakeGlow(lift, width + 44, height + 44, GlowOuterColor);
-            var glowInner = MakeGlow(lift, width + 20, height + 20, GlowInnerColor);
+            var center = new Vector2(0.5f, 0.5f);
+            var glowOuter = UiKit.CreateGlow(lift, center, center, Vector2.zero,
+                width + 44, height + 44, GlowOuterColor);
+            var glowInner = UiKit.CreateGlow(lift, center, center, Vector2.zero,
+                width + 20, height + 20, GlowInnerColor);
 
             // Rounded card art.
             var image = UiKit.CreateCardImage(lift, texture, width, height);
@@ -271,23 +274,6 @@ namespace LemonadeWars.Unity
             _preview.Attach(image.gameObject, texture);
             UiKit.AddClick(image.gameObject, () => Toggle(slot));
             return slot;
-        }
-
-        private static GameObject MakeGlow(RectTransform lift, float width, float height, Color color)
-        {
-            var go = new GameObject("Glow", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(lift, false);
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, height);
-            var image = go.GetComponent<Image>();
-            image.sprite = UiSprites.Glow;
-            image.type = Image.Type.Sliced;
-            image.color = color;
-            image.raycastTarget = false;
-            go.SetActive(false);
-            return go;
         }
 
         private void Toggle(Slot slot)

@@ -74,8 +74,12 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview);
             _table.OnHandCard = OpenHandMenu;
-            _table.OnMarketCard = OpenMarketMenu;
             _table.OnSupplyPile = OpenSupplyMenu;
+            _table.CanBuyMarket = i =>
+                !_humanAutoplay && MoveGroups.For(_game, HumanSeat).MarketMoves.ContainsKey(i);
+            _table.OnMarketDragStart = OnMarketDragStart;
+            _table.OnMarketDragEnd = () => _table.ClearDropHighlights();
+            _table.OnMarketDrop = OnMarketDrop;
             // Built last: overlays render on top of the table.
             _prompt = new Prompt(root, _art);
             _picker = new CardPicker(root, _preview, this);
@@ -180,17 +184,41 @@ namespace LemonadeWars.Unity
                 ToOptions(moves), showCancel: true);
         }
 
-        private void OpenMarketMenu(int marketIndex)
+        private void OnMarketDragStart(int marketIndex)
         {
-            var groups = MoveGroups.For(_game, HumanSeat);
-            if (!groups.MarketMoves.TryGetValue(marketIndex, out var moves))
+            _preview.Hide();
+            if (!MoveGroups.For(_game, HumanSeat).MarketMoves.TryGetValue(marketIndex, out var moves))
             {
                 return;
             }
-            var instance = _game.State.BlackMarketInstances[_game.State.Market[marketIndex]];
-            _prompt.Show($"Buy {_db.BlackMarket(instance.DefId).Name}?",
-                new[] { _art.BlackMarket(instance.DefId, instance.Shape) },
-                ToOptions(moves), showCancel: true);
+            var valid = new HashSet<int?>(moves.OfType<BuyBlackMarket>()
+                .Select(m => m.TargetStandInstanceId));
+            _table.SetValidDropTargets(valid);
+        }
+
+        private void OnMarketDrop(int marketIndex, int? standInstanceId)
+        {
+            _table.ClearDropHighlights();
+            if (!MoveGroups.For(_game, HumanSeat).MarketMoves.TryGetValue(marketIndex, out var moves))
+            {
+                return;
+            }
+            var matching = moves.OfType<BuyBlackMarket>()
+                .Where(m => m.TargetStandInstanceId == standInstanceId)
+                .Cast<GameAction>()
+                .ToList();
+            if (matching.Count == 1)
+            {
+                ApplyAction(matching[0]);
+            }
+            else if (matching.Count > 1)
+            {
+                // The slot is full: the buyer picks which equipped card to replace.
+                var instance = _game.State.BlackMarketInstances[_game.State.Market[marketIndex]];
+                _prompt.Show("That slot is full — replace which card?",
+                    new[] { _art.BlackMarket(instance.DefId, instance.Shape) },
+                    ToOptions(matching), showCancel: true);
+            }
         }
 
         private void OpenSupplyMenu(string standTypeId)

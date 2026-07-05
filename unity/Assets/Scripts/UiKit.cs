@@ -232,32 +232,38 @@ namespace LemonadeWars.Unity
         public static void AddHover(GameObject go,
             UnityEngine.Events.UnityAction onEnter, UnityEngine.Events.UnityAction onExit)
         {
-            var trigger = go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
-            var enter = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerEnter,
-            };
-            enter.callback.AddListener(_ => onEnter());
-            var exit = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerExit,
-            };
-            exit.callback.AddListener(_ => onExit());
-            trigger.triggers.Add(enter);
-            trigger.triggers.Add(exit);
+            var relay = go.GetComponent<PointerRelay>() ?? go.AddComponent<PointerRelay>();
+            relay.Entered += () => onEnter();
+            relay.Exited += () => onExit();
         }
 
         /// <summary>Make any UI object clickable.</summary>
         public static void AddClick(GameObject go, UnityEngine.Events.UnityAction onClick)
         {
-            var trigger = go.GetComponent<UnityEngine.EventSystems.EventTrigger>()
-                ?? go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
-            var click = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerClick,
-            };
-            click.callback.AddListener(_ => onClick());
-            trigger.triggers.Add(click);
+            var relay = go.GetComponent<PointerRelay>() ?? go.AddComponent<PointerRelay>();
+            relay.Clicked += () => onClick();
+        }
+
+        /// <summary>Soft glow layer (hidden by default); ignores parent layout groups.</summary>
+        public static GameObject CreateGlow(RectTransform parent, Vector2 anchor, Vector2 pivot,
+            Vector2 anchoredPosition, float width, float height, Color color)
+        {
+            var go = new GameObject("Glow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            go.GetComponent<LayoutElement>().ignoreLayout = true;
+            go.transform.SetParent(parent, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = new Vector2(width, height);
+            var image = go.GetComponent<Image>();
+            image.sprite = UiSprites.Glow;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            image.raycastTarget = false;
+            go.SetActive(false);
+            return go;
         }
 
         /// <summary>Small caption under/over a card.</summary>

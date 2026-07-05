@@ -16,8 +16,23 @@ namespace LemonadeWars.Unity
     public sealed class TableView
     {
         public System.Action<int> OnHandCard;      // lemon instance id
-        public System.Action<int> OnMarketCard;    // market row index
         public System.Action<string> OnSupplyPile; // stand type id
+
+        // Market drag & drop.
+        public System.Func<int, bool> CanBuyMarket;         // market index -> any legal buy?
+        public System.Action<int> OnMarketDragStart;        // market index
+        public System.Action OnMarketDragEnd;
+        public System.Action<int, int?> OnMarketDrop;       // market index, stand id (null = turf)
+
+        private static readonly Color GlowInnerColor = new Color(1f, 0.97f, 0.88f, 1f);
+        private static readonly Color GlowOuterColor = new Color(1f, 0.96f, 0.82f, 0.80f);
+        /// <summary>Drop zones glow lemonade-yellow while a card is being dragged.</summary>
+        private static readonly Color DropGlowHot = new Color(1f, 0.93f, 0.45f, 1f);
+        private static readonly Color DropGlowWide = new Color(1f, 0.82f, 0.10f, 1f);
+        private readonly List<(int? StandId, GameObject Glow)> _dropGlows =
+            new List<(int?, GameObject)>();
+        private readonly HashSet<int?> _validDropTargets = new HashSet<int?>();
+        private RectTransform _canvasRoot;
 
         private readonly CardArt _art;
         private readonly CardPreview _preview;
@@ -36,6 +51,7 @@ namespace LemonadeWars.Unity
         {
             _art = art;
             _preview = preview;
+            _canvasRoot = canvasRoot;
             Build(canvasRoot);
         }
 
@@ -121,7 +137,7 @@ namespace LemonadeWars.Unity
 
         public void Render(Game game, int humanSeat, MoveGroups groups)
         {
-            RenderMarket(game, groups);
+            RenderMarket(game, humanSeat, groups);
             RenderBoard(game, humanSeat);
             RenderHand(game, humanSeat, groups);
             RenderSupply(game, humanSeat, groups);
@@ -129,7 +145,7 @@ namespace LemonadeWars.Unity
             RenderSide(game);
         }
 
-        private void RenderMarket(Game game, MoveGroups groups)
+        private void RenderMarket(Game game, int humanSeat, MoveGroups groups)
         {
             UiKit.Clear(_marketRow);
             var s = game.State;
@@ -138,17 +154,82 @@ namespace LemonadeWars.Unity
                 var instance = s.BlackMarketInstances[s.Market[i]];
                 var def = game.Db.BlackMarket(instance.DefId);
                 var texture = _art.BlackMarket(instance.DefId, instance.Shape);
-                int optionCount = groups?.MarketMoves.TryGetValue(i, out var moves) == true ? moves.Count : 0;
-                int index = i;
-                AddCard(_marketRow, texture, 140, 196,
-                    $"${def.Cost}" + (optionCount > 0 ? $"  BUY ({optionCount})" : ""),
-                    optionCount > 0, () => OnMarketCard?.Invoke(index));
+                bool buyable = groups?.MarketMoves.ContainsKey(i) == true;
+                BuildMarketCell(i, texture, game.BlackMarketPrice(humanSeat, def), buyable);
             }
+        }
+
+        /// <summary>A market card: hover lifts it with a glow; drag it onto your turf/stands to buy.</summary>
+        private void BuildMarketCell(int marketIndex, Texture2D texture, int price, bool buyable)
+        {
+            const float width = 140f;
+            const float height = 196f;
+            const float badgeHeight = 22f;
+            const float liftRoom = 14f;
+
+            var cell = new GameObject("MarketCell", typeof(RectTransform), typeof(LayoutElement));
+            cell.transform.SetParent(_marketRow, false);
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + badgeHeight + liftRoom + 4;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            var liftGo = new GameObject("Lift", typeof(RectTransform));
+            liftGo.transform.SetParent(cell.transform, false);
+            var lift = (RectTransform)liftGo.transform;
+            lift.anchorMin = new Vector2(0.5f, 0f);
+            lift.anchorMax = new Vector2(0.5f, 0f);
+            lift.pivot = new Vector2(0.5f, 0f);
+            lift.sizeDelta = new Vector2(width, height + badgeHeight + 2);
+            lift.anchoredPosition = Vector2.zero;
+
+            var top = new Vector2(0.5f, 1f);
+            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 14),
+                width + 44, height + 44, GlowOuterColor);
+            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 7),
+                width + 20, height + 20, GlowInnerColor);
+
+            var image = UiKit.CreateCardImage(lift, texture, width, height);
+            var frame = (RectTransform)image.transform.parent;
+            frame.anchorMin = top;
+            frame.anchorMax = top;
+            frame.pivot = top;
+            frame.anchoredPosition = Vector2.zero;
+            frame.sizeDelta = new Vector2(width, height);
+
+            // Price badge pinned under the card.
+            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
+            badgeGo.transform.SetParent(lift, false);
+            var badgeRect = (RectTransform)badgeGo.transform;
+            badgeRect.anchorMin = new Vector2(0, 0);
+            badgeRect.anchorMax = new Vector2(1, 0);
+            badgeRect.pivot = new Vector2(0.5f, 0);
+            badgeRect.sizeDelta = new Vector2(0, badgeHeight);
+            badgeGo.GetComponent<Image>().color =
+                buyable ? UiKit.ButtonColor : new Color(0, 0, 0, 0.55f);
+            var badgeText = UiKit.CreateText(badgeGo.transform,
+                buyable ? $"${price} · drag" : $"${price}", 13, TextAnchor.MiddleCenter,
+                buyable ? UiKit.ButtonTextColor : Color.white);
+            UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
+
+            _preview.Attach(image.gameObject, texture);
+            var drag = image.gameObject.AddComponent<DragSource>();
+            drag.MarketIndex = marketIndex;
+            drag.Texture = texture;
+            drag.CanvasRoot = _canvasRoot;
+            drag.LiftTarget = lift;
+            drag.GlowInner = glowInner;
+            drag.GlowOuter = glowOuter;
+            drag.CanAct = i => CanBuyMarket?.Invoke(i) == true;
+            drag.DragStarted = i => OnMarketDragStart?.Invoke(i);
+            drag.DragEnded = () => OnMarketDragEnd?.Invoke();
         }
 
         private void RenderBoard(Game game, int humanSeat)
         {
             UiKit.Clear(_boardRow);
+            _dropGlows.Clear();
             var s = game.State;
             var me = s.Players[humanSeat];
 
@@ -156,6 +237,7 @@ namespace LemonadeWars.Unity
             var turfCaption = "Pours " + string.Join(",", game.PourNumbersOf(me).OrderBy(x => x));
             var turfCell = AddCard(_boardRow, turfTexture, 120, 168, turfCaption, false, null);
             AddEquipList(turfCell, game, me.Turf.Equipped);
+            MakeDropTarget(turfCell, null);
 
             foreach (var stand in me.Stands)
             {
@@ -164,6 +246,59 @@ namespace LemonadeWars.Unity
                                  $"${game.StandEarnings(me, stand)}";
                 var cell = AddCard(_boardRow, _art.Stand(stand.StandTypeId), 120, 168, caption, false, null);
                 AddEquipList(cell, game, stand.Equipped);
+                MakeDropTarget(cell, stand.InstanceId);
+            }
+        }
+
+        /// <summary>Register a board cell as a market-card drop zone with a highlight glow.</summary>
+        private void MakeDropTarget(RectTransform cell, int? standInstanceId)
+        {
+            var target = cell.gameObject.AddComponent<DropTarget>();
+            target.StandInstanceId = standInstanceId;
+            target.Dropped = (marketIndex, standId) => OnMarketDrop?.Invoke(marketIndex, standId);
+            target.HoverChanged = OnDropTargetHover;
+
+            // Double layer at full alpha so the highlight reads instantly against the dark panel.
+            var top = new Vector2(0.5f, 1f);
+            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 24),
+                120 + 60, 168 + 60, DropGlowWide);
+            wide.transform.SetAsFirstSibling();
+            var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
+                120 + 28, 168 + 28, DropGlowHot);
+            hot.transform.SetSiblingIndex(1); // both behind the card
+
+            _dropGlows.Add((standInstanceId, wide));
+            _dropGlows.Add((standInstanceId, hot));
+        }
+
+        /// <summary>Remember which cells accept the dragged card; they glow on hover only.</summary>
+        public void SetValidDropTargets(ISet<int?> validTargets)
+        {
+            _validDropTargets.Clear();
+            foreach (var id in validTargets)
+            {
+                _validDropTargets.Add(id);
+            }
+        }
+
+        private void OnDropTargetHover(int? standId, bool hovering)
+        {
+            bool show = hovering && _validDropTargets.Contains(standId);
+            foreach (var (id, glow) in _dropGlows)
+            {
+                if (Equals(id, standId))
+                {
+                    glow.SetActive(show);
+                }
+            }
+        }
+
+        public void ClearDropHighlights()
+        {
+            _validDropTargets.Clear();
+            foreach (var (_, glow) in _dropGlows)
+            {
+                glow.SetActive(false);
             }
         }
 
