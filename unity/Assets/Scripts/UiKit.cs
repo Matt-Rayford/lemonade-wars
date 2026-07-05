@@ -10,8 +10,21 @@ namespace LemonadeWars.Unity
         public static readonly Color ButtonColor = new Color(0.98f, 0.83f, 0.10f);
         public static readonly Color ButtonTextColor = new Color(0.12f, 0.10f, 0.05f);
 
-        public static Font DefaultFont =>
-            Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        private static Font _defaultFont;
+
+        /// <summary>The game font (Built Titling), falling back to Unity's builtin.</summary>
+        public static Font DefaultFont
+        {
+            get
+            {
+                if (_defaultFont == null)
+                {
+                    _defaultFont = Resources.Load<Font>("fonts/built-titling-bd")
+                        ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                }
+                return _defaultFont;
+            }
+        }
 
         public static Canvas CreateCanvas()
         {
@@ -83,16 +96,39 @@ namespace LemonadeWars.Unity
             return button;
         }
 
+        /// <summary>
+        /// Card image with rounded corners: a 9-sliced rounded-rect Image masks a child
+        /// RawImage. Returns the RawImage — attach hover/click handlers to its gameObject.
+        /// </summary>
         public static RawImage CreateCardImage(Transform parent, Texture2D texture, float width, float height)
         {
-            var go = new GameObject("Card", typeof(RectTransform), typeof(RawImage), typeof(LayoutElement));
-            go.transform.SetParent(parent, false);
-            var image = go.GetComponent<RawImage>();
-            image.texture = texture;
-            image.color = texture == null ? new Color(0.3f, 0.3f, 0.3f) : Color.white;
-            var layout = go.GetComponent<LayoutElement>();
+            var frame = new GameObject("Card", typeof(RectTransform), typeof(Image),
+                typeof(Mask), typeof(LayoutElement));
+            frame.transform.SetParent(parent, false);
+            var frameImage = frame.GetComponent<Image>();
+            frameImage.sprite = UiSprites.RoundedRect;
+            frameImage.type = Image.Type.Sliced;
+            frameImage.color = texture == null ? new Color(0.28f, 0.28f, 0.32f) : Color.white;
+            // Scale the corner radius with the card: constant proportion, not constant pixels
+            // (a fixed radius devours the corners of small cards).
+            frameImage.pixelsPerUnitMultiplier = 150f / Mathf.Max(40f, width);
+            frame.GetComponent<Mask>().showMaskGraphic = true;
+            var layout = frame.GetComponent<LayoutElement>();
             layout.preferredWidth = width;
             layout.preferredHeight = height;
+            // Never absorb leftover row space — that stretches the art.
+            layout.flexibleWidth = 0;
+            layout.flexibleHeight = 0;
+
+            var go = new GameObject("Tex", typeof(RectTransform), typeof(RawImage));
+            go.transform.SetParent(frame.transform, false);
+            Anchor((RectTransform)go.transform, Vector2.zero, Vector2.one);
+            var image = go.GetComponent<RawImage>();
+            image.texture = texture;
+            if (texture == null)
+            {
+                image.color = new Color(1, 1, 1, 0);
+            }
             return image;
         }
 
@@ -144,6 +180,8 @@ namespace LemonadeWars.Unity
             layout.childAlignment = TextAnchor.MiddleLeft;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             return (RectTransform)go.transform;
         }
 
@@ -184,6 +222,8 @@ namespace LemonadeWars.Unity
             layout.childAlignment = TextAnchor.MiddleLeft;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
             contentGo.GetComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             scroll.viewport = (RectTransform)viewportGo.transform;
@@ -195,32 +235,38 @@ namespace LemonadeWars.Unity
         public static void AddHover(GameObject go,
             UnityEngine.Events.UnityAction onEnter, UnityEngine.Events.UnityAction onExit)
         {
-            var trigger = go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
-            var enter = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerEnter,
-            };
-            enter.callback.AddListener(_ => onEnter());
-            var exit = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerExit,
-            };
-            exit.callback.AddListener(_ => onExit());
-            trigger.triggers.Add(enter);
-            trigger.triggers.Add(exit);
+            var relay = go.GetComponent<PointerRelay>() ?? go.AddComponent<PointerRelay>();
+            relay.Entered += () => onEnter();
+            relay.Exited += () => onExit();
         }
 
         /// <summary>Make any UI object clickable.</summary>
         public static void AddClick(GameObject go, UnityEngine.Events.UnityAction onClick)
         {
-            var trigger = go.GetComponent<UnityEngine.EventSystems.EventTrigger>()
-                ?? go.AddComponent<UnityEngine.EventSystems.EventTrigger>();
-            var click = new UnityEngine.EventSystems.EventTrigger.Entry
-            {
-                eventID = UnityEngine.EventSystems.EventTriggerType.PointerClick,
-            };
-            click.callback.AddListener(_ => onClick());
-            trigger.triggers.Add(click);
+            var relay = go.GetComponent<PointerRelay>() ?? go.AddComponent<PointerRelay>();
+            relay.Clicked += () => onClick();
+        }
+
+        /// <summary>Soft glow layer (hidden by default); ignores parent layout groups.</summary>
+        public static GameObject CreateGlow(RectTransform parent, Vector2 anchor, Vector2 pivot,
+            Vector2 anchoredPosition, float width, float height, Color color)
+        {
+            var go = new GameObject("Glow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            go.GetComponent<LayoutElement>().ignoreLayout = true;
+            go.transform.SetParent(parent, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.pivot = pivot;
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = new Vector2(width, height);
+            var image = go.GetComponent<Image>();
+            image.sprite = UiSprites.Glow;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            image.raycastTarget = false;
+            go.SetActive(false);
+            return go;
         }
 
         /// <summary>Small caption under/over a card.</summary>

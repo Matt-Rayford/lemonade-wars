@@ -193,66 +193,84 @@
   },
   "note": "All paths relative to game-assets/images/. Regenerate with tools/rename_images.py.",
   "stands": {
-    "bargain": [
-      "supporting-cards/bargain-stand-01.png",
-      "supporting-cards/bargain-stand-02.png",
-      "supporting-cards/bargain-stand-03.png",
-      "supporting-cards/bargain-stand-04.png",
-      "supporting-cards/bargain-stand-05.png",
-      "supporting-cards/bargain-stand-06.png",
-      "supporting-cards/bargain-stand-07.png",
-      "supporting-cards/bargain-stand-08.png",
-      "supporting-cards/bargain-stand-09.png",
-      "supporting-cards/bargain-stand-10.png",
-      "supporting-cards/bargain-stand-11.png",
-      "supporting-cards/bargain-stand-12.png",
-      "supporting-cards/bargain-stand-13.png",
-      "supporting-cards/bargain-stand-14.png",
-      "supporting-cards/bargain-stand-15.png",
-      "supporting-cards/bargain-stand-16.png",
-      "supporting-cards/bargain-stand-17.png",
-      "supporting-cards/bargain-stand-18.png",
-      "supporting-cards/bargain-stand-19.png",
-      "supporting-cards/bargain-stand-20.png",
-      "supporting-cards/bargain-stand-21.png"
-    ],
-    "classic": [
-      "supporting-cards/classic-stand-01.png",
-      "supporting-cards/classic-stand-02.png",
-      "supporting-cards/classic-stand-03.png",
-      "supporting-cards/classic-stand-04.png",
-      "supporting-cards/classic-stand-05.png",
-      "supporting-cards/classic-stand-06.png",
-      "supporting-cards/classic-stand-07.png",
-      "supporting-cards/classic-stand-08.png",
-      "supporting-cards/classic-stand-09.png",
-      "supporting-cards/classic-stand-10.png",
-      "supporting-cards/classic-stand-11.png",
-      "supporting-cards/classic-stand-12.png",
-      "supporting-cards/classic-stand-13.png",
-      "supporting-cards/classic-stand-14.png",
-      "supporting-cards/classic-stand-15.png",
-      "supporting-cards/classic-stand-16.png",
-      "supporting-cards/classic-stand-17.png",
-      "supporting-cards/classic-stand-18.png"
-    ],
-    "gourmet": [
-      "supporting-cards/gourmet-stand-01.png",
-      "supporting-cards/gourmet-stand-02.png",
-      "supporting-cards/gourmet-stand-03.png",
-      "supporting-cards/gourmet-stand-04.png",
-      "supporting-cards/gourmet-stand-05.png",
-      "supporting-cards/gourmet-stand-06.png",
-      "supporting-cards/gourmet-stand-07.png",
-      "supporting-cards/gourmet-stand-08.png",
-      "supporting-cards/gourmet-stand-09.png",
-      "supporting-cards/gourmet-stand-10.png",
-      "supporting-cards/gourmet-stand-11.png",
-      "supporting-cards/gourmet-stand-12.png",
-      "supporting-cards/gourmet-stand-13.png",
-      "supporting-cards/gourmet-stand-14.png",
-      "supporting-cards/gourmet-stand-15.png"
-    ]
+    "bargain": {
+      "circle": [
+        "supporting-cards/bargain-stand-15.png",
+        "supporting-cards/bargain-stand-16.png",
+        "supporting-cards/bargain-stand-17.png",
+        "supporting-cards/bargain-stand-18.png",
+        "supporting-cards/bargain-stand-19.png",
+        "supporting-cards/bargain-stand-20.png",
+        "supporting-cards/bargain-stand-21.png"
+      ],
+      "diamond": [
+        "supporting-cards/bargain-stand-08.png",
+        "supporting-cards/bargain-stand-09.png",
+        "supporting-cards/bargain-stand-10.png",
+        "supporting-cards/bargain-stand-11.png",
+        "supporting-cards/bargain-stand-12.png",
+        "supporting-cards/bargain-stand-13.png",
+        "supporting-cards/bargain-stand-14.png"
+      ],
+      "square": [
+        "supporting-cards/bargain-stand-01.png",
+        "supporting-cards/bargain-stand-02.png",
+        "supporting-cards/bargain-stand-03.png",
+        "supporting-cards/bargain-stand-04.png",
+        "supporting-cards/bargain-stand-05.png",
+        "supporting-cards/bargain-stand-06.png",
+        "supporting-cards/bargain-stand-07.png"
+      ]
+    },
+    "classic": {
+      "circle": [
+        "supporting-cards/classic-stand-13.png",
+        "supporting-cards/classic-stand-14.png",
+        "supporting-cards/classic-stand-15.png",
+        "supporting-cards/classic-stand-16.png",
+        "supporting-cards/classic-stand-17.png",
+        "supporting-cards/classic-stand-18.png"
+      ],
+      "diamond": [
+        "supporting-cards/classic-stand-07.png",
+        "supporting-cards/classic-stand-08.png",
+        "supporting-cards/classic-stand-09.png",
+        "supporting-cards/classic-stand-10.png",
+        "supporting-cards/classic-stand-11.png",
+        "supporting-cards/classic-stand-12.png"
+      ],
+      "square": [
+        "supporting-cards/classic-stand-01.png",
+        "supporting-cards/classic-stand-02.png",
+        "supporting-cards/classic-stand-03.png",
+        "supporting-cards/classic-stand-04.png",
+        "supporting-cards/classic-stand-05.png",
+        "supporting-cards/classic-stand-06.png"
+      ]
+    },
+    "gourmet": {
+      "circle": [
+        "supporting-cards/gourmet-stand-11.png",
+        "supporting-cards/gourmet-stand-12.png",
+        "supporting-cards/gourmet-stand-13.png",
+        "supporting-cards/gourmet-stand-14.png",
+        "supporting-cards/gourmet-stand-15.png"
+      ],
+      "diamond": [
+        "supporting-cards/gourmet-stand-06.png",
+        "supporting-cards/gourmet-stand-07.png",
+        "supporting-cards/gourmet-stand-08.png",
+        "supporting-cards/gourmet-stand-09.png",
+        "supporting-cards/gourmet-stand-10.png"
+      ],
+      "square": [
+        "supporting-cards/gourmet-stand-01.png",
+        "supporting-cards/gourmet-stand-02.png",
+        "supporting-cards/gourmet-stand-03.png",
+        "supporting-cards/gourmet-stand-04.png",
+        "supporting-cards/gourmet-stand-05.png"
+      ]
+    }
   },
   "supporting": {
     "braggingRights": [
