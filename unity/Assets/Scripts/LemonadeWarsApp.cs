@@ -55,9 +55,11 @@ namespace LemonadeWars.Unity
         private Prompt _prompt;
         private CardPicker _picker;
         private CardPreview _preview;
+        private TurnBanner _turnBanner;
         private Text _statusText;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
+        private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
 
@@ -141,6 +143,13 @@ namespace LemonadeWars.Unity
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
+            _turnBanner = new TurnBanner(root, this);
+            _turnBanner.OnDismiss = () =>
+            {
+                // Re-render so any decision deferred behind the banner opens now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
         }
 
         // ------------------------------------------------------------ flows
@@ -219,8 +228,10 @@ namespace LemonadeWars.Unity
             _table.SetVisible(true);
             _prompt.Hide();
             _picker.Hide();
+            _turnBanner.Hide();
             _renderedRevision = -1;
             _modalRevision = -1;
+            _wasMyTurn = false;
         }
 
         private void Update()
@@ -272,6 +283,7 @@ namespace LemonadeWars.Unity
                 _session.HumanAutoplay = !_session.HumanAutoplay;
                 _prompt.Hide();
                 _picker.Hide();
+                _turnBanner.Hide();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
@@ -289,6 +301,7 @@ namespace LemonadeWars.Unity
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();
+            _turnBanner.Hide();
             _lobby.ShowMenu(status);
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
@@ -449,7 +462,52 @@ namespace LemonadeWars.Unity
             _table.Render(View, _db, groups);
             _table.SetLog(_session.Log);
             RenderActionBar(groups);
+            MaybeAnnounceTurn();
+            if (_turnBanner.IsOpen)
+            {
+                return; // decisions wait behind the ONWARD! button
+            }
             MaybeShowModal(groups, revision);
+        }
+
+        /// <summary>Show the YOUR TURN interstitial when the turn passes to the viewer.</summary>
+        private void MaybeAnnounceTurn()
+        {
+            bool myTurn = IsMyTurn();
+            bool becameMyTurn = myTurn && !_wasMyTurn;
+            _wasMyTurn = myTurn;
+            if (!becameMyTurn || _session.HumanAutoplay || _turnBanner.IsOpen)
+            {
+                return;
+            }
+            // Anything left open from the previous turn yields to the banner; the
+            // forced re-render on dismiss re-opens whatever is still relevant.
+            _prompt.Hide();
+            _picker.Hide();
+            _turnBanner.Show(TurnSubtitle());
+        }
+
+        private bool IsMyTurn()
+        {
+            if (View.Stage == GameStage.InitialBuys)
+            {
+                return View.CurrentInitialBuyer == View.ViewerId;
+            }
+            return (View.Stage == GameStage.Playing || View.Stage == GameStage.FinalRound)
+                && View.ActivePlayer == View.ViewerId;
+        }
+
+        private string TurnSubtitle()
+        {
+            if (View.Stage == GameStage.InitialBuys)
+            {
+                return "Setup draft — pick out your stands";
+            }
+            if (View.Stage == GameStage.FinalRound)
+            {
+                return "Final round — make it count!";
+            }
+            return $"{View.ActionsRemaining} actions — the market awaits";
         }
 
         private void RenderStatus()
