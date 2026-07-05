@@ -802,15 +802,6 @@ namespace LemonadeWars.Unity
 
                 if (optionCount > 0)
                 {
-                    // Revealed only when the card rises.
-                    var badge = UiKit.CreatePanel(frame, "PlayBadge", UiKit.ButtonColor);
-                    UiKit.Anchor(badge, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
-                    badge.sizeDelta = new Vector2(width * 0.6f, 26f);
-                    badge.anchoredPosition = new Vector2(0, 20f);
-                    var badgeText = UiKit.CreateText(badge, $"PLAY ({optionCount})", 14,
-                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
-                    UiKit.Anchor((RectTransform)badgeText.transform, Vector2.zero, Vector2.one);
-
                     int captured = card.InstanceId;
                     UiKit.AddClick(image.gameObject, () => OnHandCard?.Invoke(captured));
                 }

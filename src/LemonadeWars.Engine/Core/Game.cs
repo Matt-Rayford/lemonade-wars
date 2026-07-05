@@ -395,6 +395,7 @@ namespace LemonadeWars.Engine.Core
         {
             State.InitialBuyQueue.RemoveAt(0);
             State.InitialBuyStandDone = false;
+            State.MarketRefreshUsedThisTurn = false; // refresh is once per draft visit
             if (State.InitialBuyQueue.Count == 0)
             {
                 State.Stage = GameStage.Playing;
@@ -675,10 +676,28 @@ namespace LemonadeWars.Engine.Core
 
         private void ApplyRefreshMarket(RefreshMarket action, List<GameEvent> events)
         {
-            RequirePlaying();
-            if (action.PlayerId != State.ActivePlayer || State.Phase != TurnPhase.Play)
+            if (State.Stage == GameStage.InitialBuys)
             {
-                throw new InvalidActionException("Market refresh is a free action on your own Play phase.");
+                // Draft visits may refresh too — after the mandatory Stand, and only
+                // with money the setup reserve doesn't need for later Stand purchases.
+                if (action.PlayerId != CurrentInitialBuyer || !State.InitialBuyStandDone)
+                {
+                    throw new InvalidActionException(
+                        "Draft market refresh comes after your Stand purchase, on your own visit.");
+                }
+                if (Db.Config.BlackMarketRefreshCost > SetupSpendingRoom(Player(action.PlayerId)))
+                {
+                    throw new InvalidActionException(
+                        "Refreshing would leave too little for your later mandatory Stand.");
+                }
+            }
+            else
+            {
+                RequirePlaying();
+                if (action.PlayerId != State.ActivePlayer || State.Phase != TurnPhase.Play)
+                {
+                    throw new InvalidActionException("Market refresh is a free action on your own Play phase.");
+                }
             }
             if (State.MarketRefreshUsedThisTurn)
             {

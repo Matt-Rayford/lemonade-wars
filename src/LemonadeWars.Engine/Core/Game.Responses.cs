@@ -244,8 +244,9 @@ namespace LemonadeWars.Engine.Core
                     {
                         continue; // cannot respond to your own play/purchase
                     }
-                    bool hasDecoy = isAttack && p.Turf.Equipped.Any(id =>
-                        EquippedDef(id).Id == "inflatable-decoy");
+                    // Inflatable Decoy defends its owner only: you must BE the target.
+                    bool hasDecoy = isAttack && top.AttackTargetId == p.PlayerId &&
+                        p.Turf.Equipped.Any(id => EquippedDef(id).Id == "inflatable-decoy");
                     if ((tantrummable && Holds(p, TantrumId)) ||
                         (isAttack && (Holds(p, TagId) || Holds(p, RubberGlueId))) ||
                         hasDecoy)
@@ -326,6 +327,11 @@ namespace LemonadeWars.Engine.Core
                 if (top.OwnerId == player.PlayerId)
                 {
                     throw new InvalidActionException("You cannot react to your own attack.");
+                }
+                if (top.AttackTargetId != player.PlayerId)
+                {
+                    throw new InvalidActionException(
+                        "Inflatable Decoy only protects its owner — you must be the attack's target.");
                 }
                 top.Cancelled = true;
                 player.Turf.Equipped.Remove(decoyId);
