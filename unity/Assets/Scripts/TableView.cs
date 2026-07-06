@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using LemonadeWars.Engine.Core;
@@ -69,9 +70,25 @@ namespace LemonadeWars.Unity
         private readonly MonoBehaviour _host;
         private CardDatabase _db; // set each Render; card names come from data, not ids
 
-        private Text _bannerText;
-        private Text _opponentsText;
+        private RectTransform _playersColumn;
+        private Texture2D _lemonIcon;
+        private Text _boardOwnerLabel;
+        private bool _viewingOwnBoard = true;
+        /// <summary>Whose board the table currently shows; -1 = your own.</summary>
+        public int ViewedBoardPlayer = -1;
+        /// <summary>Fired when the player switches whose board is displayed.</summary>
+        public System.Action OnBoardViewChanged;
         private RectTransform _marketRow;
+
+        /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
+        private static readonly Color[] BadgeColors =
+        {
+            new Color(0.55f, 0.24f, 0.24f), new Color(0.23f, 0.42f, 0.58f),
+            new Color(0.25f, 0.48f, 0.32f), new Color(0.56f, 0.40f, 0.16f),
+            new Color(0.45f, 0.28f, 0.55f), new Color(0.20f, 0.48f, 0.48f),
+            new Color(0.58f, 0.30f, 0.44f), new Color(0.38f, 0.42f, 0.20f),
+            new Color(0.30f, 0.32f, 0.58f), new Color(0.50f, 0.34f, 0.24f),
+        };
         private RectTransform _boardRow;
         private RectTransform _handHost;
         private RectTransform _lordHost;
@@ -104,7 +121,20 @@ namespace LemonadeWars.Unity
             _preview = preview;
             _host = host;
             _canvasRoot = canvasRoot;
+            _lemonIcon = LoadIcon("lemon.png");
             Build(canvasRoot);
+        }
+
+        private static Texture2D LoadIcon(string fileName)
+        {
+            string path = Path.Combine(Application.streamingAssetsPath, "icons", fileName);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            texture.LoadImage(File.ReadAllBytes(path));
+            return texture;
         }
 
         public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
@@ -115,13 +145,20 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
 
-            // Left: opponents, below the full-width market shelf.
-            var opponents = UiKit.CreatePanel(Root, "Opponents", UiKit.PanelColor);
-            UiKit.Anchor(opponents, new Vector2(0, 0.24f), new Vector2(0.21f, 0.695f),
-                new Vector2(6, 4), new Vector2(-3, -4));
-            _opponentsText = UiKit.CreateText(opponents, "", 17);
-            UiKit.Anchor((RectTransform)_opponentsText.transform, Vector2.zero, Vector2.one,
-                new Vector2(10, 8), new Vector2(-10, -8));
+            // Left: player panels in turn order (you at the bottom), below the shelf.
+            var playersGo = new GameObject("Players", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            playersGo.transform.SetParent(Root, false);
+            UiKit.Anchor((RectTransform)playersGo.transform,
+                new Vector2(0, 0.24f), new Vector2(0.21f, 0.695f),
+                new Vector2(10, 6), new Vector2(-4, -4));
+            var playersLayout = playersGo.GetComponent<VerticalLayoutGroup>();
+            playersLayout.spacing = 10;
+            playersLayout.childAlignment = TextAnchor.UpperLeft;
+            playersLayout.childForceExpandHeight = false;
+            playersLayout.childForceExpandWidth = true;
+            playersLayout.childControlHeight = true;
+            playersLayout.childControlWidth = true;
+            _playersColumn = (RectTransform)playersGo.transform;
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
@@ -130,22 +167,20 @@ namespace LemonadeWars.Unity
                 new Vector2(6, 4), new Vector2(-6, -4));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
-            // Center band: turn/roll banner.
-            var banner = UiKit.CreatePanel(Root, "Banner", new Color(0.16f, 0.20f, 0.28f, 0.95f));
-            UiKit.Anchor(banner, new Vector2(0.21f, 0.60f), new Vector2(0.79f, 0.67f),
-                new Vector2(3, 2), new Vector2(-3, -2));
-            _bannerText = UiKit.CreateText(banner, "", 20, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
-            UiKit.Anchor((RectTransform)_bannerText.transform, Vector2.zero, Vector2.one);
-
             // Center: your board (turf + stands). Also a drop zone for supply stands.
             // Transparent — cards float on the table; the Image still catches drops.
+            // (The turn banner lives in the top status bar.)
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
-            UiKit.Anchor(board, new Vector2(0.21f, 0.22f), new Vector2(0.79f, 0.60f),
+            UiKit.Anchor(board, new Vector2(0.21f, 0.22f), new Vector2(0.79f, 0.68f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
+            _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            _boardOwnerLabel.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
+                new Vector2(0, 0.90f), new Vector2(1, 1));
 
             // Persistent actions: a floating button strip above the hand's peek band.
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
@@ -665,8 +700,6 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ render
 
-        public void SetBanner(string text) => _bannerText.text = text;
-
         /// <summary>The on-table log is retired for now (First Dibs lives there); kept
         /// as a no-op until the log returns somewhere nicer.</summary>
         public void SetLog(IEnumerable<string> lines)
@@ -682,7 +715,7 @@ namespace LemonadeWars.Unity
             RenderLords(view);
             RenderFirstDibs(view);
             RenderSupply(view, db, groups);
-            RenderOpponents(view, db);
+            RenderPlayers(view);
         }
 
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
@@ -766,22 +799,38 @@ namespace LemonadeWars.Unity
             _spacer = null; // destroyed with the row; recreated lazily
             _spacerTween = null;
             _supplyInsertIndex = -1;
-            var me = view.Players[view.ViewerId];
 
-            var turfTexture = _art.Turf(me.TurfPowerPourNumber);
-            var turfCaption = "Pours " + string.Join(",", me.PourNumbers);
-            var turfCell = AddCard(_boardRow, turfTexture, 150, 210, turfCaption, false, null);
-            AddEquipList(turfCell, me.TurfEquipped);
-            MakeDropTarget(turfCell, null, turfTexture);
+            // Whose board: yours interacts; an opponent's is strictly view-only —
+            // no drop targets, no insert previews, nothing to submit against.
+            int boardOwnerId = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
+            if (boardOwnerId >= view.Players.Count)
+            {
+                boardOwnerId = view.ViewerId; // stale selection from a previous game
+            }
+            _viewingOwnBoard = boardOwnerId == view.ViewerId;
+            var owner = view.Players[boardOwnerId];
+            _boardOwnerLabel.text = _viewingOwnBoard ? "" : $"{owner.Name}'s board — view only";
 
-            foreach (var stand in me.Stands)
+            var turfTexture = _art.Turf(owner.TurfPowerPourNumber);
+            var turfCaption = "Pours " + string.Join(",", owner.PourNumbers);
+            var turfCell = AddCard(_boardRow, turfTexture, 188, 263, turfCaption, false, null);
+            AddEquipList(turfCell, owner.TurfEquipped);
+            if (_viewingOwnBoard)
+            {
+                MakeDropTarget(turfCell, null, turfTexture);
+            }
+
+            foreach (var stand in owner.Stands)
             {
                 string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
                 var standTexture = _art.Stand(stand.StandTypeId, stand.Shape);
-                var cell = AddCard(_boardRow, standTexture, 150, 210, caption, false, null);
+                var cell = AddCard(_boardRow, standTexture, 188, 263, caption, false, null);
                 AddEquipList(cell, stand.Equipped);
-                MakeDropTarget(cell, stand.InstanceId, standTexture);
-                _standCells.Add(cell);
+                if (_viewingOwnBoard)
+                {
+                    MakeDropTarget(cell, stand.InstanceId, standTexture);
+                    _standCells.Add(cell);
+                }
             }
         }
 
@@ -1110,49 +1159,127 @@ namespace LemonadeWars.Unity
             gapElement.flexibleWidth = 1;
         }
 
-        private void RenderOpponents(PlayerView view, CardDatabase db)
+        /// <summary>
+        /// Player panels, Dune Imperium style: turn order top to bottom starting with
+        /// the player after you; you sit pinned at the bottom. A lemon marks whoever
+        /// holds the active turn.
+        /// </summary>
+        private void RenderPlayers(PlayerView view)
         {
-            var text = new StringBuilder();
-            foreach (var p in view.Players)
+            UiKit.Clear(_playersColumn);
+            int count = view.Players.Count;
+            int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
+            for (int offset = 1; offset <= count; offset++)
             {
-                if (p.PlayerId == view.ViewerId)
+                int playerId = (view.ViewerId + offset) % count;
+                bool isMe = playerId == view.ViewerId;
+                if (isMe)
                 {
-                    continue;
+                    // Stretchy spacer pushes your own panel to the column's bottom.
+                    var spacer = new GameObject("Spacer", typeof(RectTransform), typeof(LayoutElement));
+                    spacer.transform.SetParent(_playersColumn, false);
+                    spacer.GetComponent<LayoutElement>().flexibleHeight = 1;
                 }
-                text.Append(p.PlayerId == view.ActivePlayer ? "> " : "  ")
-                    .Append($"{p.Name}  ${p.Money}  {p.HandCount} cards  {p.InGameVictoryPoints} VP");
-                if (view.WhiniestBabyHolder == p.PlayerId)
-                {
-                    text.Append("  BABY");
-                }
-                if (view.SpoiledRottenHolder == p.PlayerId)
-                {
-                    text.Append("  SPOILED");
-                }
-                if (p.TantrumCount > 0)
-                {
-                    text.Append($"  {p.TantrumCount}xTANTRUM");
-                }
-                text.AppendLine();
-                text.Append("   Turf ").Append(string.Join(",", p.PourNumbers));
-                foreach (var equip in p.TurfEquipped)
-                {
-                    text.Append(" | ").Append(db.BlackMarket(equip.DefId).Name);
-                }
-                text.AppendLine();
-                foreach (var stand in p.Stands)
-                {
-                    text.Append($"   {db.StandType(stand.StandTypeId).Name} " +
-                                $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}");
-                    foreach (var equip in stand.Equipped)
-                    {
-                        text.Append(" | ").Append(db.BlackMarket(equip.DefId).Name);
-                    }
-                    text.AppendLine();
-                }
-                text.AppendLine();
+                BuildPlayerRow(view, playerId, isMe, playerId == viewedBoard);
             }
-            _opponentsText.text = text.ToString();
+        }
+
+        private void BuildPlayerRow(PlayerView view, int playerId, bool isMe, bool isViewedBoard)
+        {
+            var player = view.Players[playerId];
+
+            var row = new GameObject("PlayerRow", typeof(RectTransform), typeof(Image),
+                typeof(LayoutElement));
+            row.transform.SetParent(_playersColumn, false);
+            var background = row.GetComponent<Image>();
+            background.sprite = UiSprites.RoundedRect;
+            background.type = Image.Type.Sliced;
+            background.color = new Color(0, 0, 0, 0.32f);
+            row.GetComponent<LayoutElement>().minHeight = 82;
+
+            // Active-turn lemon, right edge.
+            if (playerId == view.ActivePlayer && _lemonIcon != null)
+            {
+                var lemonGo = new GameObject("ActiveLemon", typeof(RectTransform), typeof(RawImage));
+                lemonGo.transform.SetParent(row.transform, false);
+                var lemonRect = (RectTransform)lemonGo.transform;
+                lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
+                lemonRect.pivot = new Vector2(1f, 0.5f);
+                lemonRect.sizeDelta = new Vector2(38f, 38f);
+                lemonRect.anchoredPosition = new Vector2(-10f, 0);
+                var lemonImage = lemonGo.GetComponent<RawImage>();
+                lemonImage.texture = _lemonIcon;
+                lemonImage.raycastTarget = false;
+            }
+
+            // Circular badge on the left: dark color hashed from the name, big initial.
+            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
+            badgeGo.transform.SetParent(row.transform, false);
+            var badgeRect = (RectTransform)badgeGo.transform;
+            badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0f, 0.5f);
+            badgeRect.pivot = new Vector2(0f, 0.5f);
+            badgeRect.sizeDelta = new Vector2(56f, 56f);
+            badgeRect.anchoredPosition = new Vector2(12f, 0);
+            var badgeImage = badgeGo.GetComponent<Image>();
+            badgeImage.sprite = UiSprites.Circle;
+            badgeImage.type = Image.Type.Simple;
+            badgeImage.preserveAspect = true;
+            badgeImage.color = BadgeColors[StableNameHash(player.Name) % BadgeColors.Length];
+            badgeImage.raycastTarget = false;
+            string initial = string.IsNullOrEmpty(player.Name)
+                ? "?"
+                : char.ToUpperInvariant(player.Name[0]).ToString();
+            var letter = UiKit.CreateText(badgeGo.transform, initial, 30,
+                TextAnchor.MiddleCenter, Color.white);
+            letter.raycastTarget = false;
+            UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+
+            // Name on top, VP / Cash below.
+            var nameText = UiKit.CreateText(row.transform,
+                player.Name + (isMe ? "  (you)" : ""), 19, TextAnchor.LowerLeft, Color.white);
+            nameText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.5f), new Vector2(1, 1),
+                new Vector2(80, 2), new Vector2(-52, -8));
+            var statsText = UiKit.CreateText(row.transform,
+                $"VP: {player.InGameVictoryPoints}   Cash: ${player.Money}", 16,
+                TextAnchor.UpperLeft, new Color(0.82f, 0.84f, 0.88f));
+            statsText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)statsText.transform, new Vector2(0, 0), new Vector2(1, 0.5f),
+                new Vector2(80, 8), new Vector2(-52, -2));
+
+            // Yellow rim on whoever's board the table currently displays.
+            if (isViewedBoard)
+            {
+                var borderGo = new GameObject("ViewedBorder", typeof(RectTransform), typeof(Image));
+                borderGo.transform.SetParent(row.transform, false);
+                UiKit.Anchor((RectTransform)borderGo.transform, Vector2.zero, Vector2.one,
+                    new Vector2(-2, -2), new Vector2(2, 2));
+                var borderImage = borderGo.GetComponent<Image>();
+                borderImage.sprite = UiSprites.RoundedOutline;
+                borderImage.type = Image.Type.Sliced;
+                borderImage.color = UiKit.ButtonColor;
+                borderImage.raycastTarget = false;
+            }
+
+            // Click a bar to view that player's board; your own bar comes home.
+            int clickedId = playerId;
+            int viewerId = view.ViewerId;
+            UiKit.AddClick(row, () =>
+            {
+                ViewedBoardPlayer = clickedId == viewerId ? -1 : clickedId;
+                OnBoardViewChanged?.Invoke();
+            });
+        }
+
+        /// <summary>Deterministic across sessions (unlike string.GetHashCode).</summary>
+        private static int StableNameHash(string name)
+        {
+            int hash = 17;
+            foreach (char c in name ?? "")
+            {
+                hash = hash * 31 + c;
+            }
+            return Mathf.Abs(hash);
         }
 
         // ------------------------------------------- supply drag insertion
@@ -1220,7 +1347,7 @@ namespace LemonadeWars.Unity
         /// <summary>Called every frame by the app while a supply stand is being dragged.</summary>
         public void TickSupplyDrag(Vector2 screenPosition)
         {
-            if (!_supplyDragActive)
+            if (!_supplyDragActive || !_viewingOwnBoard)
             {
                 return;
             }
@@ -1283,7 +1410,7 @@ namespace LemonadeWars.Unity
             _spacer.transform.SetSiblingIndex(sibling);
 
             _spacerTween = _spacer.GetComponent<LayoutWidthTween>();
-            _spacerTween.SetTarget(130f);
+            _spacerTween.SetTarget(162f);
         }
 
         private void CollapseActiveSpacer()
@@ -1304,6 +1431,10 @@ namespace LemonadeWars.Unity
 
         private void HandleSupplyDrop(string standTypeId)
         {
+            if (!_viewingOwnBoard)
+            {
+                return; // you can't build on someone else's turf
+            }
             int index = _supplyInsertIndex >= 0 ? _supplyInsertIndex : _standCells.Count;
             OnSupplyDrop?.Invoke(standTypeId, index);
         }
@@ -1320,10 +1451,10 @@ namespace LemonadeWars.Unity
 
             var top = new Vector2(0.5f, 1f);
             var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 30),
-                150 + 60, 210 + 60, DropGlowWide);
+                188 + 60, 263 + 60, DropGlowWide);
             wide.transform.SetAsFirstSibling();
             var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
-                150 + 28, 210 + 28, DropGlowHot);
+                188 + 28, 263 + 28, DropGlowHot);
             hot.transform.SetSiblingIndex(1);
 
             _dropGlows.Add((standInstanceId, wide));
@@ -1396,14 +1527,41 @@ namespace LemonadeWars.Unity
             return (RectTransform)cell.transform;
         }
 
+        /// <summary>
+        /// Equipped Black Market cards drawn as real cards tucked BEHIND the turf/stand:
+        /// each peeks its top strip out above the card, stacked like the physical game.
+        /// Hover a peeking strip for the enlarged preview.
+        /// </summary>
         private void AddEquipList(RectTransform cell, List<PlayerView.CardInfo> equipped)
         {
-            foreach (var equip in equipped)
+            const float peek = 44f;   // exposes the card's full top icon bar
+            const float width = 188f; // same scale as the stand card it tucks behind
+            const float height = 263f;
+            var cardFrame = cell.Find("Card");
+            if (cardFrame == null)
             {
+                return;
+            }
+            // Deepest equip first; each next one is inserted just before the stand card,
+            // so it draws over the slivers behind it and under the stand itself.
+            for (int i = equipped.Count - 1; i >= 0; i--)
+            {
+                var equip = equipped[i];
                 var texture = _art.BlackMarket(equip.DefId, equip.Shape ?? Shape.Square);
-                var badge = UiKit.CreateBadge(cell, _db.BlackMarket(equip.DefId).Name, 12,
-                    new Color(0.20f, 0.32f, 0.24f, 0.9f));
-                _preview.Attach(badge.transform.parent.gameObject, texture);
+                var go = new GameObject("Equip", typeof(RectTransform), typeof(RawImage),
+                    typeof(LayoutElement));
+                go.GetComponent<LayoutElement>().ignoreLayout = true;
+                go.transform.SetParent(cell, false);
+                go.transform.SetSiblingIndex(cardFrame.GetSiblingIndex());
+                var rect = (RectTransform)go.transform;
+                rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.sizeDelta = new Vector2(width, height);
+                rect.anchoredPosition = new Vector2(0, peek * (i + 1));
+                var image = go.GetComponent<RawImage>();
+                image.texture = texture;
+                image.material = UiKit.RoundedImageMaterial(width, height);
+                _preview.Attach(go, texture);
             }
         }
     }

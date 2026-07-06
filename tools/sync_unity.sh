@@ -29,10 +29,11 @@ mkdir -p "$UNITY_DIR/Assets/Resources/fonts"
 cp game-assets/fonts/*.ttf "$UNITY_DIR/Assets/Resources/fonts/" 2>/dev/null || true
 
 echo "== syncing game data =="
-rm -rf "$STREAMING/game-data" "$STREAMING/images"
-mkdir -p "$STREAMING/game-data" "$STREAMING/images"
+rm -rf "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"
+mkdir -p "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"
 cp game-data/*.json "$STREAMING/game-data/"
 cp -R game-assets/images/ "$STREAMING/images/"
+cp game-assets/icons/*.png "$STREAMING/icons/" 2>/dev/null || true
 
 echo "== client config =="
 # Baked into builds but never committed (StreamingAssets is gitignored).
