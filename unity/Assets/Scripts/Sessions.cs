@@ -232,6 +232,7 @@ namespace LemonadeWars.Unity
         public void JoinRoom(string code, string name, string token = null) =>
             Send(new { type = "join_room", code, name, token });
         public void AddBot() => Send(new { type = "add_bot" });
+        public void RemoveBot(int seat) => Send(new { type = "remove_bot", seat });
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 

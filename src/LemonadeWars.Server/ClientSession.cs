@@ -101,6 +101,16 @@ public static class ClientSession
                         }
                         break;
                     }
+                    case MessageType.RemoveBot when room != null:
+                    {
+                        string error = room.RemoveBot(room.SeatIndexOf(socket),
+                            (int?)message["seat"] ?? -1);
+                        if (error.Length > 0)
+                        {
+                            await SendErrorAsync(socket, error);
+                        }
+                        break;
+                    }
                     case MessageType.StartGame when room != null:
                     {
                         string error = room.Start(room.SeatIndexOf(socket));

@@ -85,34 +85,53 @@ namespace LemonadeWars.Unity
             var go = new GameObject("Button", typeof(RectTransform), typeof(Image), typeof(Button),
                 typeof(LayoutElement));
             go.transform.SetParent(parent, false);
-            go.GetComponent<Image>().color = ButtonColor;
             go.GetComponent<LayoutElement>().minHeight = 34;
             var button = go.GetComponent<Button>();
+            button.transition = Selectable.Transition.None;
             button.onClick.AddListener(onClick);
 
-            var text = CreateText(go.transform, label, fontSize, TextAnchor.MiddleLeft, ButtonTextColor);
+            // Subtle translucent grey at rest (light text); lemonade-yellow with dark
+            // text when the cursor invites it — same language as the prompt options.
+            var idleBackground = new Color(0.58f, 0.61f, 0.67f, 0.32f);
+            var idleText = new Color(0.93f, 0.93f, 0.90f);
+            var image = go.GetComponent<Image>();
+            image.color = idleBackground;
+
+            var text = CreateText(go.transform, label, fontSize, TextAnchor.MiddleLeft, idleText);
             Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
                 new Vector2(10, 2), new Vector2(-6, -2));
+
+            AddHover(go,
+                () =>
+                {
+                    image.color = ButtonColor;
+                    text.color = ButtonTextColor;
+                },
+                () =>
+                {
+                    image.color = idleBackground;
+                    text.color = idleText;
+                });
             return button;
         }
 
         /// <summary>
-        /// Card image with rounded corners: a 9-sliced rounded-rect Image masks a child
-        /// RawImage. Returns the RawImage — attach hover/click handlers to its gameObject.
+        /// Card image with rounded corners, cut by the RoundedImage shader (smooth at
+        /// any scale — stencil Masks are binary and stair-step). Returns the RawImage —
+        /// attach hover/click handlers to its gameObject; its parent is the layout frame.
         /// </summary>
         public static RawImage CreateCardImage(Transform parent, Texture2D texture, float width, float height)
         {
             var frame = new GameObject("Card", typeof(RectTransform), typeof(Image),
-                typeof(Mask), typeof(LayoutElement));
+                typeof(LayoutElement));
             frame.transform.SetParent(parent, false);
             var frameImage = frame.GetComponent<Image>();
             frameImage.sprite = UiSprites.RoundedRect;
             frameImage.type = Image.Type.Sliced;
-            frameImage.color = texture == null ? new Color(0.28f, 0.28f, 0.32f) : Color.white;
-            // Scale the corner radius with the card: constant proportion, not constant pixels
-            // (a fixed radius devours the corners of small cards).
-            frameImage.pixelsPerUnitMultiplier = 150f / Mathf.Max(40f, width);
-            frame.GetComponent<Mask>().showMaskGraphic = true;
+            // The frame only shows as the placeholder for missing art.
+            frameImage.color = new Color(0.28f, 0.28f, 0.32f);
+            frameImage.pixelsPerUnitMultiplier = 14f / CardCornerRadius(width);
+            frameImage.enabled = texture == null;
             var layout = frame.GetComponent<LayoutElement>();
             layout.preferredWidth = width;
             layout.preferredHeight = height;
@@ -129,7 +148,40 @@ namespace LemonadeWars.Unity
             {
                 image.color = new Color(1, 1, 1, 0);
             }
+            else
+            {
+                image.material = RoundedImageMaterial(width, height);
+            }
             return image;
+        }
+
+        private static Shader _roundedImageShader;
+
+        /// <summary>
+        /// Corner radius for a card of the given width. Proportional at hand size and
+        /// up; tapers faster below it — small cards' printed borders are thin, and a
+        /// proportional radius bites into them too aggressively.
+        /// </summary>
+        public static float CardCornerRadius(float width)
+        {
+            const float handWidth = 190f;
+            const float handRadius = handWidth * (14f / 150f);
+            return width >= handWidth
+                ? width * (14f / 150f)
+                : Mathf.Max(4f, handRadius * Mathf.Pow(width / handWidth, 1.8f));
+        }
+
+        /// <summary>Material that clips its texture to a rounded rect.</summary>
+        public static Material RoundedImageMaterial(float width, float height)
+        {
+            if (_roundedImageShader == null)
+            {
+                _roundedImageShader = Resources.Load<Shader>("shaders/RoundedImage");
+            }
+            var material = new Material(_roundedImageShader);
+            material.SetVector("_Size", new Vector4(width, height, 0, 0));
+            material.SetFloat("_Radius", CardCornerRadius(width));
+            return material;
         }
 
         /// <summary>Vertical scroll list; returns the content container to fill.</summary>
