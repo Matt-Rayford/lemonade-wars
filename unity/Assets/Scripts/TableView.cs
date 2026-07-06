@@ -414,7 +414,7 @@ namespace LemonadeWars.Unity
                     {
                         var world = cell.TransformPoint(
                             new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
-                        DrawDashedArrow(_arrowHost, _targetingCardBottom,
+                        UiKit.DrawDashedArrow(_arrowHost, _targetingCardBottom,
                             (Vector2)_targetingRoot.InverseTransformPoint(world),
                             UiKit.ButtonColor);
                         break;
@@ -437,45 +437,6 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_targetingCopiesHost);
             UiKit.Clear(_arrowHost);
             _targetingGlows.Clear();
-        }
-
-        private void DrawDashedArrow(RectTransform host, Vector2 from, Vector2 to, Color color)
-        {
-            var direction = to - from;
-            float length = direction.magnitude;
-            if (length < 30f)
-            {
-                return;
-            }
-            var unit = direction / length;
-            float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
-            for (float d = 18f; d < length - 24f; d += 30f)
-            {
-                CreateDash(host, from + unit * d, angle, 16f, color);
-            }
-            // Arrowhead: two wings sweeping back from the tip.
-            for (int sign = -1; sign <= 1; sign += 2)
-            {
-                float wingAngle = angle + sign * 145f;
-                var wingDir = new Vector2(
-                    Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
-                CreateDash(host, to + wingDir * 11f, wingAngle, 22f, color);
-            }
-        }
-
-        private void CreateDash(RectTransform host, Vector2 center, float angleDegrees,
-            float length, Color color)
-        {
-            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(host, false);
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(length, 6f);
-            rect.anchoredPosition = center;
-            rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
-            var image = go.GetComponent<Image>();
-            image.color = color;
-            image.raycastTarget = false;
         }
 
         // ------------------------------------------------ attack targeting
@@ -590,7 +551,7 @@ namespace LemonadeWars.Unity
             _attackArrowFrom = from;
             _attackArrowTo = to;
             UiKit.Clear(_attackArrowHost);
-            DrawDashedArrow(_attackArrowHost, from, to, AttackArrowColor);
+            UiKit.DrawDashedArrow(_attackArrowHost, from, to, AttackArrowColor);
         }
 
         /// <summary>
@@ -1543,6 +1504,19 @@ namespace LemonadeWars.Unity
                 ViewedBoardPlayer = clickedId == viewerId ? -1 : clickedId;
                 OnBoardViewChanged?.Invoke();
             });
+        }
+
+        /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
+        public Vector3? PlayerBarWorld(int playerId)
+        {
+            foreach (var (id, row, _) in _playerRows)
+            {
+                if (id == playerId && row != null)
+                {
+                    return row.TransformPoint(row.rect.center);
+                }
+            }
+            return null;
         }
 
         /// <summary>Deterministic across sessions (unlike string.GetHashCode).</summary>

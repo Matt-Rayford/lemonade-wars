@@ -61,6 +61,7 @@ namespace LemonadeWars.Unity
         private CardPreview _preview;
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
+        private EffectsPlayer _fx;
         private TMP_Text _statusText;
         private TMP_Text _topBanner;
         private int _renderedRevision = -1;
@@ -167,6 +168,17 @@ namespace LemonadeWars.Unity
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
             StartCoroutine(ServerStatusLoop());
 
+            // Above the table, below the modal overlays built after it.
+            _fx = new EffectsPlayer(root,
+                () => _dice.IsBusy || _turnBanner.IsOpen,
+                playerId => _table.PlayerBarWorld(playerId));
+            _fx.OnFinished = () =>
+            {
+                // Re-render so modals held back behind the theatre open now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
+
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
@@ -272,6 +284,7 @@ namespace LemonadeWars.Unity
             _picker.Hide();
             _turnBanner.Hide();
             _dice.Clear();
+            _fx.Clear();
             _table.ViewedBoardPlayer = -1;
             _renderedRevision = -1;
             _modalRevision = -1;
@@ -293,6 +306,88 @@ namespace LemonadeWars.Unity
             {
                 _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
                     reroll.ByPlayerId == _session.Seat);
+            }
+            else if (gameEvent is RollModified modified)
+            {
+                _dice.EnqueueModifier(BlackMarketName(modified.SourceDefId), modified.NewValue);
+            }
+            else if (gameEvent is MoneyChanged money)
+            {
+                _fx.QueueMoney(money.PlayerId, money.Amount);
+            }
+            else if (gameEvent is MoneyStolen theft)
+            {
+                _fx.QueueMoneySteal(theft.FromPlayerId, theft.ToPlayerId, theft.Amount);
+            }
+            else if (gameEvent is CardsStolen cardTheft)
+            {
+                _fx.QueueCardFly(_art.Back("lemon"),
+                    cardTheft.FromPlayerId, cardTheft.ToPlayerId, cardTheft.Count);
+            }
+            else if (gameEvent is HandsTraded trade)
+            {
+                _fx.QueueCardFly(_art.Back("lemon"), trade.PlayerA, trade.PlayerB, 1);
+                _fx.QueueCardFly(_art.Back("lemon"), trade.PlayerB, trade.PlayerA, 1);
+            }
+            else if (gameEvent is LemonCardPlayed played &&
+                     played.PlayerId != _session.Seat &&
+                     played.TargetPlayerId is int victim)
+            {
+                // Someone ELSE aimed an attack: one card-reveal beat naming both sides.
+                // If a response modal is about to open for us, the window event below
+                // cancels this — the modal tells the same story with the reactions on it.
+                string victimName = victim == _session.Seat ? "YOU" : NameOf(victim).ToUpperInvariant();
+                _fx.QueueReveal(_art.Lemon(played.DefId),
+                    $"{NameOf(played.PlayerId).ToUpperInvariant()} ATTACKS {victimName} WITH " +
+                    $"{LemonName(played.DefId).ToUpperInvariant()}!");
+            }
+            else if (gameEvent is ResponseWindowOpened window &&
+                     window.AwaitingPlayers.Contains(_session.Seat))
+            {
+                _fx.CancelPendingReveals();
+            }
+            else if (gameEvent is AttackRedirected redirect)
+            {
+                _fx.QueueToast($"{NameOf(redirect.ByPlayerId).ToUpperInvariant()} TAGS IT TO " +
+                    $"{NameOf(redirect.NewTargetId).ToUpperInvariant()}!");
+            }
+            else if (gameEvent is AttackReflected reflect)
+            {
+                _fx.QueueToast($"{NameOf(reflect.ByPlayerId).ToUpperInvariant()} " +
+                    "REFLECTS IT BACK!");
+            }
+            else if (gameEvent is AttackFizzled fizzle)
+            {
+                _fx.QueueToast($"{LemonName(fizzle.DefId).ToUpperInvariant()} FIZZLES!");
+            }
+            else if (gameEvent is PlayCancelled cancelled)
+            {
+                _fx.QueueToast($"{NameOf(cancelled.OwnerId).ToUpperInvariant()}'S " +
+                    $"{LemonName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED!");
+            }
+        }
+
+        private string LemonName(string defId)
+        {
+            try
+            {
+                return _db.Lemon(defId).Name;
+            }
+            catch
+            {
+                return defId.Replace("-", " ");
+            }
+        }
+
+        private string BlackMarketName(string defId)
+        {
+            try
+            {
+                return _db.BlackMarket(defId).Name;
+            }
+            catch
+            {
+                return defId.Replace("-", " ");
             }
         }
 
@@ -354,6 +449,7 @@ namespace LemonadeWars.Unity
                 _picker.Hide();
                 _turnBanner.Hide();
                 _dice.Clear();
+                _fx.Clear();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
@@ -369,6 +465,7 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
+            _fx.Tick();
             RenderIfChanged();
         }
 
@@ -383,6 +480,7 @@ namespace LemonadeWars.Unity
             _picker.Hide();
             _turnBanner.Hide();
             _dice.Clear();
+            _fx.Clear();
             _lobby.ShowMenu(status);
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
@@ -825,9 +923,9 @@ namespace LemonadeWars.Unity
             _table.SetLog(_session.Log);
             RenderActionBar(groups);
             MaybeAnnounceTurn();
-            if (_turnBanner.IsOpen || _dice.IsBusy)
+            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
-                return; // decisions wait behind the ONWARD! button / the die
+                return; // decisions wait behind the ONWARD! button / the die / effects
             }
             MaybeShowModal(groups, revision);
         }
@@ -836,10 +934,10 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn && _dice.IsBusy)
+            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy))
             {
-                // Let the die finish first; OnFinished forces a re-render that lands
-                // back here with the turn edge still unconsumed.
+                // Let the die and effects finish first; their OnFinished forces a
+                // re-render that lands back here with the turn edge still unconsumed.
                 return;
             }
             bool becameMyTurn = myTurn && !_wasMyTurn;
@@ -1101,10 +1199,15 @@ namespace LemonadeWars.Unity
                 string cardName = top.IsPurchase
                     ? _db.BlackMarket(top.DefId).Name
                     : _db.Lemon(top.DefId).Name;
+                if (top.AttackTargetId is int t)
+                {
+                    // The single attack moment: who hits whom, reactions right below.
+                    string victim = t == View.ViewerId ? "you" : NameOf(t);
+                    return $"{NameOf(top.OwnerId)} attacks {victim} with {cardName}!";
+                }
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
-                    : $"{NameOf(top.OwnerId)} played {cardName}" +
-                      (top.AttackTargetId is int t ? $" at {NameOf(t)}" : "");
+                    : $"{NameOf(top.OwnerId)} played {cardName}";
                 return $"{what} — respond?";
             }
             if (View.PendingRollValue is int roll)

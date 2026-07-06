@@ -18,6 +18,8 @@ namespace LemonadeWars.Unity
         {
             public string Title;
             public int Value;
+            /// <summary>Modifier flip: no fresh tumble — the die kicks over to the new face.</summary>
+            public bool Flip;
         }
 
         private enum Phase
@@ -170,6 +172,24 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>
+        /// A card modified the roll (Pushy Salesman, Spiked Lemonade): the settled die
+        /// kicks up and rolls onto the new face instead of tumbling from scratch.
+        /// </summary>
+        public void EnqueueModifier(string sourceName, int newValue)
+        {
+            _queue.Enqueue(new Roll
+            {
+                Title = $"{sourceName.ToUpperInvariant()} CHANGES THE ROLL...",
+                Value = Mathf.Clamp(newValue, 1, 6),
+                Flip = true,
+            });
+            if (_phase == Phase.Idle)
+            {
+                BeginNext();
+            }
+        }
+
         /// <summary>Drop everything instantly (screen change, autopilot). No OnFinished.</summary>
         public void Clear()
         {
@@ -236,6 +256,15 @@ namespace LemonadeWars.Unity
             _group.alpha = 1f;
             _root.gameObject.SetActive(true);
             _camera.enabled = true;
+            if (_current.Flip)
+            {
+                // Kick the die off its face and settle it onto the new value.
+                _settleFrom = Quaternion.AngleAxis(70f, Random.onUnitSphere) * _die.rotation;
+                _settleTo = ClosestShowing(_current.Value, _settleFrom);
+                _die.rotation = _settleFrom;
+                SetPhase(Phase.Settle);
+                return;
+            }
             _die.rotation = Random.rotationUniform;
             _spinAxis = Random.onUnitSphere;
             _spinFlip = 0f;
@@ -285,7 +314,9 @@ namespace LemonadeWars.Unity
         private void Land()
         {
             _die.rotation = _settleTo;
-            _subtitle.text = $"STANDS WITH A {_current.Value} SELL!";
+            _subtitle.text = _current.Flip
+                ? $"NOW A {_current.Value}!"
+                : $"STANDS WITH A {_current.Value} SELL!";
             SetPhase(Phase.Hold);
         }
 
