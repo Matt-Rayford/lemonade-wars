@@ -1545,6 +1545,19 @@ namespace LemonadeWars.Unity
             });
         }
 
+        /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
+        public Vector3? PlayerBarWorld(int playerId)
+        {
+            foreach (var (id, row, _) in _playerRows)
+            {
+                if (id == playerId && row != null)
+                {
+                    return row.TransformPoint(row.rect.center);
+                }
+            }
+            return null;
+        }
+
         /// <summary>Deterministic across sessions (unlike string.GetHashCode).</summary>
         private static int StableNameHash(string name)
         {

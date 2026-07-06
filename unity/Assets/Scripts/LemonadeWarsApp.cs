@@ -61,6 +61,7 @@ namespace LemonadeWars.Unity
         private CardPreview _preview;
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
+        private EffectsPlayer _fx;
         private TMP_Text _statusText;
         private TMP_Text _topBanner;
         private int _renderedRevision = -1;
@@ -167,6 +168,11 @@ namespace LemonadeWars.Unity
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
             StartCoroutine(ServerStatusLoop());
 
+            // Above the table, below the modal overlays built after it.
+            _fx = new EffectsPlayer(root,
+                () => _dice.IsBusy || _turnBanner.IsOpen,
+                playerId => _table.PlayerBarWorld(playerId));
+
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this);
             _picker = new CardPicker(root, _preview, this);
@@ -272,6 +278,7 @@ namespace LemonadeWars.Unity
             _picker.Hide();
             _turnBanner.Hide();
             _dice.Clear();
+            _fx.Clear();
             _table.ViewedBoardPlayer = -1;
             _renderedRevision = -1;
             _modalRevision = -1;
@@ -293,6 +300,26 @@ namespace LemonadeWars.Unity
             {
                 _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
                     reroll.ByPlayerId == _session.Seat);
+            }
+            else if (gameEvent is RollModified modified)
+            {
+                _dice.EnqueueModifier(BlackMarketName(modified.SourceDefId), modified.NewValue);
+            }
+            else if (gameEvent is MoneyChanged money)
+            {
+                _fx.QueueMoney(money.PlayerId, money.Amount);
+            }
+        }
+
+        private string BlackMarketName(string defId)
+        {
+            try
+            {
+                return _db.BlackMarket(defId).Name;
+            }
+            catch
+            {
+                return defId.Replace("-", " ");
             }
         }
 
@@ -354,6 +381,7 @@ namespace LemonadeWars.Unity
                 _picker.Hide();
                 _turnBanner.Hide();
                 _dice.Clear();
+                _fx.Clear();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }
@@ -369,6 +397,7 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
+            _fx.Tick();
             RenderIfChanged();
         }
 
@@ -383,6 +412,7 @@ namespace LemonadeWars.Unity
             _picker.Hide();
             _turnBanner.Hide();
             _dice.Clear();
+            _fx.Clear();
             _lobby.ShowMenu(status);
             _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
