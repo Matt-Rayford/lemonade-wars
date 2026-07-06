@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -91,7 +92,7 @@ namespace LemonadeWars.Unity
 
         private RectTransform _playersColumn;
         private Texture2D _lemonIcon;
-        private Text _boardOwnerLabel;
+        private TMP_Text _boardOwnerLabel;
         private bool _viewingOwnBoard = true;
         /// <summary>Whose board the table currently shows; -1 = your own.</summary>
         public int ViewedBoardPlayer = -1;
@@ -115,10 +116,10 @@ namespace LemonadeWars.Unity
         private RectTransform _discardOverlay;
         private RectTransform _discardGrid;
         private ScrollRect _discardScrollRect;
-        private Text _discardTitle;
+        private TMP_Text _discardTitle;
         private GameObject _discardTakeButton;
         private GameObject _discardBackButton;
-        private Text _discardTakeLabel;
+        private TMP_Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
         private System.Action _discardOnBack;
         private int? _discardSelectedId;
@@ -197,7 +198,7 @@ namespace LemonadeWars.Unity
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
             _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
+                new Color(1f, 0.92f, 0.55f), body: true);
             _boardOwnerLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
                 new Vector2(0, 0.90f), new Vector2(1, 1));
@@ -672,18 +673,12 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_discardOverlay, Vector2.zero, Vector2.one);
             UiKit.AddClick(_discardOverlay.gameObject, CloseDiscardViewer);
 
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            titleGo.transform.SetParent(_discardOverlay, false);
-            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.1f, 0.89f), new Vector2(0.9f, 0.97f));
-            _discardTitle = titleGo.GetComponent<Text>();
-            _discardTitle.font = UiKit.DefaultFont;
-            _discardTitle.fontSize = 34;
-            _discardTitle.alignment = TextAnchor.MiddleCenter;
-            _discardTitle.color = Color.white;
+            _discardTitle = UiKit.CreateText(_discardOverlay, "", 34,
+                TextAnchor.MiddleCenter, Color.white);
+            UiKit.Anchor((RectTransform)_discardTitle.transform,
+                new Vector2(0.1f, 0.89f), new Vector2(0.9f, 0.97f));
             _discardTitle.raycastTarget = false;
-            var titleShadow = titleGo.GetComponent<Shadow>();
-            titleShadow.effectColor = new Color(0, 0, 0, 0.85f);
-            titleShadow.effectDistance = new Vector2(2.5f, -2.5f);
+            UiKit.AddTextShadow(_discardTitle);
 
             // Transparent-but-raycastable scroll surface: the wheel works anywhere in
             // the band, and a click between cards still closes the viewer.
@@ -1279,7 +1274,7 @@ namespace LemonadeWars.Unity
                     chip.sizeDelta = new Vector2(width - 40f, 24f);
                     chip.anchoredPosition = new Vector2(0, -24f);
                     var chipText = UiKit.CreateText(chip, claimedBy.ToUpperInvariant(), 13,
-                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
+                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
                     UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
                 }
 
@@ -1398,7 +1393,7 @@ namespace LemonadeWars.Unity
             chip.GetComponent<Image>().raycastTarget = false;
             var chipText = UiKit.CreateText(chip,
                 count == 1 ? "1 DISCARD" : $"{count} DISCARDS", 16,
-                TextAnchor.MiddleCenter, Color.white);
+                TextAnchor.MiddleCenter, Color.white, body: true);
             chipText.raycastTarget = false;
             UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
             chip.gameObject.SetActive(false);
@@ -1505,7 +1500,7 @@ namespace LemonadeWars.Unity
                 new Vector2(80, 2), new Vector2(-52, -8));
             var statsText = UiKit.CreateText(row.transform,
                 $"VP: {player.InGameVictoryPoints}   Cash: ${player.Money}", 16,
-                TextAnchor.UpperLeft, new Color(0.82f, 0.84f, 0.88f));
+                TextAnchor.UpperLeft, new Color(0.82f, 0.84f, 0.88f), body: true);
             statsText.raycastTarget = false;
             UiKit.Anchor((RectTransform)statsText.transform, new Vector2(0, 0), new Vector2(1, 0.5f),
                 new Vector2(80, 8), new Vector2(-52, -2));

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -52,8 +53,8 @@ namespace LemonadeWars.Unity
         private readonly Queue<Roll> _queue = new Queue<Roll>();
         private readonly RectTransform _root;
         private readonly CanvasGroup _group;
-        private readonly Text _title;
-        private readonly Text _subtitle;
+        private readonly TMP_Text _title;
+        private readonly TMP_Text _subtitle;
         private readonly Camera _camera;
         private readonly Transform _die;
         private readonly Mesh _mesh;
@@ -116,17 +117,10 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
             _group = _root.gameObject.AddComponent<CanvasGroup>();
 
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            titleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.1f, 0.73f), new Vector2(0.9f, 0.81f));
-            _title = titleGo.GetComponent<Text>();
-            _title.font = UiKit.DefaultFont;
-            _title.fontSize = 36;
-            _title.alignment = TextAnchor.MiddleCenter;
-            _title.color = Color.white;
-            var titleShadow = titleGo.GetComponent<Shadow>();
-            titleShadow.effectColor = new Color(0, 0, 0, 0.85f);
-            titleShadow.effectDistance = new Vector2(2.5f, -2.5f);
+            _title = UiKit.CreateText(_root, "", 36, TextAnchor.MiddleCenter, Color.white);
+            UiKit.Anchor((RectTransform)_title.transform,
+                new Vector2(0.1f, 0.73f), new Vector2(0.9f, 0.81f));
+            UiKit.AddTextShadow(_title);
 
             var viewGo = new GameObject("DieView", typeof(RectTransform), typeof(RawImage));
             viewGo.transform.SetParent(_root, false);
@@ -137,17 +131,10 @@ namespace LemonadeWars.Unity
             view.texture = renderTexture;
             view.raycastTarget = false;
 
-            var subtitleGo = new GameObject("Subtitle", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            subtitleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)subtitleGo.transform, new Vector2(0.1f, 0.17f), new Vector2(0.9f, 0.26f));
-            _subtitle = subtitleGo.GetComponent<Text>();
-            _subtitle.font = UiKit.DefaultFont;
-            _subtitle.fontSize = 32;
-            _subtitle.alignment = TextAnchor.MiddleCenter;
-            _subtitle.color = UiKit.ButtonColor;
-            var subtitleShadow = subtitleGo.GetComponent<Shadow>();
-            subtitleShadow.effectColor = new Color(0, 0, 0, 0.85f);
-            subtitleShadow.effectDistance = new Vector2(2f, -2f);
+            _subtitle = UiKit.CreateText(_root, "", 32, TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            UiKit.Anchor((RectTransform)_subtitle.transform,
+                new Vector2(0.1f, 0.17f), new Vector2(0.9f, 0.26f));
+            UiKit.AddTextShadow(_subtitle);
 
             UiKit.AddClick(_root.gameObject, Skip);
             _root.gameObject.SetActive(false);

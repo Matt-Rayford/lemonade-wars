@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -30,11 +31,11 @@ namespace LemonadeWars.Unity
         private readonly CardPreview _preview;
         private readonly RectTransform _root;
         private readonly ModalBackdrop _backdrop;
-        private readonly Text _title;
+        private readonly TMP_Text _title;
         private readonly RectTransform _rowHost;
         private readonly RectTransform _row;
         private readonly Button _accept;
-        private readonly Text _acceptLabel;
+        private readonly TMP_Text _acceptLabel;
 
         private readonly List<Slot> _slots = new List<Slot>();
         private int _requiredCount;
@@ -51,17 +52,11 @@ namespace LemonadeWars.Unity
             _backdrop = new ModalBackdrop(_root, host);
 
             // Floating title with a drop shadow — no bar.
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            titleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.05f, 0.88f), new Vector2(0.95f, 0.985f));
-            _title = titleGo.GetComponent<Text>();
-            _title.font = UiKit.DefaultFont;
-            _title.fontSize = 40;
-            _title.alignment = TextAnchor.MiddleCenter;
-            _title.color = new Color(1f, 0.95f, 0.75f);
-            var titleShadow = titleGo.GetComponent<Shadow>();
-            titleShadow.effectColor = new Color(0, 0, 0, 0.85f);
-            titleShadow.effectDistance = new Vector2(2.5f, -2.5f);
+            _title = UiKit.CreateText(_root, "", 40,
+                TextAnchor.MiddleCenter, new Color(1f, 0.95f, 0.75f));
+            UiKit.Anchor((RectTransform)_title.transform,
+                new Vector2(0.05f, 0.88f), new Vector2(0.95f, 0.985f));
+            UiKit.AddTextShadow(_title);
 
             // Card row host: invisible, full width — cards float on the blur.
             _rowHost = UiKit.CreatePanel(_root, "RowHost", new Color(0, 0, 0, 0));

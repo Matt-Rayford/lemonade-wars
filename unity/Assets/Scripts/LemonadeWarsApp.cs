@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -60,8 +61,8 @@ namespace LemonadeWars.Unity
         private CardPreview _preview;
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
-        private Text _statusText;
-        private Text _topBanner;
+        private TMP_Text _statusText;
+        private TMP_Text _topBanner;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
         private string _modalSignature = "";
@@ -116,7 +117,7 @@ namespace LemonadeWars.Unity
 
             var statusPanel = UiKit.CreatePanel(root, "Status", UiKit.PanelColor);
             UiKit.Anchor(statusPanel, new Vector2(0, 0.95f), new Vector2(1, 1));
-            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft);
+            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft, body: true);
             UiKit.Anchor((RectTransform)_statusText.transform, Vector2.zero, Vector2.one,
                 new Vector2(14, 0), new Vector2(-14, 0));
             // Turn/phase banner, centered in the top bar.
