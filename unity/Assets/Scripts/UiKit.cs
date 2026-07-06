@@ -369,6 +369,46 @@ namespace LemonadeWars.Unity
             relay.Clicked += () => onClick();
         }
 
+        /// <summary>Dashed arrow with a winged head, built from rotated dash Images.</summary>
+        public static void DrawDashedArrow(RectTransform host, Vector2 from, Vector2 to, Color color)
+        {
+            var direction = to - from;
+            float length = direction.magnitude;
+            if (length < 30f)
+            {
+                return;
+            }
+            var unit = direction / length;
+            float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
+            for (float d = 18f; d < length - 24f; d += 30f)
+            {
+                CreateDash(host, from + unit * d, angle, 16f, color);
+            }
+            // Arrowhead: two wings sweeping back from the tip.
+            for (int sign = -1; sign <= 1; sign += 2)
+            {
+                float wingAngle = angle + sign * 145f;
+                var wingDir = new Vector2(
+                    Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
+                CreateDash(host, to + wingDir * 11f, wingAngle, 22f, color);
+            }
+        }
+
+        private static void CreateDash(RectTransform host, Vector2 center, float angleDegrees,
+            float length, Color color)
+        {
+            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(host, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(length, 6f);
+            rect.anchoredPosition = center;
+            rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
+            var image = go.GetComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+        }
+
         /// <summary>Soft glow layer (hidden by default); ignores parent layout groups.</summary>
         public static GameObject CreateGlow(RectTransform parent, Vector2 anchor, Vector2 pivot,
             Vector2 anchoredPosition, float width, float height, Color color)
