@@ -198,22 +198,13 @@ namespace LemonadeWars.Unity
             _follower = rootGo.GetComponent<PreviewFollower>();
             _follower.CanvasRect = (RectTransform)canvasGo.transform;
 
-            // Rounded frame + masked texture, same treatment as table cards.
-            var frame = new GameObject("PreviewFrame", typeof(RectTransform), typeof(Image), typeof(Mask));
-            frame.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)frame.transform, Vector2.zero, Vector2.one);
-            var frameImage = frame.GetComponent<Image>();
-            frameImage.sprite = UiSprites.RoundedRect;
-            frameImage.type = Image.Type.Sliced;
-            frameImage.raycastTarget = false;
-            frameImage.pixelsPerUnitMultiplier = 150f / Width; // radius proportional to card size
-            frame.GetComponent<Mask>().showMaskGraphic = true;
-
+            // Shader-rounded corners, same treatment as table cards.
             var go = new GameObject("PreviewImage", typeof(RectTransform), typeof(RawImage));
-            go.transform.SetParent(frame.transform, false);
+            go.transform.SetParent(_root, false);
             UiKit.Anchor((RectTransform)go.transform, Vector2.zero, Vector2.one);
             _image = go.GetComponent<RawImage>();
             _image.raycastTarget = false;
+            _image.material = UiKit.RoundedImageMaterial(Width, Height);
             _root.gameObject.SetActive(false);
         }
 
@@ -234,13 +225,23 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
+        /// <summary>No previews while a drag is in flight (and hide any current one).</summary>
+        public void SetDragging(bool dragging)
+        {
+            _driver.Suppressed = dragging;
+            if (dragging)
+            {
+                Hide();
+            }
+        }
+
         /// <summary>
-        /// Wire a card image to preview on hover: shows after a 2s dwell, or instantly
+        /// Wire a card image to preview on hover: shows after a 1s dwell, or instantly
         /// while Alt/Cmd is held.
         /// </summary>
         public void Attach(GameObject cardGo, Texture2D texture)
         {
-            UiKit.AddHover(cardGo, () => _driver.BeginHover(texture), Hide);
+            UiKit.AddHover(cardGo, () => _driver.BeginHover(cardGo, texture), Hide);
         }
     }
 
@@ -256,15 +257,23 @@ namespace LemonadeWars.Unity
         public System.Action ShowReady;
         public System.Action HideRequested;
         public Texture2D PendingTexture { get; private set; }
+        /// <summary>While true (drags), no previews start and none may show.</summary>
+        public bool Suppressed;
 
+        private GameObject _source;
         private bool _hovering;
         private bool _shown;
         private bool _shownByKey;
         private bool _suppressed;
         private float _elapsed;
 
-        public void BeginHover(Texture2D texture)
+        public void BeginHover(GameObject source, Texture2D texture)
         {
+            if (Suppressed)
+            {
+                return;
+            }
+            _source = source;
             PendingTexture = texture;
             _hovering = true;
             _shown = false;
@@ -275,6 +284,7 @@ namespace LemonadeWars.Unity
 
         public void EndHover()
         {
+            _source = null;
             _hovering = false;
             _shown = false;
             _shownByKey = false;
@@ -286,6 +296,15 @@ namespace LemonadeWars.Unity
         {
             if (!_hovering)
             {
+                return;
+            }
+            // The hovered card can be DESTROYED by a re-render (drop, bot action);
+            // destroyed objects never send pointer-exit, so self-dismiss instead of
+            // leaving the preview stranded on screen.
+            if (_source == null || Suppressed)
+            {
+                EndHover();
+                HideRequested?.Invoke();
                 return;
             }
             bool modifier = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) ||

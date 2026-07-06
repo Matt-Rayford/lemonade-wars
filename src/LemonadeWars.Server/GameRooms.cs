@@ -13,7 +13,8 @@ namespace LemonadeWars.Server;
 
 public sealed class Seat
 {
-    public int Index { get; init; }
+    /// <summary>Mutable only pre-game: bot removal re-indexes the remaining seats.</summary>
+    public int Index { get; set; }
     public string Name { get; set; } = "";
     public string Token { get; set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     public bool IsBot { get; set; }
@@ -254,6 +255,40 @@ public sealed class Room
                 IsBot = true,
                 Ready = true,
             });
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
+        return "";
+    }
+
+    /// <summary>
+    /// Remove a specific bot seat (host only, before the game starts). Remaining seats
+    /// are re-indexed so seat numbers stay contiguous — required because seat index
+    /// becomes PlayerId at start.
+    /// </summary>
+    public string RemoveBot(int requestingSeat, int botSeat)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            if (requestingSeat != 0)
+            {
+                return "Only the host can remove bots.";
+            }
+            if (_game != null)
+            {
+                return "The game already started.";
+            }
+            var seat = _seats.FirstOrDefault(s => s.Index == botSeat);
+            if (seat == null || !seat.IsBot)
+            {
+                return "That seat is not a bot.";
+            }
+            _seats.Remove(seat);
+            for (int i = 0; i < _seats.Count; i++)
+            {
+                _seats[i].Index = i;
+            }
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);

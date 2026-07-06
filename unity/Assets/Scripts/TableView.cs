@@ -67,6 +67,7 @@ namespace LemonadeWars.Unity
         private readonly CardArt _art;
         private readonly CardPreview _preview;
         private readonly MonoBehaviour _host;
+        private CardDatabase _db; // set each Render; card names come from data, not ids
 
         private Text _bannerText;
         private Text _opponentsText;
@@ -674,6 +675,7 @@ namespace LemonadeWars.Unity
 
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
+            _db = db;
             RenderMarket(view, db, groups);
             RenderBoard(view);
             RenderHand(view, groups);
@@ -1205,11 +1207,12 @@ namespace LemonadeWars.Unity
             drag.DragStarted = () =>
             {
                 _supplyDragActive = true;
-                _preview.Hide();
+                _preview.SetDragging(true);
             };
             drag.DragEnded = () =>
             {
                 _supplyDragActive = false;
+                _preview.SetDragging(false);
                 HideInsertPreview();
             };
         }
@@ -1398,17 +1401,10 @@ namespace LemonadeWars.Unity
             foreach (var equip in equipped)
             {
                 var texture = _art.BlackMarket(equip.DefId, equip.Shape ?? Shape.Square);
-                var badge = UiKit.CreateBadge(cell, PrettyName(equip.DefId), 12,
+                var badge = UiKit.CreateBadge(cell, _db.BlackMarket(equip.DefId).Name, 12,
                     new Color(0.20f, 0.32f, 0.24f, 0.9f));
                 _preview.Attach(badge.transform.parent.gameObject, texture);
             }
-        }
-
-        private static string PrettyName(string defId)
-        {
-            var parts = defId.Split('-');
-            return string.Join(" ", parts.Select(p =>
-                p.Length > 0 ? char.ToUpperInvariant(p[0]) + p.Substring(1) : p));
         }
     }
 

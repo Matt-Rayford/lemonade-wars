@@ -13,6 +13,7 @@ namespace LemonadeWars.Protocol
         public const string CreateRoom = "create_room";
         public const string JoinRoom = "join_room";
         public const string AddBot = "add_bot";
+        public const string RemoveBot = "remove_bot";
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";

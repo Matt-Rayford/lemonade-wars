@@ -124,7 +124,11 @@ namespace LemonadeWars.Unity
             _table.OnHandCard = OpenHandMenu;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
             _table.OnMarketDragStart = OnMarketDragStart;
-            _table.OnMarketDragEnd = () => _table.ClearDropHighlights();
+            _table.OnMarketDragEnd = () =>
+            {
+                _preview.SetDragging(false);
+                _table.ClearDropHighlights();
+            };
             _table.OnMarketDrop = OnMarketDrop;
             _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
@@ -132,7 +136,7 @@ namespace LemonadeWars.Unity
 
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
                 PlayerPrefs.GetString("lw_name", "Player"));
-            _lobby.OnPlayLocal = StartLocalGame;
+            _lobby.OnStartSolo = StartLocalGame;
             _lobby.OnSaveSettings = name =>
             {
                 PlayerPrefs.SetString("lw_name", name);
@@ -146,6 +150,7 @@ namespace LemonadeWars.Unity
                 PlayerPrefs.GetString("lw_code"),
                 PlayerPrefs.GetString("lw_token"));
             _lobby.OnAddBot = () => _remote?.AddBot();
+            _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");
@@ -173,13 +178,18 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ flows
 
-        private void StartLocalGame()
+        private IReadOnlyList<string> _soloBotNames = new[] { "Benny", "Cleo", "Dex" };
+
+        private void StartLocalGame(IReadOnlyList<string> botNames)
         {
+            _soloBotNames = botNames.ToList();
+            var names = new List<string> { _lobby.DisplayName };
+            names.AddRange(_soloBotNames);
+
             _remote?.Dispose();
             _remote = null;
             _session?.Dispose();
-            _session = new LocalGameSession(_db,
-                new[] { _lobby.DisplayName, "Benny", "Cleo", "Dex" }, 0,
+            _session = new LocalGameSession(_db, names.ToArray(), 0,
                 (ulong)System.DateTime.Now.Ticks);
             _session.EventEmitted += OnGameEvent;
             EnterGame();
@@ -324,7 +334,7 @@ namespace LemonadeWars.Unity
 
             if (Input.GetKeyDown(KeyCode.N) && _session is LocalGameSession)
             {
-                StartLocalGame();
+                StartLocalGame(_soloBotNames);
             }
             if (Input.GetKeyDown(KeyCode.B) && _session != null)
             {
@@ -605,7 +615,7 @@ namespace LemonadeWars.Unity
 
         private void OnMarketDragStart(int marketIndex)
         {
-            _preview.Hide();
+            _preview.SetDragging(true);
             var groups = CurrentGroups();
             if (groups == null || !groups.MarketMoves.TryGetValue(marketIndex, out var moves))
             {

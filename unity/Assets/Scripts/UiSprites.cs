@@ -11,14 +11,19 @@ namespace LemonadeWars.Unity
         private static Sprite _roundedRect;
         private static Sprite _glow;
 
-        /// <summary>Anti-aliased rounded rectangle, 9-sliced so the corner radius stays constant.</summary>
+        /// <summary>
+        /// Anti-aliased rounded rectangle, 9-sliced so the corner radius stays constant.
+        /// Generated at 2x density (pixelsPerUnit 200): same on-screen size, twice the
+        /// texels per corner — smooth even where the UI magnifies corners (previews,
+        /// discard browser).
+        /// </summary>
         public static Sprite RoundedRect
         {
             get
             {
                 if (_roundedRect == null)
                 {
-                    _roundedRect = Generate(64, 14f, 0f, border: 20f);
+                    _roundedRect = Generate(128, 28f, 0f, border: 40f, pixelsPerUnit: 200f);
                 }
                 return _roundedRect;
             }
@@ -31,7 +36,7 @@ namespace LemonadeWars.Unity
             {
                 if (_glow == null)
                 {
-                    _glow = Generate(96, 10f, 30f, border: 44f);
+                    _glow = Generate(192, 20f, 60f, border: 88f, pixelsPerUnit: 200f);
                 }
                 return _glow;
             }
@@ -41,12 +46,14 @@ namespace LemonadeWars.Unity
         /// Draw a rounded rect of the given corner radius; alpha falls from 1 at the shape
         /// edge to 0 over <paramref name="falloff"/> pixels (0 = crisp 1px anti-aliased edge).
         /// </summary>
-        private static Sprite Generate(int size, float radius, float falloff, float border)
+        private static Sprite Generate(int size, float radius, float falloff, float border,
+            float pixelsPerUnit = 100f)
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
                 hideFlags = HideFlags.DontSave,
                 wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
             };
 
             float half = size / 2f;
@@ -74,7 +81,7 @@ namespace LemonadeWars.Unity
             texture.Apply();
 
             return Sprite.Create(texture, new Rect(0, 0, size, size),
-                new Vector2(0.5f, 0.5f), 100f, 0,
+                new Vector2(0.5f, 0.5f), pixelsPerUnit, 0,
                 SpriteMeshType.FullRect,
                 new Vector4(border, border, border, border));
         }
