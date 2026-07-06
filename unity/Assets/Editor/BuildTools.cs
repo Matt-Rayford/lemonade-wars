@@ -46,6 +46,20 @@ namespace LemonadeWars.UnityEditorTools
                       $"({report.summary.totalSize / (1024 * 1024)} MB)");
         }
 
+        /// <summary>
+        /// Import TMP Essential Resources (SDF shaders, TMP Settings, Liberation Sans)
+        /// without the interactive dialog — runnable headless via -executeMethod.
+        /// </summary>
+        [MenuItem("Lemonade Wars/Import TMP Essentials")]
+        public static void ImportTmpEssentials()
+        {
+            AssetDatabase.ImportPackage(
+                "Packages/com.unity.ugui/Package Resources/TMP Essential Resources.unitypackage",
+                false);
+            AssetDatabase.SaveAssets();
+            Debug.Log("TMP Essential Resources imported.");
+        }
+
         /// <summary>Create and register the minimal boot scene if it does not exist yet.</summary>
         private static void EnsureBootScene()
         {

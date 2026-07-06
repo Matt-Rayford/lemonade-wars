@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -28,7 +29,7 @@ namespace LemonadeWars.Unity
         private static readonly Color TextIdle = new Color(0.96f, 0.96f, 0.92f);
 
         private readonly ModalBackdrop _backdrop;
-        private readonly Text _title;
+        private readonly TMP_Text _title;
         private readonly RectTransform _root;
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
@@ -42,17 +43,10 @@ namespace LemonadeWars.Unity
             _backdrop = new ModalBackdrop(_root, host);
 
             // Floating title with a drop shadow — no bar.
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            titleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.04f, 0.87f), new Vector2(0.96f, 0.98f));
-            _title = titleGo.GetComponent<Text>();
-            _title.font = UiKit.DefaultFont;
-            _title.fontSize = 36;
-            _title.alignment = TextAnchor.MiddleCenter;
-            _title.color = Color.white;
-            var shadow = titleGo.GetComponent<Shadow>();
-            shadow.effectColor = new Color(0, 0, 0, 0.85f);
-            shadow.effectDistance = new Vector2(2.5f, -2.5f);
+            _title = UiKit.CreateText(_root, "", 36, TextAnchor.MiddleCenter, Color.white);
+            UiKit.Anchor((RectTransform)_title.transform,
+                new Vector2(0.04f, 0.87f), new Vector2(0.96f, 0.98f));
+            UiKit.AddTextShadow(_title);
 
             // The card(s) in question, centered on the blur.
             var stripHost = UiKit.CreatePanel(_root, "Cards", new Color(0, 0, 0, 0));

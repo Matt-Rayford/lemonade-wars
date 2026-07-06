@@ -1,4 +1,7 @@
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.TextCore.LowLevel;
 using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
@@ -10,20 +13,86 @@ namespace LemonadeWars.Unity
         public static readonly Color ButtonColor = new Color(0.98f, 0.83f, 0.10f);
         public static readonly Color ButtonTextColor = new Color(0.12f, 0.10f, 0.05f);
 
-        private static Font _defaultFont;
+        private static TMP_FontAsset _titleFont;
+        private static TMP_FontAsset _bodyFont;
 
-        /// <summary>The game font (Built Titling), falling back to Unity's builtin.</summary>
-        public static Font DefaultFont
+        /// <summary>
+        /// Display font (Built Titling) as a dynamic SDF asset — headers, buttons,
+        /// anything shouty. Missing glyphs (em dashes, arrows) fall back to the body font.
+        /// </summary>
+        public static TMP_FontAsset TitleFont
         {
             get
             {
-                if (_defaultFont == null)
+                if (_titleFont == null)
                 {
-                    _defaultFont = Resources.Load<Font>("fonts/built-titling-bd")
-                        ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                    _titleFont = CreateFontAsset("fonts/built-titling-bd");
+                    if (_titleFont != null && BodyFont != null && _titleFont != BodyFont)
+                    {
+                        _titleFont.fallbackFontAssetTable =
+                            new List<TMP_FontAsset> { BodyFont };
+                    }
                 }
-                return _defaultFont;
+                return _titleFont;
             }
+        }
+
+        /// <summary>
+        /// Body font — Liberation Sans, the metrically identical open twin of the
+        /// rulebook's Arial: stats, captions, status lines, inputs.
+        /// </summary>
+        public static TMP_FontAsset BodyFont
+        {
+            get
+            {
+                if (_bodyFont == null)
+                {
+                    _bodyFont = CreateFontAsset("fonts/liberation-sans");
+                }
+                return _bodyFont;
+            }
+        }
+
+        /// <summary>Dynamic SDF asset from a bundled ttf: crisp at any size, every glyph.</summary>
+        private static TMP_FontAsset CreateFontAsset(string resourcePath)
+        {
+            var source = Resources.Load<Font>(resourcePath);
+            if (source == null)
+            {
+                return TMP_Settings.defaultFontAsset; // essentials' Liberation Sans SDF
+            }
+            return TMP_FontAsset.CreateFontAsset(source, 90, 9,
+                GlyphRenderMode.SDFAA, 1024, 1024);
+        }
+
+        private static TextAlignmentOptions Align(TextAnchor anchor)
+        {
+            switch (anchor)
+            {
+                case TextAnchor.UpperLeft: return TextAlignmentOptions.TopLeft;
+                case TextAnchor.UpperCenter: return TextAlignmentOptions.Top;
+                case TextAnchor.UpperRight: return TextAlignmentOptions.TopRight;
+                case TextAnchor.MiddleLeft: return TextAlignmentOptions.Left;
+                case TextAnchor.MiddleCenter: return TextAlignmentOptions.Center;
+                case TextAnchor.MiddleRight: return TextAlignmentOptions.Right;
+                case TextAnchor.LowerLeft: return TextAlignmentOptions.BottomLeft;
+                case TextAnchor.LowerCenter: return TextAlignmentOptions.Bottom;
+                default: return TextAlignmentOptions.BottomRight;
+            }
+        }
+
+        /// <summary>
+        /// TMP underlay standing in for the old UGUI Shadow component: a dark, softly
+        /// offset copy behind the glyphs. Instantiates the text's own material.
+        /// </summary>
+        public static void AddTextShadow(TMP_Text text, float strength = 1f)
+        {
+            var material = text.fontMaterial;
+            material.EnableKeyword(ShaderUtilities.Keyword_Underlay);
+            material.SetColor(ShaderUtilities.ID_UnderlayColor, new Color(0, 0, 0, 0.85f));
+            material.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0.3f * strength);
+            material.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, -0.3f * strength);
+            material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0.25f);
         }
 
         public static Canvas CreateCanvas()
@@ -63,19 +132,20 @@ namespace LemonadeWars.Unity
             return rt;
         }
 
-        public static Text CreateText(Transform parent, string content, int size,
-            TextAnchor align = TextAnchor.UpperLeft, Color? color = null)
+        /// <summary>Title-font text by default; pass body for informational copy.</summary>
+        public static TextMeshProUGUI CreateText(Transform parent, string content, int size,
+            TextAnchor align = TextAnchor.UpperLeft, Color? color = null, bool body = false)
         {
-            var go = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            var go = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
             go.transform.SetParent(parent, false);
-            var text = go.GetComponent<Text>();
-            text.font = DefaultFont;
+            var text = go.GetComponent<TextMeshProUGUI>();
+            text.font = body ? BodyFont : TitleFont;
             text.fontSize = size;
-            text.alignment = align;
+            text.alignment = Align(align);
             text.color = color ?? Color.white;
             text.text = content;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.textWrappingMode = TextWrappingModes.Normal;
+            text.overflowMode = TextOverflowModes.Truncate;
             return text;
         }
 
@@ -321,11 +391,12 @@ namespace LemonadeWars.Unity
             return go;
         }
 
-        /// <summary>Single-line text input with placeholder (legacy InputField).</summary>
-        public static InputField CreateInput(Transform parent, string placeholder, string initial = "")
+        /// <summary>Single-line text input with placeholder (TMP, body font).</summary>
+        public static TMP_InputField CreateInput(Transform parent, string placeholder,
+            string initial = "")
         {
             var go = new GameObject("Input", typeof(RectTransform), typeof(Image),
-                typeof(InputField), typeof(LayoutElement));
+                typeof(TMP_InputField), typeof(LayoutElement));
             go.transform.SetParent(parent, false);
             var background = go.GetComponent<Image>();
             background.sprite = UiSprites.RoundedRect;
@@ -333,15 +404,20 @@ namespace LemonadeWars.Unity
             background.color = new Color(0.09f, 0.11f, 0.15f, 0.95f);
             go.GetComponent<LayoutElement>().minHeight = 44;
 
-            var textGo = CreateText(go.transform, "", 18, TextAnchor.MiddleLeft);
-            Anchor((RectTransform)textGo.transform, Vector2.zero, Vector2.one,
-                new Vector2(12, 4), new Vector2(-12, -4));
-            var placeholderGo = CreateText(go.transform, placeholder, 18, TextAnchor.MiddleLeft,
-                new Color(0.6f, 0.6f, 0.6f));
-            Anchor((RectTransform)placeholderGo.transform, Vector2.zero, Vector2.one,
-                new Vector2(12, 4), new Vector2(-12, -4));
+            // TMP inputs render inside an explicit masked viewport.
+            var areaGo = new GameObject("TextArea", typeof(RectTransform), typeof(RectMask2D));
+            areaGo.transform.SetParent(go.transform, false);
+            var area = (RectTransform)areaGo.transform;
+            Anchor(area, Vector2.zero, Vector2.one, new Vector2(12, 4), new Vector2(-12, -4));
 
-            var input = go.GetComponent<InputField>();
+            var textGo = CreateText(area, "", 18, TextAnchor.MiddleLeft, body: true);
+            Anchor((RectTransform)textGo.transform, Vector2.zero, Vector2.one);
+            var placeholderGo = CreateText(area, placeholder, 18, TextAnchor.MiddleLeft,
+                new Color(0.6f, 0.6f, 0.6f), body: true);
+            Anchor((RectTransform)placeholderGo.transform, Vector2.zero, Vector2.one);
+
+            var input = go.GetComponent<TMP_InputField>();
+            input.textViewport = area;
             input.textComponent = textGo;
             input.placeholder = placeholderGo;
             input.text = initial;
@@ -349,13 +425,14 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>Small caption under/over a card.</summary>
-        public static Text CreateBadge(Transform parent, string content, int size, Color background)
+        public static TextMeshProUGUI CreateBadge(Transform parent, string content, int size,
+            Color background)
         {
             var go = new GameObject("Badge", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
             go.transform.SetParent(parent, false);
             go.GetComponent<Image>().color = background;
             go.GetComponent<LayoutElement>().minHeight = size + 8;
-            var text = CreateText(go.transform, content, size, TextAnchor.MiddleCenter);
+            var text = CreateText(go.transform, content, size, TextAnchor.MiddleCenter, body: true);
             Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
                 new Vector2(4, 1), new Vector2(-4, -1));
             return text;

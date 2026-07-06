@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -19,7 +20,7 @@ namespace LemonadeWars.Unity
 
         private readonly ModalBackdrop _backdrop;
         private readonly RectTransform _root;
-        private readonly Text _subtitle;
+        private readonly TMP_Text _subtitle;
 
         public TurnBanner(RectTransform canvasRoot, MonoBehaviour host)
         {
@@ -27,30 +28,17 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
             _backdrop = new ModalBackdrop(_root, host);
 
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            titleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)titleGo.transform, new Vector2(0.05f, 0.52f), new Vector2(0.95f, 0.74f));
-            var title = titleGo.GetComponent<Text>();
-            title.font = UiKit.DefaultFont;
-            title.fontSize = 96;
-            title.alignment = TextAnchor.MiddleCenter;
-            title.color = UiKit.ButtonColor;
-            title.text = "YOUR TURN!";
-            var titleShadow = titleGo.GetComponent<Shadow>();
-            titleShadow.effectColor = new Color(0, 0, 0, 0.9f);
-            titleShadow.effectDistance = new Vector2(4f, -4f);
+            var title = UiKit.CreateText(_root, "YOUR TURN!", 96,
+                TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            UiKit.Anchor((RectTransform)title.transform,
+                new Vector2(0.05f, 0.52f), new Vector2(0.95f, 0.74f));
+            UiKit.AddTextShadow(title, 1.4f);
 
-            var subtitleGo = new GameObject("Subtitle", typeof(RectTransform), typeof(Text), typeof(Shadow));
-            subtitleGo.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)subtitleGo.transform, new Vector2(0.1f, 0.44f), new Vector2(0.9f, 0.52f));
-            _subtitle = subtitleGo.GetComponent<Text>();
-            _subtitle.font = UiKit.DefaultFont;
-            _subtitle.fontSize = 28;
-            _subtitle.alignment = TextAnchor.MiddleCenter;
-            _subtitle.color = new Color(0.96f, 0.96f, 0.92f);
-            var subtitleShadow = subtitleGo.GetComponent<Shadow>();
-            subtitleShadow.effectColor = new Color(0, 0, 0, 0.85f);
-            subtitleShadow.effectDistance = new Vector2(2f, -2f);
+            _subtitle = UiKit.CreateText(_root, "", 28,
+                TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
+            UiKit.Anchor((RectTransform)_subtitle.transform,
+                new Vector2(0.1f, 0.44f), new Vector2(0.9f, 0.52f));
+            UiKit.AddTextShadow(_subtitle);
 
             var buttonGo = new GameObject("Onward", typeof(RectTransform), typeof(Image), typeof(Shadow));
             buttonGo.transform.SetParent(_root, false);

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -41,17 +42,17 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _joinRoot;
         private readonly RectTransform _soloSeatList;
         private readonly List<string> _soloBotNames = new List<string> { "Benny", "Cleo", "Dex" };
-        private readonly InputField _displayNameInput;
-        private readonly InputField _serverInput;
-        private readonly InputField _codeInput;
-        private readonly Text _lobbyTitle;
+        private readonly TMP_InputField _displayNameInput;
+        private readonly TMP_InputField _serverInput;
+        private readonly TMP_InputField _codeInput;
+        private readonly TMP_Text _lobbyTitle;
         private readonly RectTransform _lobbySeatList;
-        private readonly Text _lobbyStatus;
-        private readonly Text _menuStatus;
-        private readonly Text _serverStatus;
-        private readonly Text _readyLabel;
+        private readonly TMP_Text _lobbyStatus;
+        private readonly TMP_Text _menuStatus;
+        private readonly TMP_Text _serverStatus;
+        private readonly TMP_Text _readyLabel;
         private readonly Button _resumeButton;
-        private readonly Text _resumeLabel;
+        private readonly TMP_Text _resumeLabel;
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
@@ -75,7 +76,7 @@ namespace LemonadeWars.Unity
             layout.childControlWidth = true;
 
             _serverStatus = UiKit.CreateText(column.transform, "", 14,
-                TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.6f));
+                TextAnchor.MiddleCenter, new Color(0.6f, 0.6f, 0.6f), body: true);
 
             // Main-menu buttons get more presence than the standard 34px rows.
             Button MenuButton(string label, UnityEngine.Events.UnityAction onClick)
@@ -90,13 +91,13 @@ namespace LemonadeWars.Unity
             MenuButton("Join room", ShowJoin);
 
             _resumeButton = MenuButton("", () => OnResume?.Invoke());
-            _resumeLabel = _resumeButton.GetComponentInChildren<Text>();
+            _resumeLabel = _resumeButton.GetComponentInChildren<TMP_Text>();
             _resumeButton.gameObject.SetActive(false);
 
             MenuButton("Settings", ShowSettings);
 
             _menuStatus = UiKit.CreateText(column.transform, "", 16,
-                TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f));
+                TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f), body: true);
 
             // ---------------------------------------------------- settings
             _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", new Color(0.08f, 0.10f, 0.14f, 0.97f));
@@ -119,12 +120,12 @@ namespace LemonadeWars.Unity
 
             var nameLabel = UiKit.CreateText(settingsColumn.transform,
                 "Display Name — shown at the table on your turn", 16,
-                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f));
+                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
             nameLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
             _displayNameInput = UiKit.CreateInput(settingsColumn.transform, "Display Name", defaultName);
 
             var serverLabel = UiKit.CreateText(settingsColumn.transform,
-                "Server URL", 16, TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f));
+                "Server URL", 16, TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
             serverLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
             _serverInput = UiKit.CreateInput(settingsColumn.transform, "Server", defaultServerUrl);
 
@@ -153,11 +154,11 @@ namespace LemonadeWars.Unity
             _codeInput.characterLimit = 5;
             var codeText = _codeInput.textComponent;
             codeText.fontSize = 52;
-            codeText.alignment = TextAnchor.MiddleCenter;
-            if (_codeInput.placeholder is Text codePlaceholder)
+            codeText.alignment = TextAlignmentOptions.Center;
+            if (_codeInput.placeholder is TMP_Text codePlaceholder)
             {
                 codePlaceholder.fontSize = 52;
-                codePlaceholder.alignment = TextAnchor.MiddleCenter;
+                codePlaceholder.alignment = TextAlignmentOptions.Center;
             }
 
             var joinActions = new GameObject("JoinActions", typeof(RectTransform), typeof(HorizontalLayoutGroup));
@@ -229,7 +230,7 @@ namespace LemonadeWars.Unity
                 () => OnLeave?.Invoke());
             var readyButton = UiKit.CreateButton((RectTransform)everyoneControls.transform,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
-            _readyLabel = readyButton.GetComponentInChildren<Text>();
+            _readyLabel = readyButton.GetComponentInChildren<TMP_Text>();
 
             var controls = new GameObject("LobbyControls", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             controls.transform.SetParent(_lobbyRoot, false);
@@ -244,7 +245,7 @@ namespace LemonadeWars.Unity
             UiKit.CreateButton(_hostControls, "Start game", 20, () => OnStart?.Invoke());
 
             _lobbyStatus = UiKit.CreateText(_lobbyRoot, "", 18,
-                TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f));
+                TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
             UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.24f), new Vector2(0.9f, 0.29f));
 
             ShowMenu("");
