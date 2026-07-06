@@ -61,6 +61,7 @@ namespace LemonadeWars.Unity
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
         private Text _statusText;
+        private Text _topBanner;
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
         private string _modalSignature = "";
@@ -115,9 +116,14 @@ namespace LemonadeWars.Unity
 
             var statusPanel = UiKit.CreatePanel(root, "Status", UiKit.PanelColor);
             UiKit.Anchor(statusPanel, new Vector2(0, 0.95f), new Vector2(1, 1));
-            _statusText = UiKit.CreateText(statusPanel, "", 22, TextAnchor.MiddleLeft);
+            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)_statusText.transform, Vector2.zero, Vector2.one,
                 new Vector2(14, 0), new Vector2(-14, 0));
+            // Turn/phase banner, centered in the top bar.
+            _topBanner = UiKit.CreateText(statusPanel, "", 22, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            UiKit.Anchor((RectTransform)_topBanner.transform, Vector2.zero, Vector2.one,
+                new Vector2(220, 0), new Vector2(-220, 0));
 
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview, this);
@@ -763,16 +769,22 @@ namespace LemonadeWars.Unity
 
         private void RenderStatus()
         {
+            // VP/cash live on your player panel now; the top-left keeps utility info.
             var me = View.Players[View.ViewerId];
-            string status = View.Stage == GameStage.Finished
-                ? $"GAME OVER — winner: {string.Join(", ", View.Winners.Select(NameOf))}" +
-                  (_session is LocalGameSession ? "   [N] new game" : "")
-                : $"{me.Name}: ${me.Money}  |  {me.InGameVictoryPoints} VP" +
-                  (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
-                  (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
-                  (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
-                  (_session.HumanAutoplay ? "  |  AUTOPILOT [B]" : "  |  [B] autopilot") +
-                  (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
+            string status;
+            if (View.Stage == GameStage.Finished)
+            {
+                status = $"GAME OVER — winner: {string.Join(", ", View.Winners.Select(NameOf))}" +
+                         (_session is LocalGameSession ? "   [N] new game" : "");
+            }
+            else
+            {
+                status = (_session.HumanAutoplay ? "AUTOPILOT [B]" : "[B] autopilot") +
+                         (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
+                         (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
+                         (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
+                         (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
+            }
             _statusText.text = status;
         }
 
@@ -803,7 +815,7 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
-            _table.SetBanner(banner);
+            _topBanner.text = banner;
         }
 
         private void RenderActionBar(MoveGroups groups)

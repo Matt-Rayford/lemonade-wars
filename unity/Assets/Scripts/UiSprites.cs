@@ -9,7 +9,9 @@ namespace LemonadeWars.Unity
     public static class UiSprites
     {
         private static Sprite _roundedRect;
+        private static Sprite _roundedOutline;
         private static Sprite _glow;
+        private static Sprite _circle;
 
         /// <summary>
         /// Anti-aliased rounded rectangle, 9-sliced so the corner radius stays constant.
@@ -26,6 +28,33 @@ namespace LemonadeWars.Unity
                     _roundedRect = Generate(128, 28f, 0f, border: 40f, pixelsPerUnit: 200f);
                 }
                 return _roundedRect;
+            }
+        }
+
+        /// <summary>Rounded-rect OUTLINE (~2 unit rim), 9-sliced: selection borders.</summary>
+        public static Sprite RoundedOutline
+        {
+            get
+            {
+                if (_roundedOutline == null)
+                {
+                    _roundedOutline = Generate(128, 28f, 0f, border: 40f,
+                        pixelsPerUnit: 200f, outline: 4f);
+                }
+                return _roundedOutline;
+            }
+        }
+
+        /// <summary>Anti-aliased filled circle (player badges). Use Image.Type.Simple.</summary>
+        public static Sprite Circle
+        {
+            get
+            {
+                if (_circle == null)
+                {
+                    _circle = Generate(128, 62f, 0f, border: 0f, pixelsPerUnit: 200f);
+                }
+                return _circle;
             }
         }
 
@@ -47,7 +76,7 @@ namespace LemonadeWars.Unity
         /// edge to 0 over <paramref name="falloff"/> pixels (0 = crisp 1px anti-aliased edge).
         /// </summary>
         private static Sprite Generate(int size, float radius, float falloff, float border,
-            float pixelsPerUnit = 100f)
+            float pixelsPerUnit = 100f, float outline = 0f)
         {
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
@@ -74,6 +103,11 @@ namespace LemonadeWars.Unity
                     float alpha = falloff <= 0f
                         ? Mathf.Clamp01(0.5f - dist)                       // crisp AA edge
                         : Mathf.Pow(1f - Mathf.Clamp01(dist / falloff), 1.5f); // soft glow fade
+                    if (outline > 0f)
+                    {
+                        // Keep only a band along the shape edge: a rim, not a fill.
+                        alpha *= Mathf.Clamp01(dist + outline + 0.5f);
+                    }
                     pixels[y * size + x] = new Color32(255, 255, 255, (byte)(alpha * 255f));
                 }
             }
