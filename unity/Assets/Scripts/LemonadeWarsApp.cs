@@ -128,6 +128,8 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview, this);
             _table.OnHandCard = OpenHandMenu;
+            _table.AttackTargetsFor = AttackTargets;
+            _table.OnAttackPick = ResolveAttackOnPlayer;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
             _table.OnMarketDragStart = OnMarketDragStart;
             _table.OnMarketDragEnd = () =>
@@ -355,8 +357,14 @@ namespace LemonadeWars.Unity
                 _modalRevision = -1;
             }
 
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                _table.CancelOverlays();
+            }
+
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
+            _table.TickAttackTargeting(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
@@ -531,6 +539,106 @@ namespace LemonadeWars.Unity
             }
 
             ShowVictims();
+        }
+
+        /// <summary>
+        /// The opponents this hand card can hit, when EVERY way to play it resolves to
+        /// one victim — those cards aim at the player bars (click or drag) instead of
+        /// opening a menu. Null means "not an attack": use the normal menu flow.
+        /// </summary>
+        private ISet<int> AttackTargets(int cardInstanceId)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves) ||
+                moves.Count == 0)
+            {
+                return null;
+            }
+            var targets = new HashSet<int>();
+            foreach (var move in moves)
+            {
+                int victim = VictimOf(move);
+                if (victim < 0)
+                {
+                    return null;
+                }
+                targets.Add(victim);
+            }
+            return targets;
+        }
+
+        /// <summary>The opponent a play ultimately hits, or -1 when it isn't aimed at one.</summary>
+        private int VictimOf(GameAction move)
+        {
+            if (!(move is PlayLemonCard play))
+            {
+                return -1;
+            }
+            if (play.TargetPlayerId is int victim)
+            {
+                return victim == View.ViewerId ? -1 : victim;
+            }
+            if (play.TargetEquippedInstanceId is int equipped)
+            {
+                int owner = FindEquipOwner(equipped);
+                return owner == View.ViewerId ? -1 : owner;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// An attack was aimed and released on a player bar: submit it outright, or walk
+        /// the remaining choices for that victim — which equipped card to hit (board
+        /// picker, BACK re-aims) or which tantrum to hand off (small menu).
+        /// </summary>
+        private void ResolveAttackOnPlayer(int cardInstanceId, int victimId)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
+            {
+                return;
+            }
+            var onVictim = moves.Where(m => VictimOf(m) == victimId).ToList();
+            if (onVictim.Count == 0)
+            {
+                return;
+            }
+
+            var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+            string cardName = _db.Lemon(card?.DefId ?? "").Name;
+            if (onVictim.Count == 1)
+            {
+                // Point of no return: confirm before the attack actually fires.
+                _prompt.Show($"Play {cardName} on {NameOf(victimId)}?",
+                    new[] { _art.Lemon(card?.DefId ?? "") },
+                    new List<Prompt.Option>
+                    {
+                        new Prompt.Option("YES!", () => Submit(onVictim[0])),
+                    },
+                    showCancel: true);
+                return;
+            }
+            if (onVictim.Cast<PlayLemonCard>().All(m => m.TargetEquippedInstanceId != null))
+            {
+                var byEquipped = onVictim.Cast<PlayLemonCard>()
+                    .GroupBy(m => m.TargetEquippedInstanceId.Value)
+                    .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+                var cards = EquippedCardInfos(victimId, onVictim);
+                _table.OpenDiscardPicker(
+                    $"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victimId).ToUpperInvariant()}",
+                    cards, blackMarket: true,
+                    c => _db.BlackMarket(c.DefId).Name,
+                    equippedId =>
+                    {
+                        var picked = cards.First(c => c.InstanceId == equippedId);
+                        ResolveEquipDestination(byEquipped[equippedId],
+                            _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
+                    },
+                    onBack: () => _table.RestartAttackTargeting(cardInstanceId));
+                return;
+            }
+            _prompt.Show($"{cardName} → {NameOf(victimId)}",
+                new[] { _art.Lemon(card?.DefId ?? "") }, ToOptions(onVictim), showCancel: true);
         }
 
         /// <summary>The seat whose turf/stand carries this equipped instance.</summary>

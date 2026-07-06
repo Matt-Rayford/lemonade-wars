@@ -11,6 +11,7 @@ namespace LemonadeWars.Unity
         private static Sprite _roundedRect;
         private static Sprite _roundedOutline;
         private static Sprite _glow;
+        private static Sprite _glowRing;
         private static Sprite _circle;
 
         /// <summary>
@@ -68,6 +69,24 @@ namespace LemonadeWars.Unity
                     _glow = Generate(192, 20f, 60f, border: 88f, pixelsPerUnit: 200f);
                 }
                 return _glow;
+            }
+        }
+
+        /// <summary>
+        /// Outer glow ring: a thin rim at the shape edge fading outward only — the
+        /// interior stays clear, so whatever it wraps remains readable. 9-sliced; the
+        /// rim sits 31 canvas units inside the rect edge (falloff 60px + inset, at 2x).
+        /// </summary>
+        public static Sprite GlowRing
+        {
+            get
+            {
+                if (_glowRing == null)
+                {
+                    _glowRing = Generate(192, 20f, 60f, border: 88f,
+                        pixelsPerUnit: 200f, outline: 6f);
+                }
+                return _glowRing;
             }
         }
 

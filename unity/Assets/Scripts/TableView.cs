@@ -57,6 +57,25 @@ namespace LemonadeWars.Unity
         private readonly List<(int? Id, RectTransform Cell, Texture2D Art)> _dropCells =
             new List<(int?, RectTransform, Texture2D)>();
 
+        // Attack targeting: aim a hand attack card at a player bar, armed by clicking
+        // the card or by dragging it out of the hand band. Red glow on the hovered bar,
+        // red dashed arrow from the card to the bar (or the cursor while searching).
+        public System.Func<int, ISet<int>> AttackTargetsFor; // hand id -> victims (null = not an attack)
+        public System.Action<int, int> OnAttackPick;         // hand id, victim player id
+        private static readonly Color AttackGlowColor = new Color(1f, 0.30f, 0.22f, 0.95f);
+        private static readonly Color AttackArrowColor = new Color(0.95f, 0.27f, 0.21f);
+        private RectTransform _attackRoot;
+        private RectTransform _attackArrowHost;
+        private ISet<int> _attackValid;
+        private int _attackCardId = -1;
+        private int _attackHover = -1;   // player id, -1 = none
+        private bool _attackDragMode;    // true: release fires; false: second click fires
+        private bool _attackDragAborted; // Esc mid-drag: stay disarmed until release
+        private Vector2 _attackArrowFrom;
+        private Vector2 _attackArrowTo;
+        private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
+            new List<(int, RectTransform, GameObject)>();
+
         // Supply-drag insertion preview.
         private RectTransform _boardPanel;
         private readonly List<RectTransform> _standCells = new List<RectTransform>();
@@ -107,8 +126,9 @@ namespace LemonadeWars.Unity
             new Dictionary<int, GameObject>();
 
         // Hand fan scrolling (when the hand outgrows the center band).
-        private readonly List<(RectTransform Frame, float BaseX)> _handFrames =
-            new List<(RectTransform, float)>();
+        private readonly List<(int Id, RectTransform Frame, float BaseX,
+            HandCardMotion Motion, float RestY)> _handFrames =
+            new List<(int, RectTransform, float, HandCardMotion, float)>();
         private float _handScroll;
         private float _handMaxScroll;
         public RectTransform Root { get; private set; }
@@ -231,6 +251,7 @@ namespace LemonadeWars.Unity
 
             BuildEquipTargeting();
             BuildDiscardViewer();
+            BuildAttackTargeting();
         }
 
         // ------------------------------------------------- equip targeting
@@ -392,8 +413,9 @@ namespace LemonadeWars.Unity
                     {
                         var world = cell.TransformPoint(
                             new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
-                        DrawDashedArrow(_targetingCardBottom,
-                            (Vector2)_targetingRoot.InverseTransformPoint(world));
+                        DrawDashedArrow(_arrowHost, _targetingCardBottom,
+                            (Vector2)_targetingRoot.InverseTransformPoint(world),
+                            UiKit.ButtonColor);
                         break;
                     }
                 }
@@ -416,7 +438,7 @@ namespace LemonadeWars.Unity
             _targetingGlows.Clear();
         }
 
-        private void DrawDashedArrow(Vector2 from, Vector2 to)
+        private void DrawDashedArrow(RectTransform host, Vector2 from, Vector2 to, Color color)
         {
             var direction = to - from;
             float length = direction.magnitude;
@@ -428,7 +450,7 @@ namespace LemonadeWars.Unity
             float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
             for (float d = 18f; d < length - 24f; d += 30f)
             {
-                CreateDash(from + unit * d, angle, 16f);
+                CreateDash(host, from + unit * d, angle, 16f, color);
             }
             // Arrowhead: two wings sweeping back from the tip.
             for (int sign = -1; sign <= 1; sign += 2)
@@ -436,22 +458,208 @@ namespace LemonadeWars.Unity
                 float wingAngle = angle + sign * 145f;
                 var wingDir = new Vector2(
                     Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
-                CreateDash(to + wingDir * 11f, wingAngle, 22f);
+                CreateDash(host, to + wingDir * 11f, wingAngle, 22f, color);
             }
         }
 
-        private void CreateDash(Vector2 center, float angleDegrees, float length)
+        private void CreateDash(RectTransform host, Vector2 center, float angleDegrees,
+            float length, Color color)
         {
             var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(_arrowHost, false);
+            go.transform.SetParent(host, false);
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(length, 6f);
             rect.anchoredPosition = center;
             rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
             var image = go.GetComponent<Image>();
-            image.color = UiKit.ButtonColor;
+            image.color = color;
             image.raycastTarget = false;
+        }
+
+        // ------------------------------------------------ attack targeting
+
+        /// <summary>
+        /// Invisible full-screen layer for aiming an attack at a player bar. Like equip
+        /// targeting it owns the pointer and hit-tests the bars manually, but the table
+        /// stays live underneath — the armed card just holds its raised pose in the hand.
+        /// </summary>
+        private void BuildAttackTargeting()
+        {
+            _attackRoot = UiKit.CreatePanel(Root, "AttackTargeting", new Color(0, 0, 0, 0));
+            UiKit.Anchor(_attackRoot, Vector2.zero, Vector2.one);
+            // Click mode: a click on a glowing bar fires, anywhere else disarms.
+            UiKit.AddClick(_attackRoot.gameObject, FinishAttackTargeting);
+
+            var arrowGo = new GameObject("Arrow", typeof(RectTransform));
+            arrowGo.transform.SetParent(_attackRoot, false);
+            _attackArrowHost = (RectTransform)arrowGo.transform;
+            UiKit.Anchor(_attackArrowHost, Vector2.zero, Vector2.one);
+
+            _attackRoot.gameObject.SetActive(false);
+        }
+
+        private void BeginAttackTargeting(int cardInstanceId, ISet<int> validTargets, bool dragMode)
+        {
+            if (_attackCardId >= 0)
+            {
+                return;
+            }
+            _attackCardId = cardInstanceId;
+            _attackValid = validTargets;
+            _attackDragMode = dragMode;
+            _attackHover = -1;
+            _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
+            _preview.SetDragging(true); // no magnify pop-ups while aiming
+
+            // Hold the armed card raised and on top: the intercept layer eats the hover
+            // events that would otherwise drop it back into the fan.
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Id == cardInstanceId && entry.Frame != null)
+                {
+                    entry.Frame.SetAsLastSibling();
+                    entry.Motion.TargetY = 12f; // the fan's raised pose
+                    break;
+                }
+            }
+            _attackRoot.gameObject.SetActive(true);
+        }
+
+        /// <summary>Re-arm targeting for a hand card (BACK from a follow-up picker).</summary>
+        public void RestartAttackTargeting(int cardInstanceId)
+        {
+            var targets = AttackTargetsFor?.Invoke(cardInstanceId);
+            if (targets != null && targets.Count > 0)
+            {
+                BeginAttackTargeting(cardInstanceId, targets, dragMode: false);
+            }
+        }
+
+        /// <summary>Called every frame by the app; drives the bar glow + the red arrow.</summary>
+        public void TickAttackTargeting(Vector2 screenPosition)
+        {
+            if (_attackCardId < 0)
+            {
+                return;
+            }
+
+            int hover = -1;
+            foreach (var (playerId, row, _) in _playerRows)
+            {
+                if (row != null && _attackValid.Contains(playerId) &&
+                    RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
+                {
+                    hover = playerId;
+                    break;
+                }
+            }
+            if (hover != _attackHover)
+            {
+                _attackHover = hover;
+                foreach (var (playerId, _, glow) in _playerRows)
+                {
+                    if (glow != null)
+                    {
+                        glow.SetActive(playerId == hover);
+                    }
+                }
+            }
+
+            // Arrow: from the armed card's top edge, trailing the cursor.
+            var from = _attackArrowFrom;
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Id == _attackCardId && entry.Frame != null)
+                {
+                    var world = entry.Frame.TransformPoint(
+                        new Vector3(0, entry.Frame.rect.yMax, 0));
+                    from = _attackRoot.InverseTransformPoint(world);
+                    break;
+                }
+            }
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _attackRoot, screenPosition, null, out var to);
+            // Redraw only on real movement — the arrow is rebuilt from scratch.
+            if ((from - _attackArrowFrom).sqrMagnitude < 4f &&
+                (to - _attackArrowTo).sqrMagnitude < 4f)
+            {
+                return;
+            }
+            _attackArrowFrom = from;
+            _attackArrowTo = to;
+            UiKit.Clear(_attackArrowHost);
+            DrawDashedArrow(_attackArrowHost, from, to, AttackArrowColor);
+        }
+
+        /// <summary>
+        /// Esc: dismiss whichever aiming/browsing overlay is up — same outcome as
+        /// clicking off it. Attack aim first, then equip targeting, then the discard
+        /// browser (only one is ever open at a time).
+        /// </summary>
+        public void CancelOverlays()
+        {
+            if (_attackCardId >= 0)
+            {
+                // Esc during a drag must not re-arm on the very next pointer move.
+                _attackDragAborted = _attackDragMode;
+                EndAttackTargeting();
+                return;
+            }
+            if (_targetingPick != null)
+            {
+                var cancel = _targetingCancel;
+                EndEquipTargeting();
+                cancel?.Invoke();
+                return;
+            }
+            if (_discardOverlay.gameObject.activeSelf)
+            {
+                CloseDiscardViewer();
+            }
+        }
+
+        /// <summary>Fire on the hovered bar, or just disarm when aimed at nothing.</summary>
+        private void FinishAttackTargeting()
+        {
+            int cardId = _attackCardId;
+            int victim = _attackHover;
+            EndAttackTargeting();
+            if (cardId >= 0 && victim >= 0)
+            {
+                OnAttackPick?.Invoke(cardId, victim);
+            }
+        }
+
+        private void EndAttackTargeting()
+        {
+            if (_attackCardId < 0)
+            {
+                return;
+            }
+            for (int i = 0; i < _handFrames.Count; i++)
+            {
+                var entry = _handFrames[i];
+                if (entry.Id == _attackCardId && entry.Frame != null)
+                {
+                    entry.Frame.SetSiblingIndex(i);
+                    entry.Motion.TargetY = entry.RestY;
+                    break;
+                }
+            }
+            foreach (var (_, _, glow) in _playerRows)
+            {
+                if (glow != null)
+                {
+                    glow.SetActive(false);
+                }
+            }
+            _attackCardId = -1;
+            _attackHover = -1;
+            _attackValid = null;
+            UiKit.Clear(_attackArrowHost);
+            _attackRoot.gameObject.SetActive(false);
+            _preview.SetDragging(false);
         }
 
         /// <summary>
@@ -709,6 +917,11 @@ namespace LemonadeWars.Unity
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             _db = db;
+            if (_attackCardId >= 0)
+            {
+                // Hand and player bars are about to be rebuilt under the aiming layer.
+                EndAttackTargeting();
+            }
             RenderMarket(view, db, groups);
             RenderBoard(view);
             RenderHand(view, groups);
@@ -884,25 +1097,74 @@ namespace LemonadeWars.Unity
                 float restY = peek - height;
                 float baseX = startX + i * spacing;
                 frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
-                _handFrames.Add((frame, baseX));
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
+                int captured = card.InstanceId;
+                _handFrames.Add((captured, frame, baseX, motion, restY));
 
                 if (optionCount > 0)
                 {
-                    int captured = card.InstanceId;
-                    UiKit.AddClick(image.gameObject, () => OnHandCard?.Invoke(captured));
+                    // Attack cards aim at a player bar instead of opening the menu.
+                    UiKit.AddClick(image.gameObject, () =>
+                    {
+                        var targets = AttackTargetsFor?.Invoke(captured);
+                        if (targets != null && targets.Count > 0)
+                        {
+                            BeginAttackTargeting(captured, targets, dragMode: false);
+                        }
+                        else
+                        {
+                            OnHandCard?.Invoke(captured);
+                        }
+                    });
+
+                    // Or drag: past the hand band the card arms and the arrow appears;
+                    // release over a glowing bar to fire, anywhere else to abort.
+                    var drag = image.gameObject.AddComponent<DragRelay>();
+                    drag.Began = _ =>
+                    {
+                        _attackDragAborted = false;
+                        _preview.SetDragging(true);
+                    };
+                    drag.Moved = position =>
+                    {
+                        if (_attackCardId < 0 && !_attackDragAborted &&
+                            !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
+                        {
+                            var targets = AttackTargetsFor?.Invoke(captured);
+                            if (targets != null && targets.Count > 0)
+                            {
+                                BeginAttackTargeting(captured, targets, dragMode: true);
+                            }
+                        }
+                    };
+                    drag.Ended = _ =>
+                    {
+                        if (_attackCardId == captured && _attackDragMode)
+                        {
+                            FinishAttackTargeting();
+                        }
+                        _preview.SetDragging(false);
+                    };
                 }
 
                 int sibling = i;
                 UiKit.AddHover(image.gameObject,
                     () =>
                     {
+                        if (_attackCardId >= 0)
+                        {
+                            return; // the armed card owns the top slot while aiming
+                        }
                         frame.SetAsLastSibling();
                         motion.TargetY = raisedY;
                     },
                     () =>
                     {
+                        if (_attackCardId == captured)
+                        {
+                            return; // stays raised while aiming
+                        }
                         frame.SetSiblingIndex(sibling);
                         motion.TargetY = restY;
                     });
@@ -944,13 +1206,13 @@ namespace LemonadeWars.Unity
 
             _handScroll = Mathf.Clamp(
                 _handScroll + velocity * 900f * Time.deltaTime, 0f, _handMaxScroll);
-            foreach (var (frame, baseX) in _handFrames)
+            foreach (var entry in _handFrames)
             {
-                if (frame != null)
+                if (entry.Frame != null)
                 {
-                    var position = frame.anchoredPosition;
-                    position.x = baseX - _handScroll;
-                    frame.anchoredPosition = position;
+                    var position = entry.Frame.anchoredPosition;
+                    position.x = entry.BaseX - _handScroll;
+                    entry.Frame.anchoredPosition = position;
                 }
             }
         }
@@ -1167,6 +1429,7 @@ namespace LemonadeWars.Unity
         private void RenderPlayers(PlayerView view)
         {
             UiKit.Clear(_playersColumn);
+            _playerRows.Clear();
             int count = view.Players.Count;
             int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
             for (int offset = 1; offset <= count; offset++)
@@ -1260,6 +1523,22 @@ namespace LemonadeWars.Unity
                 borderImage.color = UiKit.ButtonColor;
                 borderImage.raycastTarget = false;
             }
+
+            // Red glow around the OUTSIDE while an attack is being aimed at this
+            // player: an outward-fading ring whose rim hugs the bar's edge (the ring
+            // sprite's rim sits 31 units inside its rect), leaving the bar readable.
+            var attackGlowGo = new GameObject("AttackGlow", typeof(RectTransform), typeof(Image));
+            attackGlowGo.transform.SetParent(row.transform, false);
+            attackGlowGo.transform.SetAsFirstSibling();
+            UiKit.Anchor((RectTransform)attackGlowGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(-31, -31), new Vector2(31, 31));
+            var attackGlowImage = attackGlowGo.GetComponent<Image>();
+            attackGlowImage.sprite = UiSprites.GlowRing;
+            attackGlowImage.type = Image.Type.Sliced;
+            attackGlowImage.color = AttackGlowColor;
+            attackGlowImage.raycastTarget = false;
+            attackGlowGo.SetActive(false);
+            _playerRows.Add((playerId, (RectTransform)row.transform, attackGlowGo));
 
             // Click a bar to view that player's board; your own bar comes home.
             int clickedId = playerId;
