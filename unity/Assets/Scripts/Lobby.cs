@@ -170,11 +170,11 @@ namespace LemonadeWars.Unity
             joinActionsLayout.childForceExpandHeight = true;
             joinActionsLayout.childControlWidth = true;
             joinActionsLayout.childControlHeight = true;
+            UiKit.CreateButton((RectTransform)joinActions.transform, "< Back", 20,
+                () => ShowMenu(""));
             UiKit.CreateButton((RectTransform)joinActions.transform, "Join", 20,
                 () => OnJoin?.Invoke(_serverInput.text, DisplayName,
                     _codeInput.text.Trim().ToUpperInvariant()));
-            UiKit.CreateButton((RectTransform)joinActions.transform, "< Back", 20,
-                () => ShowMenu(""));
             _joinRoot.gameObject.SetActive(false);
 
             // -------------------------------------------------- solo setup
@@ -197,10 +197,10 @@ namespace LemonadeWars.Unity
             soloActionsLayout.childForceExpandHeight = true;
             soloActionsLayout.childControlWidth = true;
             soloActionsLayout.childControlHeight = true;
-            UiKit.CreateButton((RectTransform)soloActions.transform, "Start game", 20,
-                () => OnStartSolo?.Invoke(_soloBotNames.ToList()));
             UiKit.CreateButton((RectTransform)soloActions.transform, "< Back", 20,
                 () => ShowMenu(""));
+            UiKit.CreateButton((RectTransform)soloActions.transform, "Start game", 20,
+                () => OnStartSolo?.Invoke(_soloBotNames.ToList()));
             _soloRoot.gameObject.SetActive(false);
 
             // ------------------------------------------------------ lobby
@@ -225,11 +225,11 @@ namespace LemonadeWars.Unity
             everyoneLayout.childForceExpandHeight = true;
             everyoneLayout.childControlWidth = true;
             everyoneLayout.childControlHeight = true;
+            UiKit.CreateButton((RectTransform)everyoneControls.transform, "< Back", 20,
+                () => OnLeave?.Invoke());
             var readyButton = UiKit.CreateButton((RectTransform)everyoneControls.transform,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<Text>();
-            UiKit.CreateButton((RectTransform)everyoneControls.transform, "< Back", 20,
-                () => OnLeave?.Invoke());
 
             var controls = new GameObject("LobbyControls", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             controls.transform.SetParent(_lobbyRoot, false);

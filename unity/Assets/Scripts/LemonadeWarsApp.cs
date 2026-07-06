@@ -138,6 +138,7 @@ namespace LemonadeWars.Unity
             _table.OnMarketDrop = OnMarketDrop;
             _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
+            _table.OnBoardViewChanged = () => _renderedRevision = -1;
             _table.SetVisible(false);
 
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
@@ -268,6 +269,7 @@ namespace LemonadeWars.Unity
             _picker.Hide();
             _turnBanner.Hide();
             _dice.Clear();
+            _table.ViewedBoardPlayer = -1;
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
