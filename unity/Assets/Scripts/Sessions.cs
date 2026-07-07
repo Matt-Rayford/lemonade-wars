@@ -95,12 +95,20 @@ namespace LemonadeWars.Unity
 
         public void Tick()
         {
-            // A search bot thinks off the main thread; nothing mutates the game while
-            // it does, and its move applies here once ready — no frame hitches.
+            // A search bot thinks off the main thread on a SNAPSHOT; its move applies
+            // here once ready — no frame hitches, no shared-state races.
             if (_pendingChoice != null)
             {
                 if (!_pendingChoice.IsCompleted)
                 {
+                    if (UnityEngine.Time.time - _pendingChoiceSince < 5f)
+                    {
+                        return;
+                    }
+                    // Watchdog: a think should take ~a quarter second. Abandon a
+                    // wedged one and re-decide rather than freeze the table forever.
+                    UnityEngine.Debug.LogWarning("Bot think timed out; re-deciding.");
+                    _pendingChoice = null;
                     return;
                 }
                 var thought = _pendingChoice;
@@ -109,10 +117,11 @@ namespace LemonadeWars.Unity
                 {
                     ApplyBotAction(thought.Result);
                 }
-                catch (System.Exception)
+                catch (System.Exception e)
                 {
-                    // Stale or faulted think (e.g. autopilot toggled mid-thought):
-                    // drop it; the next tick re-decides from the current state.
+                    // Stale think (state moved on) or a faulted search: log it and
+                    // let the next tick re-decide from the current state.
+                    UnityEngine.Debug.LogException(e);
                 }
                 return;
             }
@@ -142,9 +151,16 @@ namespace LemonadeWars.Unity
                 IBot bot = actor == Seat ? _autopilot : _bots[actor];
                 if (bot is SearchBot)
                 {
-                    var game = _game;
+                    // The background thread must NEVER touch the live game: a human
+                    // Apply (response window) racing a Dictionary read can spin the
+                    // search into an infinite loop and freeze the whole table. Clone
+                    // on the main thread; think on the copy. The chosen action still
+                    // applies to the live game — if the state moved on meanwhile, the
+                    // Apply above throws and the bot simply re-decides.
+                    var snapshot = Game.FromState(_game.Db, SearchTools.CloneState(_game.State));
                     int seat = actor;
-                    _pendingChoice = Task.Run(() => bot.Choose(game, seat));
+                    _pendingChoiceSince = UnityEngine.Time.time;
+                    _pendingChoice = Task.Run(() => bot.Choose(snapshot, seat));
                     return;
                 }
                 ApplyBotAction(bot.Choose(_game, actor));
@@ -153,6 +169,7 @@ namespace LemonadeWars.Unity
         }
 
         private Task<GameAction> _pendingChoice;
+        private float _pendingChoiceSince;
 
         private void ApplyBotAction(GameAction action)
         {

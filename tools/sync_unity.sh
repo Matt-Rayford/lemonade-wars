@@ -28,6 +28,13 @@ echo "== syncing fonts =="
 mkdir -p "$UNITY_DIR/Assets/Resources/fonts"
 cp game-assets/fonts/*.ttf "$UNITY_DIR/Assets/Resources/fonts/" 2>/dev/null || true
 
+echo "== syncing sounds =="
+# Resources (not StreamingAssets): Unity imports them as AudioClips for Resources.Load.
+mkdir -p "$UNITY_DIR/Assets/Resources/sounds"
+cp game-assets/sound-effects/*.wav "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
+cp game-assets/sound-effects/*.mp3 "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
+cp game-assets/sound-effects/*.ogg "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
+
 echo "== syncing game data =="
 rm -rf "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"
 mkdir -p "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"

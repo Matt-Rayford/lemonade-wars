@@ -797,11 +797,11 @@ namespace LemonadeWars.Engine.Core
                     }
                     if (!drewCard)
                     {
-                        // Timeout interrupted; remaining draws stay queued.
-                        if (entry.Count == 0)
-                        {
-                            State.PendingDraws.Remove(entry);
-                        }
+                        // Timeout interrupted: the drawer is owed a replacement, on
+                        // this SAME entry — so tracking (the Whiniest Baby's keep
+                        // pool), roll-counting, and queue position all carry over.
+                        // The baby always ends up choosing between real cards.
+                        entry.Count++;
                         return;
                     }
                 }
@@ -851,8 +851,8 @@ namespace LemonadeWars.Engine.Core
             events.Add(new TimeoutDrawn { PlayerId = drawer.PlayerId });
             State.TimeoutDrawerId = drawer.PlayerId;
             State.LemonDiscard.Add(timeoutInstanceId);
-            // The drawer draws a replacement once everything settles.
-            QueueDraws(drawer.PlayerId, 1);
+            // The replacement draw is owed on the interrupted entry itself (see
+            // ProcessPendingDraws), so its tracking and position carry over.
 
             foreach (var player in State.Players)
             {
@@ -1090,6 +1090,10 @@ namespace LemonadeWars.Engine.Core
                     if (isBaby)
                     {
                         State.TrackedDrawnCards.Clear();
+                        // The keep-choice is owed because the turn STARTED as the
+                        // baby — a Timeout fine clearing the tantrums (and passing
+                        // the Baby card on) mid-draw doesn't cancel it.
+                        State.BabyDiscardOwed = true;
                     }
                     QueueDraws(State.ActivePlayer,
                         isBaby ? Db.Config.TurnStartDraw + 1 : Db.Config.TurnStartDraw,
@@ -1097,8 +1101,9 @@ namespace LemonadeWars.Engine.Core
                     break;
                 case 2: // Whiniest Baby: discard 1 — of the cards just drawn, not the whole hand.
                     State.TurnStartStep = 3;
-                    if (State.WhiniestBabyHolder == State.ActivePlayer)
+                    if (State.BabyDiscardOwed)
                     {
+                        State.BabyDiscardOwed = false;
                         var drawn = State.TrackedDrawnCards
                             .Where(active.Hand.Contains).ToList();
                         if (drawn.Count > 0)

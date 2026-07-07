@@ -35,6 +35,8 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _optionList;
 
         public bool IsOpen { get; private set; }
+        /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
+        public bool RootVisible => _root.gameObject.activeSelf;
 
         public Prompt(RectTransform canvasRoot, MonoBehaviour host)
         {

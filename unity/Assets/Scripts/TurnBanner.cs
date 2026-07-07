@@ -17,6 +17,8 @@ namespace LemonadeWars.Unity
 
         public System.Action OnDismiss;
         public bool IsOpen { get; private set; }
+        /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
+        public bool RootVisible => _root.gameObject.activeSelf;
 
         private readonly ModalBackdrop _backdrop;
         private readonly RectTransform _root;

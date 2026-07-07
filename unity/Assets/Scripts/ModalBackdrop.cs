@@ -52,18 +52,31 @@ namespace LemonadeWars.Unity
                 yield break; // closed (or reopened) while waiting
             }
 
-            Release();
-            var screenshot = ScreenCapture.CaptureScreenshotAsTexture();
-            _blur = BlurDownsample(screenshot);
-            Object.Destroy(screenshot);
-
-            if (_blur != null)
+            // The capture/blur is decoration; the ACTIVATION below is load-bearing.
+            // Owners mark themselves open the moment Reveal is called, so a capture
+            // hiccup (editor Game-view resizes love to break CaptureScreenshot) must
+            // degrade to a plain dark backdrop — never to an invisible-open modal
+            // that soft-locks the whole table behind it.
+            try
             {
-                _image.texture = _blur;
-                _image.color = Tint;
+                Release();
+                var screenshot = ScreenCapture.CaptureScreenshotAsTexture();
+                _blur = BlurDownsample(screenshot);
+                Object.Destroy(screenshot);
+                if (_blur != null)
+                {
+                    _image.texture = _blur;
+                    _image.color = Tint;
+                }
+                else
+                {
+                    _image.texture = null;
+                    _image.color = Fallback;
+                }
             }
-            else
+            catch (System.Exception e)
             {
+                Debug.LogException(e);
                 _image.texture = null;
                 _image.color = Fallback;
             }
