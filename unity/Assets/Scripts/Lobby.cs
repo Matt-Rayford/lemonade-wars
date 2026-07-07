@@ -13,7 +13,7 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed class LobbyUi
     {
-        public System.Action<IReadOnlyList<string>> OnStartSolo; // bot names
+        public System.Action<IReadOnlyList<(string Name, string Level)>> OnStartSolo; // bots
         public System.Action<string, string> OnHost;          // serverUrl, name
         public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
         public System.Action<string, string> OnMyGames;        // serverUrl, name
@@ -21,6 +21,7 @@ namespace LemonadeWars.Unity
         public System.Action OnGamesRefresh;
         public System.Action OnAddBot;
         public System.Action<int> OnRemoveBotSeat;             // seat index
+        public System.Action<int, string> OnSetBotLevel;       // seat index, level
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;
@@ -46,7 +47,11 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _gamesRoot;
         private readonly RectTransform _gamesList;
         private readonly RectTransform _soloSeatList;
-        private readonly List<string> _soloBotNames = new List<string> { "Benny", "Cleo", "Dex" };
+        private readonly List<(string Name, string Level)> _soloBots =
+            new List<(string, string)>
+            {
+                ("Benny", "medium"), ("Cleo", "medium"), ("Dex", "medium"),
+            };
         private readonly TMP_InputField _displayNameInput;
         private readonly TMP_InputField _serverInput;
         private readonly TMP_InputField _codeInput;
@@ -200,7 +205,7 @@ namespace LemonadeWars.Unity
             UiKit.CreateButton((RectTransform)soloActions.transform, "< Back", 20,
                 () => ShowMenu(""));
             UiKit.CreateButton((RectTransform)soloActions.transform, "Start game", 20,
-                () => OnStartSolo?.Invoke(_soloBotNames.ToList()));
+                () => OnStartSolo?.Invoke(_soloBots.ToList()));
             _soloRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- my games
@@ -387,28 +392,40 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_soloSeatList);
             AddSeatRow(_soloSeatList, $"1. {DisplayName}   <- you", null);
-            for (int i = 0; i < _soloBotNames.Count; i++)
+            for (int i = 0; i < _soloBots.Count; i++)
             {
                 int index = i;
                 // The last remaining bot cannot be removed: 2 players minimum.
-                AddSeatRow(_soloSeatList, $"{i + 2}. {_soloBotNames[i]} (bot)",
-                    _soloBotNames.Count > 1
+                AddSeatRow(_soloSeatList, $"{i + 2}. {_soloBots[i].Name} (bot)",
+                    _soloBots.Count > 1
                         ? () =>
                         {
-                            _soloBotNames.RemoveAt(index);
+                            _soloBots.RemoveAt(index);
                             RefreshSoloSeats();
                         }
-                        : (System.Action)null);
+                        : (System.Action)null,
+                    _soloBots[index].Level,
+                    () =>
+                    {
+                        _soloBots[index] = (_soloBots[index].Name,
+                            NextLevel(_soloBots[index].Level));
+                        RefreshSoloSeats();
+                    });
             }
-            if (_soloBotNames.Count < BotNames.Length)
+            if (_soloBots.Count < BotNames.Length)
             {
                 UiKit.CreateButton(_soloSeatList, "+ Add bot", 18, () =>
                 {
-                    _soloBotNames.Add(BotNames.First(n => !_soloBotNames.Contains(n)));
+                    _soloBots.Add((BotNames.First(n => _soloBots.All(b => b.Name != n)),
+                        "medium"));
                     RefreshSoloSeats();
                 });
             }
         }
+
+        /// <summary>The difficulty chip cycles easy -> medium -> hard -> easy.</summary>
+        public static string NextLevel(string level) =>
+            level == "easy" ? "medium" : level == "medium" ? "hard" : "easy";
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
         {
@@ -429,8 +446,13 @@ namespace LemonadeWars.Unity
                     (s.IsBot || s.Connected ? "" : "  (disconnected)") +
                     (s.Seat == room.YourSeat ? "   <- you" : "");
                 int seatIndex = s.Seat;
+                string level = s.IsBot ? (string.IsNullOrEmpty(s.BotLevel) ? "medium" : s.BotLevel) : null;
                 AddSeatRow(_lobbySeatList, label,
-                    isHost && s.IsBot ? () => OnRemoveBotSeat?.Invoke(seatIndex) : (System.Action)null);
+                    isHost && s.IsBot ? () => OnRemoveBotSeat?.Invoke(seatIndex) : (System.Action)null,
+                    level,
+                    isHost && s.IsBot
+                        ? () => OnSetBotLevel?.Invoke(seatIndex, NextLevel(level))
+                        : (System.Action)null);
             }
             if (isHost && room.Seats.Count > 0 && room.Seats.Count < MaxSeats)
             {
@@ -458,8 +480,13 @@ namespace LemonadeWars.Unity
             return (RectTransform)go.transform;
         }
 
-        /// <summary>One seat line; bots get an X on the right when removal is allowed.</summary>
-        private static void AddSeatRow(RectTransform list, string label, System.Action onRemove)
+        /// <summary>
+        /// One seat line. Bots get an X on the right when removal is allowed, and a
+        /// difficulty chip to its left: clickable (cycles easy/medium/hard) when
+        /// onCycleLevel is provided, informational otherwise.
+        /// </summary>
+        private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
+            string botLevel = null, System.Action onCycleLevel = null)
         {
             var row = new GameObject("SeatRow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
             row.transform.SetParent(list, false);
@@ -471,7 +498,37 @@ namespace LemonadeWars.Unity
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(16, 2), new Vector2(-56, -2));
+                new Vector2(16, 2), new Vector2(botLevel != null ? -152 : -56, -2));
+
+            if (botLevel != null)
+            {
+                var chipGo = new GameObject("Level", typeof(RectTransform), typeof(Image));
+                chipGo.transform.SetParent(row.transform, false);
+                var chipRect = (RectTransform)chipGo.transform;
+                chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
+                chipRect.pivot = new Vector2(1f, 0.5f);
+                chipRect.sizeDelta = new Vector2(88f, 34f);
+                chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
+                var chipImage = chipGo.GetComponent<Image>();
+                chipImage.sprite = UiSprites.RoundedRect;
+                chipImage.type = Image.Type.Sliced;
+                var chipIdle = new Color(0.24f, 0.30f, 0.40f, 0.95f);
+                chipImage.color = chipIdle;
+                var levelText = UiKit.CreateText(chipGo.transform,
+                    botLevel.ToUpperInvariant(), 15, TextAnchor.MiddleCenter,
+                    botLevel == "hard" ? new Color(1f, 0.62f, 0.45f)
+                    : botLevel == "easy" ? new Color(0.62f, 0.90f, 0.62f)
+                    : new Color(0.85f, 0.88f, 0.92f), body: true);
+                levelText.raycastTarget = false;
+                UiKit.Anchor((RectTransform)levelText.transform, Vector2.zero, Vector2.one);
+                if (onCycleLevel != null)
+                {
+                    UiKit.AddHover(chipGo,
+                        () => chipImage.color = new Color(0.34f, 0.42f, 0.56f, 1f),
+                        () => chipImage.color = chipIdle);
+                    UiKit.AddClick(chipGo, () => onCycleLevel());
+                }
+            }
 
             if (onRemove != null)
             {

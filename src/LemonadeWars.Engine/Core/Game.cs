@@ -36,6 +36,13 @@ namespace LemonadeWars.Engine.Core
             _rng = rng;
         }
 
+        /// <summary>
+        /// Wrap an existing state snapshot (e.g. a deep clone for AI search). The RNG
+        /// resumes from the snapshot's RngState, so determinism carries across copies.
+        /// </summary>
+        public static Game FromState(CardDatabase db, GameState state) =>
+            new Game(db, state, new DeterministicRng(state.RngState));
+
         // ------------------------------------------------------------ setup
 
         /// <summary>Create a game and run automatic setup up to the Lemon Lord keep-2 choice.</summary>

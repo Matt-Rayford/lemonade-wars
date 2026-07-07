@@ -167,6 +167,7 @@ namespace LemonadeWars.Unity
             _lobby.OnGamesRefresh = () => _remote?.ListGames();
             _lobby.OnAddBot = () => _remote?.AddBot();
             _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
+            _lobby.OnSetBotLevel = (seat, level) => _remote?.SetBotLevel(seat, level);
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");
@@ -233,19 +234,21 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ flows
 
-        private IReadOnlyList<string> _soloBotNames = new[] { "Benny", "Cleo", "Dex" };
+        private IReadOnlyList<(string Name, string Level)> _soloBots =
+            new[] { ("Benny", "medium"), ("Cleo", "medium"), ("Dex", "medium") };
 
-        private void StartLocalGame(IReadOnlyList<string> botNames)
+        private void StartLocalGame(IReadOnlyList<(string Name, string Level)> bots)
         {
-            _soloBotNames = botNames.ToList();
+            _soloBots = bots.ToList();
             var names = new List<string> { _lobby.DisplayName };
-            names.AddRange(_soloBotNames);
+            names.AddRange(_soloBots.Select(b => b.Name));
 
             _remote?.Dispose();
             _remote = null;
             _session?.Dispose();
             _session = new LocalGameSession(_db, names.ToArray(), 0,
-                (ulong)System.DateTime.Now.Ticks);
+                (ulong)System.DateTime.Now.Ticks,
+                _soloBots.Select(b => b.Level).ToList());
             _session.EventEmitted += OnGameEvent;
             EnterGame();
         }
@@ -539,7 +542,7 @@ namespace LemonadeWars.Unity
 
             if (Input.GetKeyDown(KeyCode.N) && _session is LocalGameSession)
             {
-                StartLocalGame(_soloBotNames);
+                StartLocalGame(_soloBots);
             }
             if (Input.GetKeyDown(KeyCode.B) && _session != null)
             {

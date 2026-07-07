@@ -15,6 +15,7 @@ namespace LemonadeWars.Protocol
         public const string JoinRoom = "join_room";
         public const string AddBot = "add_bot";
         public const string RemoveBot = "remove_bot";
+        public const string SetBotLevel = "set_bot_level";
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";
@@ -34,6 +35,8 @@ namespace LemonadeWars.Protocol
         public int Seat { get; set; }
         public string Name { get; set; } = "";
         public bool IsBot { get; set; }
+        /// <summary>easy / medium / hard for bot seats; empty for humans.</summary>
+        public string BotLevel { get; set; } = "";
         public bool Connected { get; set; }
         public bool Ready { get; set; }
     }
