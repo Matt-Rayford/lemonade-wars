@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using LemonadeWars.Protocol;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -15,7 +16,9 @@ namespace LemonadeWars.Unity
         public System.Action<IReadOnlyList<string>> OnStartSolo; // bot names
         public System.Action<string, string> OnHost;          // serverUrl, name
         public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
-        public System.Action OnResume;
+        public System.Action<string, string> OnMyGames;        // serverUrl, name
+        public System.Action OnGamesBack;
+        public System.Action OnGamesRefresh;
         public System.Action OnAddBot;
         public System.Action<int> OnRemoveBotSeat;             // seat index
         public System.Action OnStart;
@@ -40,6 +43,8 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _settingsRoot;
         private readonly RectTransform _soloRoot;
         private readonly RectTransform _joinRoot;
+        private readonly RectTransform _gamesRoot;
+        private readonly RectTransform _gamesList;
         private readonly RectTransform _soloSeatList;
         private readonly List<string> _soloBotNames = new List<string> { "Benny", "Cleo", "Dex" };
         private readonly TMP_InputField _displayNameInput;
@@ -51,8 +56,6 @@ namespace LemonadeWars.Unity
         private readonly TMP_Text _menuStatus;
         private readonly TMP_Text _serverStatus;
         private readonly TMP_Text _readyLabel;
-        private readonly Button _resumeButton;
-        private readonly TMP_Text _resumeLabel;
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
@@ -89,11 +92,7 @@ namespace LemonadeWars.Unity
             MenuButton("Play vs bots (offline)", ShowSoloSetup);
             MenuButton("Host online room", () => OnHost?.Invoke(_serverInput.text, DisplayName));
             MenuButton("Join room", ShowJoin);
-
-            _resumeButton = MenuButton("", () => OnResume?.Invoke());
-            _resumeLabel = _resumeButton.GetComponentInChildren<TMP_Text>();
-            _resumeButton.gameObject.SetActive(false);
-
+            MenuButton("My games", () => OnMyGames?.Invoke(_serverInput.text, DisplayName));
             MenuButton("Settings", ShowSettings);
 
             _menuStatus = UiKit.CreateText(column.transform, "", 16,
@@ -204,6 +203,33 @@ namespace LemonadeWars.Unity
                 () => OnStartSolo?.Invoke(_soloBotNames.ToList()));
             _soloRoot.gameObject.SetActive(false);
 
+            // --------------------------------------------------- my games
+            _gamesRoot = UiKit.CreatePanel(canvasRoot, "MyGames", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            UiKit.Anchor(_gamesRoot, Vector2.zero, Vector2.one);
+
+            var gamesTitle = UiKit.CreateText(_gamesRoot, "MY GAMES", 48,
+                TextAnchor.MiddleCenter, new Color(0.98f, 0.83f, 0.10f));
+            UiKit.Anchor((RectTransform)gamesTitle.transform, new Vector2(0, 0.74f), new Vector2(1, 0.92f));
+
+            _gamesList = CreateSeatList(_gamesRoot, new Vector2(0.24f, 0.18f), new Vector2(0.76f, 0.72f));
+
+            var gamesActions = new GameObject("GamesActions",
+                typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            gamesActions.transform.SetParent(_gamesRoot, false);
+            UiKit.Anchor((RectTransform)gamesActions.transform,
+                new Vector2(0.34f, 0.05f), new Vector2(0.66f, 0.13f));
+            var gamesActionsLayout = gamesActions.GetComponent<HorizontalLayoutGroup>();
+            gamesActionsLayout.spacing = 14;
+            gamesActionsLayout.childForceExpandWidth = true;
+            gamesActionsLayout.childForceExpandHeight = true;
+            gamesActionsLayout.childControlWidth = true;
+            gamesActionsLayout.childControlHeight = true;
+            UiKit.CreateButton((RectTransform)gamesActions.transform, "< Back", 20,
+                () => OnGamesBack?.Invoke());
+            UiKit.CreateButton((RectTransform)gamesActions.transform, "Refresh", 20,
+                () => OnGamesRefresh?.Invoke());
+            _gamesRoot.gameObject.SetActive(false);
+
             // ------------------------------------------------------ lobby
             _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", new Color(0.08f, 0.10f, 0.14f, 0.97f));
             UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
@@ -251,33 +277,101 @@ namespace LemonadeWars.Unity
             ShowMenu("");
         }
 
+        /// <summary>Activate exactly one pre-game screen.</summary>
+        private void ActivateOnly(RectTransform target)
+        {
+            foreach (var root in new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot })
+            {
+                root.gameObject.SetActive(root == target);
+            }
+        }
+
         public void ShowMenu(string status)
         {
-            _menuRoot.gameObject.SetActive(true);
-            _lobbyRoot.gameObject.SetActive(false);
-            _settingsRoot.gameObject.SetActive(false);
-            _soloRoot.gameObject.SetActive(false);
-            _joinRoot.gameObject.SetActive(false);
+            ActivateOnly(_menuRoot);
             _menuStatus.text = status ?? "";
         }
 
         public void ShowSettings()
         {
-            _menuRoot.gameObject.SetActive(false);
-            _lobbyRoot.gameObject.SetActive(false);
-            _settingsRoot.gameObject.SetActive(true);
-            _soloRoot.gameObject.SetActive(false);
-            _joinRoot.gameObject.SetActive(false);
+            ActivateOnly(_settingsRoot);
+        }
+
+        /// <summary>The identity-backed games list; rows re-enter their rooms.</summary>
+        public void ShowGames(IReadOnlyList<GameSummary> games, System.Action<string> onPick)
+        {
+            ActivateOnly(_gamesRoot);
+            UiKit.Clear(_gamesList);
+            if (games == null || games.Count == 0)
+            {
+                AddSeatRow(_gamesList, "No games yet — host a room or join one!", null);
+                return;
+            }
+            foreach (var game in games)
+            {
+                BuildGameRow(game, onPick);
+            }
+        }
+
+        private void BuildGameRow(GameSummary game, System.Action<string> onPick)
+        {
+            var row = new GameObject("GameRow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            row.transform.SetParent(_gamesList, false);
+            var background = row.GetComponent<Image>();
+            background.sprite = UiSprites.RoundedRect;
+            background.type = Image.Type.Sliced;
+            var idle = new Color(0, 0, 0, 0.30f);
+            var hover = new Color(0.20f, 0.24f, 0.32f, 0.65f);
+            background.color = idle;
+            row.GetComponent<LayoutElement>().minHeight = 56;
+
+            var label = UiKit.CreateText(row.transform,
+                $"{game.Code}   {string.Join(", ", game.Players)}", 19, TextAnchor.MiddleLeft);
+            label.raycastTarget = false;
+            UiKit.Anchor((RectTransform)label.transform, Vector2.zero, Vector2.one,
+                new Vector2(16, 2), new Vector2(-200, -2));
+
+            string status;
+            Color statusColor;
+            bool shouty = false;
+            if (game.Finished)
+            {
+                status = "finished";
+                statusColor = new Color(0.6f, 0.6f, 0.6f);
+            }
+            else if (!game.Started)
+            {
+                status = "in lobby";
+                statusColor = new Color(0.65f, 0.75f, 0.85f);
+            }
+            else if (game.YourTurn)
+            {
+                status = "YOUR TURN";
+                statusColor = UiKit.ButtonColor;
+                shouty = true;
+            }
+            else
+            {
+                status = $"{game.TurnPlayerName}'s turn";
+                statusColor = new Color(0.75f, 0.75f, 0.75f);
+            }
+            var statusText = UiKit.CreateText(row.transform, status, shouty ? 19 : 16,
+                TextAnchor.MiddleRight, statusColor, body: !shouty);
+            statusText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)statusText.transform, Vector2.zero, Vector2.one,
+                new Vector2(16, 2), new Vector2(-16, -2));
+
+            string code = game.Code;
+            UiKit.AddHover(row,
+                () => background.color = hover,
+                () => background.color = idle);
+            UiKit.AddClick(row, () => onPick?.Invoke(code));
         }
 
         /// <summary>The big room-code entry: shown after "Join room" on the menu.</summary>
         public void ShowJoin()
         {
-            _menuRoot.gameObject.SetActive(false);
-            _lobbyRoot.gameObject.SetActive(false);
-            _settingsRoot.gameObject.SetActive(false);
-            _soloRoot.gameObject.SetActive(false);
-            _joinRoot.gameObject.SetActive(true);
+            ActivateOnly(_joinRoot);
             _codeInput.text = "";
             _codeInput.ActivateInputField();
         }
@@ -285,11 +379,7 @@ namespace LemonadeWars.Unity
         /// <summary>Pre-game bot setup for solo play: no ready-up, just pick your table.</summary>
         public void ShowSoloSetup()
         {
-            _menuRoot.gameObject.SetActive(false);
-            _lobbyRoot.gameObject.SetActive(false);
-            _settingsRoot.gameObject.SetActive(false);
-            _soloRoot.gameObject.SetActive(true);
-            _joinRoot.gameObject.SetActive(false);
+            ActivateOnly(_soloRoot);
             RefreshSoloSeats();
         }
 
@@ -322,11 +412,7 @@ namespace LemonadeWars.Unity
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
         {
-            _menuRoot.gameObject.SetActive(false);
-            _lobbyRoot.gameObject.SetActive(true);
-            _settingsRoot.gameObject.SetActive(false);
-            _soloRoot.gameObject.SetActive(false);
-            _joinRoot.gameObject.SetActive(false);
+            ActivateOnly(_lobbyRoot);
             _myReady = myReady;
             _lobbyTitle.text = string.IsNullOrEmpty(room.Code) ? "CONNECTING..." : $"ROOM {room.Code}";
 
@@ -413,22 +499,7 @@ namespace LemonadeWars.Unity
 
         public void HideAll()
         {
-            _menuRoot.gameObject.SetActive(false);
-            _lobbyRoot.gameObject.SetActive(false);
-            _settingsRoot.gameObject.SetActive(false);
-            _soloRoot.gameObject.SetActive(false);
-            _joinRoot.gameObject.SetActive(false);
-        }
-
-        /// <summary>Show the Resume button when a previous online game is remembered.</summary>
-        public void SetResumeInfo(string roomCode)
-        {
-            bool available = !string.IsNullOrEmpty(roomCode);
-            _resumeButton.gameObject.SetActive(available);
-            if (available)
-            {
-                _resumeLabel.text = $"Resume game ({roomCode})";
-            }
+            ActivateOnly(null);
         }
 
         /// <summary>Live server reachability line under the server field.</summary>

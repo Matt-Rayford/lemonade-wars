@@ -17,6 +17,8 @@ public sealed class Seat
     public int Index { get; set; }
     public string Name { get; set; } = "";
     public string Token { get; set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+    /// <summary>Durable public identity (PlayerRegistry); null for bots and legacy clients.</summary>
+    public string? PlayerId { get; set; }
     public bool IsBot { get; set; }
     /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
     public bool Ready { get; set; }
@@ -70,7 +72,14 @@ public sealed class Room
     private readonly string? _storePath;
     private readonly int _botDelayMs;
     private bool _botPumpActive;
+    private bool _retired;
     private Game? _game;
+
+    /// <summary>Last join/action, for stale-room GC and My Games ordering.</summary>
+    public DateTime LastActivityUtc { get; private set; } = DateTime.UtcNow;
+
+    /// <summary>Room log file, so the sweeper can delete it after retirement.</summary>
+    public string? StorePath => _storePath;
 
     public Room(string code, CardDatabase db, string? storePath, int botDelayMs)
     {
@@ -103,6 +112,8 @@ public sealed class Room
             var names = header["names"]!.Select(n => (string)n!).ToArray();
             var bots = header["bots"]!.Select(b => (bool)b!).ToArray();
             var tokens = header["tokens"]!.Select(t => (string)t!).ToArray();
+            // Pre-identity logs have no players array: those seats stay token-only.
+            var players = (header["players"] as JArray)?.Select(p => (string?)p).ToArray();
             for (int i = 0; i < names.Length; i++)
             {
                 room._seats.Add(new Seat
@@ -112,6 +123,8 @@ public sealed class Room
                     IsBot = bots[i],
                     Ready = true,
                     Token = tokens[i],
+                    PlayerId = players != null && i < players.Length &&
+                               !string.IsNullOrEmpty(players[i]) ? players[i] : null,
                 });
                 if (bots[i])
                 {
@@ -124,6 +137,7 @@ public sealed class Room
             {
                 room._game.Apply(WireCodec.DecodeAction(JObject.Parse(lines[i])));
             }
+            room.LastActivityUtc = File.GetLastWriteTimeUtc(path);
             return room._game.State.Stage == GameStage.Finished ? null : room;
         }
         catch (Exception)
@@ -151,6 +165,7 @@ public sealed class Room
                 ["names"] = new JArray(_seats.Select(s => s.Name)),
                 ["bots"] = new JArray(_seats.Select(s => s.IsBot)),
                 ["tokens"] = new JArray(_seats.Select(s => s.Token)),
+                ["players"] = new JArray(_seats.Select(s => s.PlayerId ?? "")),
             },
         };
         AppendLine(header.ToString(Newtonsoft.Json.Formatting.None));
@@ -158,6 +173,7 @@ public sealed class Room
 
     private void PersistAction(GameAction action)
     {
+        LastActivityUtc = DateTime.UtcNow;
         if (_storePath != null)
         {
             AppendLine(WireCodec.EncodeAction(action).ToString(Newtonsoft.Json.Formatting.None));
@@ -189,14 +205,26 @@ public sealed class Room
 
     // ------------------------------------------------------------- lobby
 
-    public Seat? Join(string name, string? token, WebSocket socket, out string error)
+    public Seat? Join(string name, string? token, string? playerId, WebSocket socket,
+        out string error)
     {
         List<Seat> toNotify;
         Seat seat;
         lock (_sync)
         {
-            // Reconnect by token takes the seat back over, even mid-game.
-            var existing = _seats.FirstOrDefault(s => !string.IsNullOrEmpty(token) && s.Token == token);
+            if (_retired)
+            {
+                error = "That room has expired.";
+                return null;
+            }
+            // Reconnect takes the seat back over: a token always (explicit credential);
+            // identity only when the seat is unheld or the game is running — two live
+            // clients sharing one identity in a lobby (same machine, twin instances)
+            // should get two seats, not fight over one.
+            var existing = _seats.FirstOrDefault(s =>
+                (!string.IsNullOrEmpty(token) && s.Token == token) ||
+                (playerId != null && s.PlayerId == playerId &&
+                 (_game != null || !s.Connected)));
             if (existing != null)
             {
                 existing.Socket = socket;
@@ -214,10 +242,16 @@ public sealed class Room
                     error = "That room is full.";
                     return null;
                 }
-                seat = new Seat { Index = _seats.Count, Name = SanitizeName(name) };
+                seat = new Seat
+                {
+                    Index = _seats.Count,
+                    Name = SanitizeName(name),
+                    PlayerId = playerId,
+                };
                 seat.Socket = socket;
                 _seats.Add(seat);
             }
+            LastActivityUtc = DateTime.UtcNow;
             toNotify = _seats.ToList();
         }
 
@@ -557,6 +591,76 @@ public sealed class Room
         }
     }
 
+    /// <summary>This room as a My Games entry for one player; null if they're not in it.</summary>
+    public GameSummary? SummaryFor(string playerId)
+    {
+        lock (_sync)
+        {
+            var seat = _seats.FirstOrDefault(s => s.PlayerId == playerId);
+            if (seat == null)
+            {
+                return null;
+            }
+            bool finished = _game != null && _game.State.Stage == GameStage.Finished;
+            var acting = _game != null && !finished
+                ? _game.ActingPlayers()
+                : Array.Empty<int>() as IReadOnlyList<int>;
+            int turnPlayer = _game != null && !finished ? _game.State.ActivePlayer : -1;
+            return new GameSummary
+            {
+                Code = Code,
+                Players = _seats.Select(s => s.Name).ToList(),
+                YourSeat = seat.Index,
+                Started = _game != null,
+                Finished = finished,
+                YourTurn = acting.Contains(seat.Index),
+                TurnPlayerName = turnPlayer >= 0 && turnPlayer < _seats.Count
+                    ? _seats[turnPlayer].Name
+                    : "",
+            };
+        }
+    }
+
+    /// <summary>Not finished (lobby or running) — counts against the per-player cap.</summary>
+    public bool IsActiveFor(string playerId)
+    {
+        lock (_sync)
+        {
+            return (_game == null || _game.State.Stage != GameStage.Finished) &&
+                   _seats.Any(s => s.PlayerId == playerId);
+        }
+    }
+
+    /// <summary>
+    /// Atomically mark this room dead if it qualifies: an empty lobby past its TTL, a
+    /// finished game past its grace, or an abandoned running game past the stale window.
+    /// A live async game — anyone connected, or any recent activity — never qualifies.
+    /// Once retired, joins are refused, so the sweeper can't race a returning player.
+    /// </summary>
+    public bool TryRetire(TimeSpan lobbyTtl, TimeSpan finishedTtl, TimeSpan staleTtl)
+    {
+        lock (_sync)
+        {
+            if (_retired)
+            {
+                return true;
+            }
+            var age = DateTime.UtcNow - LastActivityUtc;
+            bool anyConnected = _seats.Any(s => !s.IsBot && s.Connected);
+            bool eligible =
+                (_game == null && !anyConnected && age > lobbyTtl) ||
+                (_game != null && _game.State.Stage == GameStage.Finished && age > finishedTtl) ||
+                (_game != null && _game.State.Stage != GameStage.Finished &&
+                 !anyConnected && age > staleTtl);
+            if (!eligible)
+            {
+                return false;
+            }
+            _retired = true;
+            return true;
+        }
+    }
+
     private static string SanitizeName(string name)
     {
         name = (name ?? "").Trim();
@@ -580,20 +684,89 @@ public sealed class RoomManager
         _botDelayMs = botDelayMs;
         Directory.CreateDirectory(dataDir);
         LoadPersistedRooms();
+        _sweepTimer = new Timer(_ => Sweep(), null,
+            TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
     }
 
-    /// <summary>Rebuild every unfinished game from its action log (e.g. after a redeploy).</summary>
+    public int RoomCount => _rooms.Count;
+
+    /// <summary>
+    /// Retire dead rooms: expired empty lobbies, finished games past their grace, and
+    /// abandoned running games past the stale window. Retirement is atomic with the
+    /// room lock, so a player joining in the same instant gets a clean "expired" error
+    /// instead of a seat in a ghost room. Returns how many rooms were removed.
+    /// </summary>
+    public int Sweep(TimeSpan? lobbyTtl = null, TimeSpan? finishedTtl = null,
+        TimeSpan? staleTtl = null)
+    {
+        int removed = 0;
+        foreach (var pair in _rooms)
+        {
+            if (!pair.Value.TryRetire(lobbyTtl ?? LobbyTtl, finishedTtl ?? FinishedRetention,
+                    staleTtl ?? StaleRetention))
+            {
+                continue;
+            }
+            if (_rooms.TryRemove(pair.Key, out var room))
+            {
+                removed++;
+                if (room.StorePath != null)
+                {
+                    TryDelete(room.StorePath); // no-op when the game never started
+                }
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>Grace before deleting finished/corrupt logs — post-game score viewing.</summary>
+    private static readonly TimeSpan FinishedRetention = TimeSpan.FromHours(12);
+    /// <summary>Unfinished but abandoned games eventually stop counting or loading —
+    /// the async play-by-turn window: make a move within 3 days or the game expires.</summary>
+    private static readonly TimeSpan StaleRetention = TimeSpan.FromDays(3);
+    /// <summary>Never-started lobbies live only in memory; empty ones expire fast.</summary>
+    private static readonly TimeSpan LobbyTtl = TimeSpan.FromHours(1);
+
+    // Long-lived servers sweep periodically, not just at boot. Held so it isn't collected.
+    private readonly Timer _sweepTimer;
+
+    /// <summary>
+    /// Rebuild every unfinished game from its action log (e.g. after a redeploy), and
+    /// sweep the graveyard: finished/corrupt logs past their grace period and games
+    /// nobody has touched in a month are deleted instead of loaded.
+    /// </summary>
     private void LoadPersistedRooms()
     {
         foreach (string path in Directory.GetFiles(_dataDir, "*.jsonl"))
         {
+            if (Path.GetFileName(path) == "players.jsonl")
+            {
+                continue; // identity registry, not a room log
+            }
             string code = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
-            var room = Room.LoadFromFile(code, _db, path, _botDelayMs);
+            var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(path);
+            var room = age <= StaleRetention ? Room.LoadFromFile(code, _db, path, _botDelayMs) : null;
             if (room != null)
             {
                 _rooms.TryAdd(code, room);
                 room.PumpBots(); // in case a bot was mid-turn when the server died
             }
+            else if (age > FinishedRetention)
+            {
+                TryDelete(path);
+            }
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // A locked or vanished file is not worth failing boot over.
         }
     }
 
@@ -614,4 +787,21 @@ public sealed class RoomManager
 
     public Room? Find(string code) =>
         _rooms.TryGetValue((code ?? "").Trim().ToUpperInvariant(), out var room) ? room : null;
+
+    /// <summary>My Games: needs-you first, then running, then lobbies, then finished.</summary>
+    public List<GameSummary> GamesFor(string playerId)
+    {
+        return _rooms.Values
+            .Select(room => (Room: room, Summary: room.SummaryFor(playerId)))
+            .Where(pair => pair.Summary != null)
+            .OrderByDescending(pair => pair.Summary!.YourTurn)
+            .ThenBy(pair => pair.Summary!.Finished)
+            .ThenByDescending(pair => pair.Room.LastActivityUtc)
+            .Select(pair => pair.Summary!)
+            .ToList();
+    }
+
+    /// <summary>Unfinished rooms this player occupies — the create-room spam guard.</summary>
+    public int ActiveGameCount(string playerId) =>
+        _rooms.Values.Count(room => room.IsActiveFor(playerId));
 }
