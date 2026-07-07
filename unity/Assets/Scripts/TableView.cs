@@ -29,6 +29,11 @@ namespace LemonadeWars.Unity
         public System.Func<string, bool> CanBuySupply;      // stand type -> any legal buy?
         public System.Action<string, int> OnSupplyDrop;     // stand type, insert index
 
+        // Bragging Rights drag & drop (shelf card -> your VP column).
+        public System.Func<bool> CanBuyBragging;
+        public System.Action OnBraggingDrop;
+        private GameObject _vpGlow;
+
         private static readonly Color GlowInnerColor = new Color(1f, 0.97f, 0.88f, 1f);
         private static readonly Color GlowOuterColor = new Color(1f, 0.96f, 0.82f, 0.80f);
         /// <summary>Drop zones glow lemonade-yellow while a card is being dragged.</summary>
@@ -192,11 +197,14 @@ namespace LemonadeWars.Unity
             // Transparent — cards float on the table; the Image still catches drops.
             // (The turn banner lives in the top status bar.)
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
-            UiKit.Anchor(board, new Vector2(0.21f, 0.22f), new Vector2(0.79f, 0.68f),
+            UiKit.Anchor(board, new Vector2(0.21f, 0.21f), new Vector2(0.79f, 0.695f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
+            // Cards sit at the BOTTOM of the band: the headroom above holds a full
+            // 5-deep tucked-upgrade stack (5 x 44px peeks) without touching the shelf.
+            _boardRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.LowerLeft;
             _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f), body: true);
             _boardOwnerLabel.raycastTarget = false;
@@ -980,6 +988,43 @@ namespace LemonadeWars.Unity
             var owner = view.Players[boardOwnerId];
             _boardOwnerLabel.text = _viewingOwnBoard ? "" : $"{owner.Name}'s board — view only";
 
+            // Victory Point cards (First Dibs titles + Bragging Rights) live in their
+            // own column LEFT of the Turf; extras tuck behind the front card the way
+            // upgrades tuck behind stands. Empty: a dashed drop-zone style placeholder.
+            var vpTextures = new List<Texture2D>();
+            foreach (string titleId in owner.FirstDibsClaimed)
+            {
+                vpTextures.Add(_art.Title(titleId));
+            }
+            for (int i = 0; i < owner.BraggingRights; i++)
+            {
+                vpTextures.Add(_art.BraggingRights(i) ?? _art.Back("braggingRights"));
+            }
+            RectTransform vpCell;
+            if (vpTextures.Count == 0)
+            {
+                vpCell = AddVictoryPlaceholder(_boardRow);
+            }
+            else
+            {
+                vpCell = AddCard(_boardRow, vpTextures[0], 188, 263,
+                    vpTextures.Count == 1 ? "1 VP" : $"{vpTextures.Count} VP", false, null);
+                AddTuckedStack(vpCell, vpTextures.Skip(1).ToList());
+            }
+            _vpGlow = null;
+            if (_viewingOwnBoard)
+            {
+                // Bragging Rights dragged from the shelf land here.
+                var vpFrame = (RectTransform)(vpCell.Find("Card") ?? vpCell.Find("Frame"));
+                if (vpFrame != null)
+                {
+                    _vpGlow = UiKit.CreateGlow(vpFrame, new Vector2(0.5f, 0.5f),
+                        new Vector2(0.5f, 0.5f), Vector2.zero, 188 + 26, 263 + 26, DropGlowHot);
+                }
+                vpCell.gameObject.AddComponent<DropTarget>().BraggingDropped =
+                    () => OnBraggingDrop?.Invoke();
+            }
+
             var turfTexture = _art.Turf(owner.TurfPowerPourNumber);
             var turfCaption = "Pours " + string.Join(",", owner.PourNumbers);
             var turfCell = AddCard(_boardRow, turfTexture, 188, 263, turfCaption, false, null);
@@ -1333,8 +1378,85 @@ namespace LemonadeWars.Unity
                 AddRowGap();
                 // Index derived from price: $16 base, +$2 per sale.
                 int sold = (braggingPrice - 16) / 2;
-                AddCard(_marketRow, _art.BraggingRights(sold), 154, 216, "", false, null);
+                BuildBraggingCell(braggingPrice, _art.BraggingRights(sold));
             }
+        }
+
+        /// <summary>
+        /// The Bragging Rights shelf card: wears its price, and drags onto your VP
+        /// column to buy — the same lift-glow-ghost language as the market cards.
+        /// </summary>
+        private void BuildBraggingCell(int price, Texture2D texture)
+        {
+            const float width = 154f;
+            const float height = 216f;
+
+            var cell = new GameObject("BraggingCell", typeof(RectTransform), typeof(LayoutElement));
+            cell.transform.SetParent(_marketRow, false);
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + 4;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            var liftGo = new GameObject("Lift", typeof(RectTransform));
+            liftGo.transform.SetParent(cell.transform, false);
+            var lift = (RectTransform)liftGo.transform;
+            lift.anchorMin = new Vector2(0.5f, 0f);
+            lift.anchorMax = new Vector2(0.5f, 0f);
+            lift.pivot = new Vector2(0.5f, 0f);
+            lift.sizeDelta = new Vector2(width, height);
+            lift.anchoredPosition = Vector2.zero;
+
+            var top = new Vector2(0.5f, 1f);
+            var glowOuter = UiKit.CreateGlow(lift, top, top, new Vector2(0, 22),
+                width + 44, height + 44, GlowOuterColor);
+            var glowInner = UiKit.CreateGlow(lift, top, top, new Vector2(0, 10),
+                width + 20, height + 20, GlowInnerColor);
+
+            var image = UiKit.CreateCardImage(lift, texture, width, height);
+            var frame = (RectTransform)image.transform.parent;
+            frame.anchorMin = top;
+            frame.anchorMax = top;
+            frame.pivot = top;
+            frame.anchoredPosition = Vector2.zero;
+            frame.sizeDelta = new Vector2(width, height);
+            _preview.Attach(image.gameObject, texture);
+
+            // Price chip along the bottom edge; click-transparent like the count chips.
+            var chip = UiKit.CreatePanel(frame, "PriceChip", new Color(0, 0, 0, 0.78f));
+            UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0));
+            chip.sizeDelta = new Vector2(0, 30);
+            chip.pivot = new Vector2(0.5f, 0);
+            chip.GetComponent<Image>().raycastTarget = false;
+            var chipText = UiKit.CreateText(chip, $"${price}", 16,
+                TextAnchor.MiddleCenter, Color.white, body: true);
+            chipText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+
+            var drag = image.gameObject.AddComponent<DragSource>();
+            drag.Kind = DragKind.BraggingRights;
+            drag.Texture = texture;
+            drag.CanvasRoot = _canvasRoot;
+            drag.GlowInner = glowInner;
+            drag.GlowOuter = glowOuter;
+            drag.CanAct = () => CanBuyBragging?.Invoke() == true;
+            drag.DragStarted = () =>
+            {
+                _preview.SetDragging(true);
+                if (_vpGlow != null)
+                {
+                    _vpGlow.SetActive(true);
+                }
+            };
+            drag.DragEnded = () =>
+            {
+                _preview.SetDragging(false);
+                if (_vpGlow != null)
+                {
+                    _vpGlow.SetActive(false);
+                }
+            };
         }
 
         /// <summary>A discard pile: card back, count on hover, click to browse.</summary>
@@ -1782,21 +1904,31 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void AddEquipList(RectTransform cell, List<PlayerView.CardInfo> equipped)
         {
-            const float peek = 44f;   // exposes the card's full top icon bar
-            const float width = 188f; // same scale as the stand card it tucks behind
+            AddTuckedStack(cell, equipped
+                .Select(e => _art.BlackMarket(e.DefId, e.Shape ?? Shape.Square))
+                .ToList());
+        }
+
+        /// <summary>
+        /// Cards tucked BEHIND a cell's front card: each peeks its top strip out above,
+        /// stacked like the physical game. Hover a peeking strip for the preview.
+        /// </summary>
+        private void AddTuckedStack(RectTransform cell, List<Texture2D> textures)
+        {
+            const float peek = 40f;   // the top icon bar, minus a hair — 5 stacks fit
+            const float width = 188f; // same scale as the card it tucks behind
             const float height = 263f;
             var cardFrame = cell.Find("Card");
             if (cardFrame == null)
             {
                 return;
             }
-            // Deepest equip first; each next one is inserted just before the stand card,
-            // so it draws over the slivers behind it and under the stand itself.
-            for (int i = equipped.Count - 1; i >= 0; i--)
+            // Deepest card first; each next one is inserted just before the front card,
+            // so it draws over the slivers behind it and under the front card itself.
+            for (int i = textures.Count - 1; i >= 0; i--)
             {
-                var equip = equipped[i];
-                var texture = _art.BlackMarket(equip.DefId, equip.Shape ?? Shape.Square);
-                var go = new GameObject("Equip", typeof(RectTransform), typeof(RawImage),
+                var texture = textures[i];
+                var go = new GameObject("Tucked", typeof(RectTransform), typeof(RawImage),
                     typeof(LayoutElement));
                 go.GetComponent<LayoutElement>().ignoreLayout = true;
                 go.transform.SetParent(cell, false);
@@ -1811,6 +1943,150 @@ namespace LemonadeWars.Unity
                 image.material = UiKit.RoundedImageMaterial(width, height);
                 _preview.Attach(go, texture);
             }
+        }
+
+        /// <summary>The empty VP column: a green dashed frame naming what goes there.</summary>
+        private RectTransform AddVictoryPlaceholder(RectTransform parent)
+        {
+            const float width = 188f;
+            const float height = 263f;
+            var green = new Color(0.45f, 0.85f, 0.50f, 0.85f);
+
+            // Mirrors AddCard's cell shape so the row lays out identically.
+            var cell = new GameObject("VpPlaceholder", typeof(RectTransform),
+                typeof(VerticalLayoutGroup), typeof(LayoutElement));
+            cell.transform.SetParent(parent, false);
+            var layout = cell.GetComponent<VerticalLayoutGroup>();
+            layout.childForceExpandHeight = false;
+            layout.childForceExpandWidth = true;
+            layout.childControlHeight = true;
+            layout.childControlWidth = true;
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            // Invisible but raycastable: dropped Bragging Rights must land somewhere.
+            var frameGo = new GameObject("Frame", typeof(RectTransform), typeof(Image),
+                typeof(LayoutElement));
+            frameGo.transform.SetParent(cell.transform, false);
+            frameGo.GetComponent<LayoutElement>().preferredHeight = height;
+            frameGo.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            var frame = (RectTransform)frameGo.transform;
+
+            AddDashedRoundedOutline(frame, width - 4f, height - 4f,
+                UiKit.CardCornerRadius(width), green);
+
+            var label = UiKit.CreateText(frame, "Victory\nPoints", 24,
+                TextAnchor.MiddleCenter, green);
+            label.raycastTarget = false;
+            UiKit.Anchor((RectTransform)label.transform, Vector2.zero, Vector2.one);
+
+            // Caption-height footer so the placeholder's bottom edge lines up with
+            // its captioned neighbors in the bottom-aligned board row.
+            UiKit.CreateBadge((RectTransform)cell.transform, "0 VP", 13,
+                new Color(0, 0, 0, 0.55f)).color = Color.white;
+            return (RectTransform)cell.transform;
+        }
+
+        /// <summary>
+        /// Dashed outline matching the cards' rounded-corner geometry: dashes walk the
+        /// full rounded-rect path (corners included) at an even spacing computed to fit
+        /// the perimeter exactly, each rotated to its local tangent.
+        /// </summary>
+        private static void AddDashedRoundedOutline(RectTransform host, float width,
+            float height, float radius, Color color)
+        {
+            const float thickness = 3f;
+            const float dashLength = 13f;
+            const float targetSpacing = 24f; // dash + gap, before fitting
+
+            // Straight-edge lengths on the dash centerline.
+            float straightW = width - 2f * radius;
+            float straightH = height - 2f * radius;
+            float arc = radius * Mathf.PI / 2f;
+            float perimeter = 2f * (straightW + straightH) + 4f * arc;
+            int count = Mathf.Max(8, Mathf.RoundToInt(perimeter / targetSpacing));
+            float step = perimeter / count;
+
+            for (int i = 0; i < count; i++)
+            {
+                var (position, angle) = PointOnRoundedRect(i * step, straightW, straightH, radius);
+                AddDash(host, position, new Vector2(dashLength, thickness), color, angle);
+            }
+        }
+
+        /// <summary>Position + tangent angle at distance d along a clockwise rounded rect
+        /// (starting at the top edge's left end), centered on the origin.</summary>
+        private static (Vector2 Position, float Angle) PointOnRoundedRect(
+            float d, float straightW, float straightH, float radius)
+        {
+            float arc = radius * Mathf.PI / 2f;
+            float hw = straightW / 2f;
+            float hh = straightH / 2f;
+
+            (Vector2, float) OnArc(Vector2 center, float startDegrees, float t)
+            {
+                float theta = startDegrees - 90f * t;
+                var direction = new Vector2(
+                    Mathf.Cos(theta * Mathf.Deg2Rad), Mathf.Sin(theta * Mathf.Deg2Rad));
+                return (center + radius * direction, theta - 90f);
+            }
+
+            if (d < straightW) // top edge, left to right
+            {
+                return (new Vector2(-hw + d, hh + radius), 0f);
+            }
+            d -= straightW;
+            if (d < arc)
+            {
+                return OnArc(new Vector2(hw, hh), 90f, d / arc);
+            }
+            d -= arc;
+            if (d < straightH) // right edge, downward
+            {
+                return (new Vector2(hw + radius, hh - d), 90f);
+            }
+            d -= straightH;
+            if (d < arc)
+            {
+                return OnArc(new Vector2(hw, -hh), 0f, d / arc);
+            }
+            d -= arc;
+            if (d < straightW) // bottom edge, right to left
+            {
+                return (new Vector2(hw - d, -hh - radius), 0f);
+            }
+            d -= straightW;
+            if (d < arc)
+            {
+                return OnArc(new Vector2(-hw, -hh), -90f, d / arc);
+            }
+            d -= arc;
+            if (d < straightH) // left edge, upward
+            {
+                return (new Vector2(-hw - radius, -hh + d), 90f);
+            }
+            d -= straightH;
+            return OnArc(new Vector2(-hw, hh), 180f, Mathf.Clamp01(d / arc));
+        }
+
+        private static void AddDash(RectTransform host, Vector2 position, Vector2 size,
+            Color color, float angleDegrees = 0f)
+        {
+            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image),
+                typeof(LayoutElement));
+            go.GetComponent<LayoutElement>().ignoreLayout = true;
+            go.transform.SetParent(host, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = position;
+            rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
+            var image = go.GetComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
         }
     }
 

@@ -8,6 +8,7 @@ namespace LemonadeWars.Unity
     {
         MarketCard,
         SupplyStand,
+        BraggingRights,
     }
 
     /// <summary>
@@ -153,6 +154,8 @@ namespace LemonadeWars.Unity
         public System.Action<int, int?> Dropped;
         /// <summary>Supply stands dropped on a cell still insert at the previewed position.</summary>
         public System.Action<string> SupplyDropped;
+        /// <summary>Bragging Rights dropped here (the VP column cell).</summary>
+        public System.Action BraggingDropped;
         /// <summary>Fires while a drag hovers this cell (true) or leaves it (false).</summary>
         public System.Action<int?, bool> HoverChanged;
 
@@ -165,7 +168,11 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            if (source.Kind == DragKind.SupplyStand)
+            if (source.Kind == DragKind.BraggingRights)
+            {
+                BraggingDropped?.Invoke();
+            }
+            else if (source.Kind == DragKind.SupplyStand)
             {
                 SupplyDropped?.Invoke(source.SupplyTypeId);
             }

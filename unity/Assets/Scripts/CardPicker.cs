@@ -42,6 +42,8 @@ namespace LemonadeWars.Unity
         private System.Action<List<int>> _onAccept;
 
         public bool IsOpen { get; private set; }
+        /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
+        public bool RootVisible => _root.gameObject.activeSelf;
 
         public CardPicker(RectTransform canvasRoot, CardPreview preview, MonoBehaviour host)
         {

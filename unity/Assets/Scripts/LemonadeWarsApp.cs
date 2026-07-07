@@ -149,6 +149,15 @@ namespace LemonadeWars.Unity
             _table.OnMarketDrop = OnMarketDrop;
             _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
+            _table.CanBuyBragging = () => CurrentGroups()?.BraggingMoves.Count > 0;
+            _table.OnBraggingDrop = () =>
+            {
+                var moves = CurrentGroups()?.BraggingMoves;
+                if (moves != null && moves.Count > 0)
+                {
+                    Submit(moves[0]);
+                }
+            };
             _table.OnBoardViewChanged = () => _renderedRevision = -1;
             _table.SetVisible(false);
 
@@ -394,6 +403,23 @@ namespace LemonadeWars.Unity
             {
                 _fx.QueueMoney(money.PlayerId, money.Amount);
             }
+            else if (gameEvent is CardDrawn drawn && drawn.PlayerId == _session.Seat)
+            {
+                // Queued, not played: the turn-start draw waits behind ONWARD!.
+                _fx.QueueSound(Sfx.CardDraw);
+            }
+            else if (gameEvent is TimeoutDrawn timeout && timeout.PlayerId == _session.Seat)
+            {
+                _fx.QueueSound(Sfx.CardDraw);
+            }
+            else if (gameEvent is TitleClaimed title && title.PlayerId == _session.Seat)
+            {
+                Sfx.Play(Sfx.TitleClaim);
+            }
+            else if (gameEvent is BraggingRightsPurchased brag && brag.PlayerId == _session.Seat)
+            {
+                Sfx.Play(Sfx.TitleClaim);
+            }
             else if (gameEvent is MoneyStolen theft)
             {
                 _fx.QueueMoneySteal(theft.FromPlayerId, theft.ToPlayerId, theft.Amount);
@@ -409,16 +435,26 @@ namespace LemonadeWars.Unity
                 _fx.QueueCardFly(_art.Back("lemon"), trade.PlayerB, trade.PlayerA, 1);
             }
             else if (gameEvent is LemonCardPlayed played &&
-                     played.PlayerId != _session.Seat &&
                      played.TargetPlayerId is int victim)
             {
-                // Someone ELSE aimed an attack: one card-reveal beat naming both sides.
-                // If a response modal is about to open for us, the window event below
-                // cancels this — the modal tells the same story with the reactions on it.
-                string victimName = victim == _session.Seat ? "YOU" : NameOf(victim).ToUpperInvariant();
-                _fx.QueueReveal(_art.Lemon(played.DefId),
-                    $"{NameOf(played.PlayerId).ToUpperInvariant()} ATTACKS {victimName} WITH " +
-                    $"{LemonName(played.DefId).ToUpperInvariant()}!");
+                // The clash is audible for both duelists, silent for bystanders —
+                // queued, so it waits out dice theatre instead of stinging mid-roll.
+                if (played.PlayerId == _session.Seat || victim == _session.Seat)
+                {
+                    _fx.QueueSound(Sfx.AttackCard);
+                }
+                if (played.PlayerId != _session.Seat)
+                {
+                    // Someone ELSE aimed an attack: one card-reveal beat naming both
+                    // sides. If a response modal is about to open for us, the window
+                    // event below cancels this — the modal tells the same story.
+                    string victimName = victim == _session.Seat
+                        ? "YOU"
+                        : NameOf(victim).ToUpperInvariant();
+                    _fx.QueueReveal(_art.Lemon(played.DefId),
+                        $"{NameOf(played.PlayerId).ToUpperInvariant()} ATTACKS {victimName} WITH " +
+                        $"{LemonName(played.DefId).ToUpperInvariant()}!");
+                }
             }
             else if (gameEvent is ResponseWindowOpened window &&
                      window.AwaitingPlayers.Contains(_session.Seat))
@@ -560,6 +596,10 @@ namespace LemonadeWars.Unity
             {
                 _table.CancelOverlays();
             }
+            if (Input.GetKeyDown(KeyCode.D) && _session != null)
+            {
+                DumpDebugState();
+            }
 
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
@@ -567,8 +607,111 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
-            _fx.Tick();
+            // Render first: the turn banner opens in there, and the effects tick must
+            // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();
+            _fx.Tick();
+            TickPresentationWatchdog();
+        }
+
+        private float _stuckSince = -1f;
+        private float _fxBusySince = -1f;
+
+        /// <summary>
+        /// Self-healing for the soft-lock family: when the player is owed a modal but
+        /// nothing is on screen (or an overlay is open-but-invisible, or the effects
+        /// queue has been "busy" implausibly long), log exactly what was seen and
+        /// force the presentation machinery to recover. The game state is always
+        /// fine underneath — these locks are pure presentation, so healing is safe.
+        /// </summary>
+        private void TickPresentationWatchdog()
+        {
+            // Effects stuck: blocking theatre should advance every ~2s on its own.
+            if (_fx.IsBusy)
+            {
+                if (_fxBusySince < 0f)
+                {
+                    _fxBusySince = Time.time;
+                }
+                else if (Time.time - _fxBusySince > 8f)
+                {
+                    Debug.LogWarning("[LW] watchdog: effects busy >8s — clearing. " + _fx.DebugState());
+                    _fx.Clear();
+                    _fxBusySince = -1f;
+                }
+            }
+            else
+            {
+                _fxBusySince = -1f;
+            }
+
+            var groups = CurrentGroups();
+            bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy;
+            bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
+            bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
+                                (_picker.IsOpen && _picker.RootVisible);
+            bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
+            bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
+                                (_picker.IsOpen && !_picker.RootVisible);
+            bool stuck = (modalDue && !modalVisible && !blocked) || bannerGhost || overlayGhost;
+            if (!stuck)
+            {
+                _stuckSince = -1f;
+                return;
+            }
+            if (_stuckSince < 0f)
+            {
+                _stuckSince = Time.time;
+                return;
+            }
+            if (Time.time - _stuckSince < 2f)
+            {
+                return; // a fresh modal legitimately takes a frame or two
+            }
+            _stuckSince = -1f;
+            Debug.LogWarning("[LW] watchdog: presentation stuck — healing. " +
+                $"modalDue={modalDue} modalVisible={modalVisible} bannerGhost={bannerGhost} " +
+                $"overlayGhost={overlayGhost} dice={_dice.IsBusy} fx=({_fx.DebugState()})");
+            if (bannerGhost)
+            {
+                _turnBanner.Hide();
+            }
+            if (overlayGhost)
+            {
+                _prompt.Hide();
+                _picker.Hide();
+                _autoModalOpen = false;
+            }
+            _modalSignature = "";
+            _modalRevision = -1;
+            _renderedRevision = -1; // full re-render; MaybeShowModal runs fresh
+        }
+
+        /// <summary>[D]: dump every presentation gate to the console — the frozen-state
+        /// forensics kit. Each line names a layer that can silently block the table.</summary>
+        private void DumpDebugState()
+        {
+            var groups = CurrentGroups();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"revision={_session.Revision} rendered={_renderedRevision} " +
+                $"modalRev={_modalRevision} wasMyTurn={_wasMyTurn} autoplay={_session.HumanAutoplay}");
+            sb.AppendLine($"banner: open={_turnBanner.IsOpen} visible={_turnBanner.RootVisible}");
+            sb.AppendLine($"prompt: open={_prompt.IsOpen} visible={_prompt.RootVisible}   " +
+                $"picker: open={_picker.IsOpen} visible={_picker.RootVisible}");
+            sb.AppendLine($"dice: busy={_dice.IsBusy}   fx: {_fx.DebugState()}");
+            sb.AppendLine($"groups: isModal={groups?.IsModal} modal={groups?.ModalMoves.Count} " +
+                $"bar={groups?.BarMoves.Count} hand={groups?.HandMoves.Count} " +
+                $"supply={groups?.SupplyMoves.Count} market={groups?.MarketMoves.Count}");
+            sb.AppendLine($"moves({_session.Moves.Count}): " + string.Join(" | ",
+                _session.Moves.Take(8).Select(m => _session.LabelFor(m))));
+            if (View != null)
+            {
+                sb.AppendLine($"view: stage={View.Stage} phase={View.Phase} " +
+                    $"active={View.ActivePlayer} decisions=[{string.Join(",", View.MyDecisions.Select(d => d.Kind))}] " +
+                    $"awaiting=[{string.Join(",", View.AwaitingResponse)}]");
+            }
+            Debug.Log("[LW DUMP]\n" + sb);
+            _statusText.text = "debug state dumped to console";
         }
 
         private void BackToMenu(string status)
@@ -1018,11 +1161,21 @@ namespace LemonadeWars.Unity
                 _modalSignature = "";
             }
 
-            RenderStatus();
-            RenderBanner();
-            _table.Render(View, _db, groups);
-            _table.SetLog(_session.Log);
-            RenderActionBar(groups);
+            try
+            {
+                RenderStatus();
+                RenderBanner();
+                _table.Render(View, _db, groups);
+                _table.SetLog(_session.Log);
+                RenderActionBar(groups);
+            }
+            catch (System.Exception e)
+            {
+                // A render throw must never silently brick the frame (stale action
+                // bar, half-drawn table). Name the culprit where the player looks.
+                Debug.LogException(e);
+                _statusText.text = $"render error: {e.GetType().Name} — check the console";
+            }
             MaybeAnnounceTurn();
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
@@ -1141,6 +1294,15 @@ namespace LemonadeWars.Unity
                 var button = UiKit.CreateButton(_table.ActionBar,
                     _session.LabelFor(captured), 15, () => Submit(captured));
                 button.GetComponent<LayoutElement>().minWidth = 150;
+            }
+            if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
+            {
+                // Draft visits before the mandatory stand: every move is a drag, so
+                // the empty bar says what to do instead of looking broken.
+                var hint = UiKit.CreateText(_table.ActionBar,
+                    "Drag a stand from the shelf onto your row", 15,
+                    TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f), body: true);
+                hint.gameObject.AddComponent<LayoutElement>().minWidth = 320;
             }
         }
 

@@ -15,6 +15,8 @@ namespace LemonadeWars.Unity
         public readonly Dictionary<int, List<GameAction>> HandMoves = new Dictionary<int, List<GameAction>>();
         public readonly Dictionary<int, List<GameAction>> MarketMoves = new Dictionary<int, List<GameAction>>();
         public readonly Dictionary<string, List<GameAction>> SupplyMoves = new Dictionary<string, List<GameAction>>();
+        /// <summary>Buy Bragging Rights: dragged from the shelf onto the VP column.</summary>
+        public readonly List<GameAction> BraggingMoves = new List<GameAction>();
         public readonly List<GameAction> BarMoves = new List<GameAction>();
         public readonly List<GameAction> ModalMoves = new List<GameAction>();
         /// <summary>True when the player must answer through the modal (window/decision/setup).</summary>
@@ -54,6 +56,9 @@ namespace LemonadeWars.Unity
                         break;
                     case InitialBuyStand initial:
                         Add(groups.SupplyMoves, initial.StandTypeId, move);
+                        break;
+                    case BuyBraggingRights _:
+                        groups.BraggingMoves.Add(move);
                         break;
                     default:
                         groups.BarMoves.Add(move);

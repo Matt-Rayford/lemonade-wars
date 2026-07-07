@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -19,6 +20,7 @@ namespace LemonadeWars.Unity
 
         private abstract class Fx { }
         private sealed class MoneyFx : Fx { public int PlayerId; public int Amount; }
+        private sealed class SoundFx : Fx { public string Name; }
         private sealed class ToastFx : Fx { public string Text; }
         private sealed class RevealFx : Fx
         {
@@ -44,12 +46,39 @@ namespace LemonadeWars.Unity
 
         private float _busyUntil;
         private System.Action _endActive;
+        /// <summary>OnFinished is owed: SOMETHING was queued since the last idle
+        /// announcement, so the renderer must be woken when we fully drain — even if
+        /// the last item was a passive sound/floater. Missing this once left "modal
+        /// due, everything idle, nothing on screen" frozen forever (the fx queue is
+        /// one of the gates modals defer behind, and renders only re-run on wake).</summary>
+        private bool _announceIdle;
 
         /// <summary>Re-render hook, like the dice: fires when the last effect finishes.</summary>
         public System.Action OnFinished;
 
-        /// <summary>Blocking theatre still running or queued — modals should wait.</summary>
-        public bool IsBusy => _queue.Count > 0 || Time.time < _busyUntil || _endActive != null;
+        /// <summary>
+        /// Blocking theatre still running or queued — modals and the turn banner wait
+        /// on this. Passive effects (floaters, deferred sounds) do NOT count: they are
+        /// the ones waiting for the theatre, not the other way round.
+        /// </summary>
+        public bool IsBusy
+        {
+            get
+            {
+                if (Time.time < _busyUntil || _endActive != null)
+                {
+                    return true;
+                }
+                foreach (var fx in _queue)
+                {
+                    if (!(fx is MoneyFx) && !(fx is SoundFx))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
 
         public EffectsPlayer(RectTransform canvasRoot, System.Func<bool> held,
             System.Func<int, Vector3?> anchorFor)
@@ -87,12 +116,14 @@ namespace LemonadeWars.Unity
         {
             if (amount != 0)
             {
+                _announceIdle = true;
                 _queue.Enqueue(new MoneyFx { PlayerId = playerId, Amount = amount });
             }
         }
 
         public void QueueMoneySteal(int fromPlayerId, int toPlayerId, int amount)
         {
+            _announceIdle = true;
             _queue.Enqueue(new FlyFx
             {
                 FromPlayerId = fromPlayerId,
@@ -103,6 +134,7 @@ namespace LemonadeWars.Unity
 
         public void QueueCardFly(Texture2D cardBack, int fromPlayerId, int toPlayerId, int count)
         {
+            _announceIdle = true;
             _queue.Enqueue(new FlyFx
             {
                 CardBack = cardBack,
@@ -114,6 +146,7 @@ namespace LemonadeWars.Unity
 
         public void QueueReveal(Texture2D art, string title)
         {
+            _announceIdle = true;
             _queue.Enqueue(new RevealFx { Art = art, Title = title });
         }
 
@@ -138,13 +171,32 @@ namespace LemonadeWars.Unity
             _queue.Clear();
             foreach (var fx in kept)
             {
+                _announceIdle = true;
                 _queue.Enqueue(fx);
             }
         }
 
         public void QueueToast(string text)
         {
+            _announceIdle = true;
             _queue.Enqueue(new ToastFx { Text = text });
+        }
+
+        /// <summary>A sound that must wait out the theatre (e.g. the turn-start draw
+        /// stays secret until ONWARD! dismisses the turn banner).</summary>
+        public void QueueSound(string name)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new SoundFx { Name = name });
+        }
+
+        /// <summary>Diagnostics: what the effects queue is doing right now.</summary>
+        public string DebugState()
+        {
+            string queued = string.Join(",", _queue.Select(fx => fx.GetType().Name));
+            return $"busy={IsBusy} blockingActive={_endActive != null} " +
+                   $"busyFor={Mathf.Max(0, _busyUntil - Time.time):F1}s held={_held()} " +
+                   $"queue=[{queued}]";
         }
 
         /// <summary>Drop everything (screen change, autopilot), including live sprites.</summary>
@@ -167,32 +219,43 @@ namespace LemonadeWars.Unity
             if (_endActive != null)
             {
                 EndActive();
-                if (_queue.Count == 0)
+            }
+            if (_queue.Count > 0 && !_held())
+            {
+                // Floaters and sounds are fire-and-forget: flush every leading one as
+                // a batch (stacking floaters per player), then start at most one
+                // blocking effect.
+                var stacked = new Dictionary<int, int>();
+                while (_queue.Count > 0 && (_queue.Peek() is MoneyFx || _queue.Peek() is SoundFx))
                 {
-                    OnFinished?.Invoke();
+                    var fx = _queue.Dequeue();
+                    if (fx is SoundFx sound)
+                    {
+                        Sfx.Play(sound.Name);
+                        continue;
+                    }
+                    var money = (MoneyFx)fx;
+                    stacked.TryGetValue(money.PlayerId, out int index);
+                    stacked[money.PlayerId] = index + 1;
+                    SpawnMoney(money.PlayerId, money.Amount, index);
+                }
+                if (_queue.Count > 0)
+                {
+                    StartBlocking(_queue.Dequeue());
                     return;
                 }
             }
-            if (_queue.Count == 0 || _held())
-            {
-                return;
-            }
 
-            // Floaters are fire-and-forget: flush every leading money effect as one
-            // batch (stacking per player), then start at most one blocking effect.
-            var stacked = new Dictionary<int, int>();
-            while (_queue.Count > 0 && _queue.Peek() is MoneyFx)
+            // Fully drained after doing ANY work since the last announcement: wake
+            // the renderer exactly once, so deferred modals/banners open. This must
+            // hold even when the tail of the queue was passive (a sound behind an
+            // attack reveal) — the old early-return here is what froze tables.
+            if (_announceIdle && _queue.Count == 0 && _endActive == null &&
+                Time.time >= _busyUntil)
             {
-                var money = (MoneyFx)_queue.Dequeue();
-                stacked.TryGetValue(money.PlayerId, out int index);
-                stacked[money.PlayerId] = index + 1;
-                SpawnMoney(money.PlayerId, money.Amount, index);
+                _announceIdle = false;
+                OnFinished?.Invoke();
             }
-            if (_queue.Count == 0)
-            {
-                return;
-            }
-            StartBlocking(_queue.Dequeue());
         }
 
         private void StartBlocking(Fx fx)
