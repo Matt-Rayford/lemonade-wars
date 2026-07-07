@@ -39,11 +39,12 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         private readonly Channel<JObject> _inbox = Channel.CreateUnbounded<JObject>();
         private readonly SemaphoreSlim _sendLock = new(1, 1);
         private readonly CancellationTokenSource _cts = new();
+        private readonly Task _receiveLoop;
 
         private TestClient(WebSocket socket)
         {
             _socket = socket;
-            _ = ReceiveLoopAsync();
+            _receiveLoop = ReceiveLoopAsync();
         }
 
         public static async Task<TestClient> ConnectAsync(WebApplicationFactory<Program> factory)
@@ -157,6 +158,9 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
             {
                 // already gone
             }
+            // Let the receive loop drain the server's close reply before tearing the
+            // socket down under it — bounded, so a silent server can't wedge disposal.
+            await Task.WhenAny(_receiveLoop, Task.Delay(2000));
             _cts.Cancel();
             _socket.Dispose();
         }
@@ -382,6 +386,48 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
 
         Assert.Equal(1, (int)joined["yourSeat"]!);
         Assert.Equal(2, ((JArray)joined["seats"]!).Count);
+    }
+
+    [Fact]
+    public async Task AbsentPlayerGetsTurnAlertOnOtherConnection()
+    {
+        string hostKey = "alert-host-" + Guid.NewGuid().ToString("N");
+        string guestKey = "alert-guest-" + Guid.NewGuid().ToString("N");
+
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.SendAsync(new { type = "hello", playerKey = hostKey, name = "Host" });
+        await host.NextOfTypeAsync("welcome");
+        await host.SendAsync(new { type = "create_room", name = "Host" });
+        var room = await host.NextOfTypeAsync("room");
+        string code = (string)room["code"]!;
+
+        var guest = await TestClient.ConnectAsync(_factory);
+        await guest.SendAsync(new { type = "hello", playerKey = guestKey, name = "Guest" });
+        await guest.NextOfTypeAsync("welcome");
+        await guest.SendAsync(new { type = "join_room", code, name = "Guest" });
+        await guest.NextOfTypeAsync("room");
+        await guest.SendAsync(new { type = "ready", ready = true });
+        await host.NextAsync(m => (string?)m["type"] == "room" &&
+            m["seats"]!.Any(s => (bool)s["ready"]!));
+        await host.SendAsync(new { type = "start_game" });
+        // The post-start update carries the host's Lemon Lord moves — hold one.
+        var update = await host.NextAsync(m => (string?)m["type"] == "update" &&
+            m["moves"] is JArray moves && moves.Count > 0);
+        var pick = (JObject)update["moves"]![0]!;
+
+        // Guest walks away from the table but keeps the app open elsewhere:
+        // a second connection identified by the same key, joined to nothing.
+        await guest.DisposeAsync();
+        await using var guestPhone = await TestClient.ConnectAsync(_factory);
+        await guestPhone.SendAsync(new { type = "hello", playerKey = guestKey, name = "Guest" });
+        await guestPhone.NextOfTypeAsync("welcome");
+
+        // Host acts; the guest is still awaited (Lemon Lord choice) and away —
+        // the idle connection gets exactly one nudge naming the room.
+        await host.SendAsync(new { type = "action", action = pick["action"] });
+
+        var alert = await guestPhone.NextOfTypeAsync("turn_alert");
+        Assert.Equal(code, (string)alert["code"]!);
     }
 
     [Fact]

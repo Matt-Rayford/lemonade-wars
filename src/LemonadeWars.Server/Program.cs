@@ -13,7 +13,8 @@ string dataDir = Environment.GetEnvironmentVariable("DATA_DIR")
 int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int d)
     ? d
     : 600;
-var rooms = new RoomManager(db, dataDir, botDelayMs);
+var connections = new ConnectionRegistry();
+var rooms = new RoomManager(db, dataDir, botDelayMs, connections.NotifyTurn);
 var players = new PlayerRegistry(dataDir);
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
@@ -29,7 +30,7 @@ app.Map("/ws", async context =>
         return;
     }
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    await ClientSession.RunAsync(socket, rooms, players);
+    await ClientSession.RunAsync(socket, rooms, players, connections);
 });
 
 app.Run();

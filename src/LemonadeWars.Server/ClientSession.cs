@@ -54,8 +54,9 @@ public static class ClientSession
             : 10;
 
     public static async Task RunAsync(WebSocket socket, RoomManager rooms,
-        PlayerRegistry players)
+        PlayerRegistry players, ConnectionRegistry connections)
     {
+        var connection = new Connection(socket);
         Room? room = null;
         PlayerRegistry.Player? identity = null;
         int hellos = 0;
@@ -81,7 +82,7 @@ public static class ClientSession
                     lastRefill = now;
                     if (tokens < 1)
                     {
-                        await SendErrorAsync(socket, "Too many messages — slow down.");
+                        await SendErrorAsync(connection, "Too many messages — slow down.");
                         continue;
                     }
                     tokens -= 1;
@@ -94,7 +95,7 @@ public static class ClientSession
                 }
                 catch
                 {
-                    await SendErrorAsync(socket, "Malformed JSON.");
+                    await SendErrorAsync(connection, "Malformed JSON.");
                     continue;
                 }
 
@@ -104,17 +105,20 @@ public static class ClientSession
                     {
                         if (++hellos > MaxHellosPerConnection)
                         {
-                            await SendErrorAsync(socket, "Too many identity changes.");
+                            await SendErrorAsync(connection, "Too many identity changes.");
                             break;
                         }
                         identity = players.Identify(
                             (string?)message["playerKey"], (string?)message["name"]);
                         if (identity == null)
                         {
-                            await SendErrorAsync(socket, "Invalid player key.");
+                            await SendErrorAsync(connection, "Invalid player key.");
                             break;
                         }
-                        await SendAsync(socket, new WelcomeMessage
+                        // Re-hello with a different key moves this connection's alerts.
+                        connections.Unregister(connection);
+                        connections.Register(identity.PlayerId, connection);
+                        await SendAsync(connection, new WelcomeMessage
                         {
                             PlayerId = identity.PlayerId,
                             Name = identity.Name,
@@ -124,7 +128,7 @@ public static class ClientSession
                     }
                     case MessageType.ListGames when identity != null:
                     {
-                        await SendAsync(socket, new GamesMessage
+                        await SendAsync(connection, new GamesMessage
                         {
                             GamesList = rooms.GamesFor(identity.PlayerId),
                         });
@@ -135,19 +139,19 @@ public static class ClientSession
                         if (identity != null &&
                             rooms.ActiveGameCount(identity.PlayerId) >= MaxActiveGamesPerPlayer)
                         {
-                            await SendErrorAsync(socket,
+                            await SendErrorAsync(connection,
                                 "You have too many games going — finish or abandon some first.");
                             break;
                         }
                         if (rooms.RoomCount >= MaxRooms)
                         {
-                            await SendErrorAsync(socket,
+                            await SendErrorAsync(connection,
                                 "The server is full right now — try again later.");
                             break;
                         }
                         room = rooms.Create();
                         room.Join((string?)message["name"] ?? "", null,
-                            identity?.PlayerId, socket, out _);
+                            identity?.PlayerId, connection, out _);
                         break;
                     }
                     case MessageType.JoinRoom:
@@ -155,15 +159,15 @@ public static class ClientSession
                         var found = rooms.Find((string?)message["code"] ?? "");
                         if (found == null)
                         {
-                            await SendErrorAsync(socket, "No room with that code.");
+                            await SendErrorAsync(connection, "No room with that code.");
                             break;
                         }
                         var seat = found.Join((string?)message["name"] ?? "",
-                            (string?)message["token"], identity?.PlayerId, socket,
+                            (string?)message["token"], identity?.PlayerId, connection,
                             out string error);
                         if (seat == null)
                         {
-                            await SendErrorAsync(socket, error);
+                            await SendErrorAsync(connection, error);
                             break;
                         }
                         room = found;
@@ -171,35 +175,35 @@ public static class ClientSession
                     }
                     case MessageType.Ready when room != null:
                     {
-                        room.SetReady(room.SeatIndexOf(socket),
+                        room.SetReady(room.SeatIndexOf(connection),
                             (bool?)message["ready"] ?? true);
                         break;
                     }
                     case MessageType.AddBot when room != null:
                     {
-                        string error = room.AddBot(room.SeatIndexOf(socket));
+                        string error = room.AddBot(room.SeatIndexOf(connection));
                         if (error.Length > 0)
                         {
-                            await SendErrorAsync(socket, error);
+                            await SendErrorAsync(connection, error);
                         }
                         break;
                     }
                     case MessageType.RemoveBot when room != null:
                     {
-                        string error = room.RemoveBot(room.SeatIndexOf(socket),
+                        string error = room.RemoveBot(room.SeatIndexOf(connection),
                             (int?)message["seat"] ?? -1);
                         if (error.Length > 0)
                         {
-                            await SendErrorAsync(socket, error);
+                            await SendErrorAsync(connection, error);
                         }
                         break;
                     }
                     case MessageType.StartGame when room != null:
                     {
-                        string error = room.Start(room.SeatIndexOf(socket));
+                        string error = room.Start(room.SeatIndexOf(connection));
                         if (error.Length > 0)
                         {
-                            await SendErrorAsync(socket, error);
+                            await SendErrorAsync(connection, error);
                         }
                         break;
                     }
@@ -207,12 +211,12 @@ public static class ClientSession
                     {
                         if (message["action"] is JObject actionJson)
                         {
-                            await room.HandleActionAsync(room.SeatIndexOf(socket), actionJson);
+                            await room.HandleActionAsync(room.SeatIndexOf(connection), actionJson);
                         }
                         break;
                     }
                     default:
-                        await SendErrorAsync(socket, "Unknown or out-of-order message.");
+                        await SendErrorAsync(connection, "Unknown or out-of-order message.");
                         break;
                 }
             }
@@ -223,7 +227,8 @@ public static class ClientSession
         }
         finally
         {
-            room?.Detach(socket);
+            room?.Detach(connection);
+            connections.Unregister(connection);
         }
     }
 
@@ -250,15 +255,9 @@ public static class ClientSession
         }
     }
 
-    private static Task SendErrorAsync(WebSocket socket, string message) =>
-        SendAsync(socket, new ErrorMessage { Message = message });
+    private static Task SendErrorAsync(Connection connection, string message) =>
+        connection.SendAsync(new ErrorMessage { Message = message });
 
-    private static Task SendAsync(WebSocket socket, object message)
-    {
-        byte[] payload = Encoding.UTF8.GetBytes(
-            Newtonsoft.Json.JsonConvert.SerializeObject(message, WireCodec.Settings));
-        return socket.State == WebSocketState.Open
-            ? socket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None)
-            : Task.CompletedTask;
-    }
+    private static Task SendAsync(Connection connection, object message) =>
+        connection.SendAsync(message);
 }

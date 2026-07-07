@@ -179,6 +179,8 @@ namespace LemonadeWars.Unity
         public string PlayerId { get; private set; } = "";
         /// <summary>My Games snapshot from the latest welcome/games message.</summary>
         public List<GameSummary> GamesList { get; private set; } = new List<GameSummary>();
+        /// <summary>A game you're not watching needs you; payload is its room code.</summary>
+        public event Action<string> TurnAlert;
 
         public PlayerView View { get; private set; }
         public IReadOnlyList<GameAction> Moves { get; private set; } = new List<GameAction>();
@@ -340,6 +342,15 @@ namespace LemonadeWars.Unity
                 {
                     GamesList = ParseGames(message);
                     Revision++;
+                    break;
+                }
+                case MessageType.TurnAlert:
+                {
+                    string code = (string)message["code"] ?? "";
+                    if (code.Length > 0)
+                    {
+                        TurnAlert?.Invoke(code);
+                    }
                     break;
                 }
                 case MessageType.Error:

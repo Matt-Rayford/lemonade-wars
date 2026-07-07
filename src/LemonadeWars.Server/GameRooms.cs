@@ -22,37 +22,13 @@ public sealed class Seat
     public bool IsBot { get; set; }
     /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
     public bool Ready { get; set; }
-    public WebSocket? Socket { get; set; }
-    public SemaphoreSlim SendLock { get; } = new(1, 1);
+    /// <summary>The occupant's connection; all sends go through its single lock.</summary>
+    public Connection? Client { get; set; }
 
-    public bool Connected => Socket is { State: WebSocketState.Open };
+    public bool Connected => Client is { Open: true };
 
-    public async Task SendAsync(object message)
-    {
-        var socket = Socket;
-        if (socket is not { State: WebSocketState.Open })
-        {
-            return;
-        }
-        byte[] payload = Encoding.UTF8.GetBytes(
-            JsonConvert.SerializeObject(message, WireCodec.Settings));
-        await SendLock.WaitAsync();
-        try
-        {
-            if (socket.State == WebSocketState.Open)
-            {
-                await socket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None);
-            }
-        }
-        catch (WebSocketException)
-        {
-            // Connection died mid-send; the receive loop will detach the seat.
-        }
-        finally
-        {
-            SendLock.Release();
-        }
-    }
+    public Task SendAsync(object message) =>
+        Client?.SendAsync(message) ?? Task.CompletedTask;
 }
 
 /// <summary>
@@ -71,6 +47,10 @@ public sealed class Room
     private readonly Dictionary<int, GreedyBot> _bots = new();
     private readonly string? _storePath;
     private readonly int _botDelayMs;
+    /// <summary>Cross-game turn alerts: (playerId, roomCode) when a seat needs input.</summary>
+    private readonly Action<string, string>? _turnNotifier;
+    /// <summary>Seats already alerted for their current wait — one nudge per turn edge.</summary>
+    private readonly HashSet<int> _alertedSeats = new();
     private bool _botPumpActive;
     private bool _retired;
     private Game? _game;
@@ -81,19 +61,22 @@ public sealed class Room
     /// <summary>Room log file, so the sweeper can delete it after retirement.</summary>
     public string? StorePath => _storePath;
 
-    public Room(string code, CardDatabase db, string? storePath, int botDelayMs)
+    public Room(string code, CardDatabase db, string? storePath, int botDelayMs,
+        Action<string, string>? turnNotifier = null)
     {
         Code = code;
         _db = db;
         _storePath = storePath;
         _botDelayMs = botDelayMs;
+        _turnNotifier = turnNotifier;
     }
 
     /// <summary>
     /// Rebuild a started room from its persisted seed + action log (deterministic replay).
     /// Returns null for finished or unreadable games.
     /// </summary>
-    public static Room? LoadFromFile(string code, CardDatabase db, string path, int botDelayMs)
+    public static Room? LoadFromFile(string code, CardDatabase db, string path, int botDelayMs,
+        Action<string, string>? turnNotifier = null)
     {
         try
         {
@@ -108,7 +91,7 @@ public sealed class Room
                 return null;
             }
 
-            var room = new Room(code, db, path, botDelayMs);
+            var room = new Room(code, db, path, botDelayMs, turnNotifier);
             var names = header["names"]!.Select(n => (string)n!).ToArray();
             var bots = header["bots"]!.Select(b => (bool)b!).ToArray();
             var tokens = header["tokens"]!.Select(t => (string)t!).ToArray();
@@ -205,7 +188,7 @@ public sealed class Room
 
     // ------------------------------------------------------------- lobby
 
-    public Seat? Join(string name, string? token, string? playerId, WebSocket socket,
+    public Seat? Join(string name, string? token, string? playerId, Connection connection,
         out string error)
     {
         List<Seat> toNotify;
@@ -227,7 +210,7 @@ public sealed class Room
                  (_game != null || !s.Connected)));
             if (existing != null)
             {
-                existing.Socket = socket;
+                existing.Client = connection;
                 seat = existing;
             }
             else
@@ -247,8 +230,8 @@ public sealed class Room
                     Index = _seats.Count,
                     Name = SanitizeName(name),
                     PlayerId = playerId,
+                    Client = connection,
                 };
-                seat.Socket = socket;
                 _seats.Add(seat);
             }
             LastActivityUtc = DateTime.UtcNow;
@@ -383,17 +366,17 @@ public sealed class Room
         return "";
     }
 
-    public void Detach(WebSocket socket)
+    public void Detach(Connection connection)
     {
         List<Seat> toNotify;
         lock (_sync)
         {
-            var seat = _seats.FirstOrDefault(s => s.Socket == socket);
+            var seat = _seats.FirstOrDefault(s => s.Client == connection);
             if (seat == null)
             {
                 return;
             }
-            seat.Socket = null;
+            seat.Client = null;
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);
@@ -510,6 +493,7 @@ public sealed class Room
     private async Task BroadcastGameAsync(IReadOnlyList<GameEvent> events)
     {
         List<(Seat Seat, UpdateMessage Message)> outbox = new();
+        List<(string PlayerId, string Code)>? alerts = null;
         lock (_sync)
         {
             if (_game == null)
@@ -517,6 +501,22 @@ public sealed class Room
                 return;
             }
             var acting = _game.ActingPlayers();
+
+            // Turn alerts, rising-edge: a seat that is newly awaited AND away from
+            // the table gets one nudge on its player's other connections. Sitting at
+            // the table (or ceasing to be awaited) re-arms the alert for next time.
+            foreach (var seat in _seats.Where(s => !s.IsBot))
+            {
+                if (!acting.Contains(seat.Index) || seat.Connected)
+                {
+                    _alertedSeats.Remove(seat.Index);
+                }
+                else if (seat.PlayerId != null && _alertedSeats.Add(seat.Index))
+                {
+                    (alerts ??= new List<(string, string)>()).Add((seat.PlayerId, Code));
+                }
+            }
+
             foreach (var seat in _seats.Where(s => !s.IsBot))
             {
                 var update = new UpdateMessage
@@ -536,6 +536,13 @@ public sealed class Room
                         .ToList();
                 }
                 outbox.Add((seat, update));
+            }
+        }
+        if (alerts != null && _turnNotifier != null)
+        {
+            foreach (var (playerId, code) in alerts)
+            {
+                _turnNotifier(playerId, code);
             }
         }
         await Task.WhenAll(outbox.Select(o => o.Seat.SendAsync(o.Message)));
@@ -583,11 +590,11 @@ public sealed class Room
         }
     }
 
-    public int SeatIndexOf(WebSocket socket)
+    public int SeatIndexOf(Connection connection)
     {
         lock (_sync)
         {
-            return _seats.FirstOrDefault(s => s.Socket == socket)?.Index ?? -1;
+            return _seats.FirstOrDefault(s => s.Client == connection)?.Index ?? -1;
         }
     }
 
@@ -677,11 +684,15 @@ public sealed class RoomManager
     private readonly int _botDelayMs;
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
 
-    public RoomManager(CardDatabase db, string dataDir, int botDelayMs)
+    private readonly Action<string, string>? _turnNotifier;
+
+    public RoomManager(CardDatabase db, string dataDir, int botDelayMs,
+        Action<string, string>? turnNotifier = null)
     {
         _db = db;
         _dataDir = dataDir;
         _botDelayMs = botDelayMs;
+        _turnNotifier = turnNotifier;
         Directory.CreateDirectory(dataDir);
         LoadPersistedRooms();
         _sweepTimer = new Timer(_ => Sweep(), null,
@@ -745,7 +756,9 @@ public sealed class RoomManager
             }
             string code = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
             var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(path);
-            var room = age <= StaleRetention ? Room.LoadFromFile(code, _db, path, _botDelayMs) : null;
+            var room = age <= StaleRetention
+                ? Room.LoadFromFile(code, _db, path, _botDelayMs, _turnNotifier)
+                : null;
             if (room != null)
             {
                 _rooms.TryAdd(code, room);
@@ -777,7 +790,8 @@ public sealed class RoomManager
             var code = new string(Enumerable.Range(0, 5)
                 .Select(_ => CodeAlphabet[RandomNumberGenerator.GetInt32(CodeAlphabet.Length)])
                 .ToArray());
-            var room = new Room(code, _db, Path.Combine(_dataDir, code + ".jsonl"), _botDelayMs);
+            var room = new Room(code, _db, Path.Combine(_dataDir, code + ".jsonl"),
+                _botDelayMs, _turnNotifier);
             if (_rooms.TryAdd(code, room))
             {
                 return room;
