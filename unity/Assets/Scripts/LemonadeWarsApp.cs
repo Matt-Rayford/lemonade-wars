@@ -52,6 +52,12 @@ namespace LemonadeWars.Unity
         private string _pendingName;
         private string _pendingCode;
         private string _pendingToken;
+
+        // Cross-game turn-alert toast (top-right, any screen).
+        private CanvasGroup _alertGroup;
+        private TMP_Text _alertText;
+        private float _alertUntil;
+        private float _lastGamesRefresh;
         private float _pendingSince;
         private const float ConnectTimeoutSeconds = 10f;
 
@@ -194,6 +200,35 @@ namespace LemonadeWars.Unity
                 _renderedRevision = -1;
                 _modalRevision = -1;
             };
+
+            // Turn-alert toast: very last, so it floats over every screen.
+            var alertPanel = UiKit.CreatePanel(root, "TurnAlert", new Color(0.10f, 0.12f, 0.16f, 0.96f));
+            alertPanel.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            alertPanel.GetComponent<Image>().type = Image.Type.Sliced;
+            alertPanel.anchorMin = alertPanel.anchorMax = new Vector2(1f, 1f);
+            alertPanel.pivot = new Vector2(1f, 1f);
+            alertPanel.sizeDelta = new Vector2(420, 54);
+            alertPanel.anchoredPosition = new Vector2(-16, -64);
+            _alertText = UiKit.CreateText(alertPanel, "", 20,
+                TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            _alertText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_alertText.transform, Vector2.zero, Vector2.one,
+                new Vector2(14, 2), new Vector2(-14, -2));
+            _alertGroup = alertPanel.gameObject.AddComponent<CanvasGroup>();
+            _alertGroup.alpha = 0f;
+            _alertGroup.blocksRaycasts = false;
+            UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
+        }
+
+        private void OnTurnAlert(string code)
+        {
+            _alertText.text = $"YOUR TURN — GAME {code}";
+            _alertUntil = Time.time + 5f;
+            _alertGroup.blocksRaycasts = true;
+            if (_pendingListOnly && _remote != null && _remote.Room.YourSeat < 0)
+            {
+                _remote.ListGames(); // browsing My Games: badge updates immediately
+            }
         }
 
         // ------------------------------------------------------------ flows
@@ -238,6 +273,7 @@ namespace LemonadeWars.Unity
             _remote = RemoteGameSession.Connect(url);
             _session = _remote;
             _session.EventEmitted += OnGameEvent;
+            _remote.TurnAlert += OnTurnAlert;
             _pendingSend = true;
             _pendingSince = Time.time;
             _pendingCreate = create;
@@ -475,6 +511,26 @@ namespace LemonadeWars.Unity
 
             _session?.Tick();
             TickLobby();
+
+            // Turn-alert toast fade, on every screen.
+            if (_alertGroup.alpha > 0f || Time.time < _alertUntil)
+            {
+                float target = Time.time < _alertUntil ? 1f : 0f;
+                _alertGroup.alpha = Mathf.MoveTowards(_alertGroup.alpha, target, Time.deltaTime * 5f);
+                if (_alertGroup.alpha <= 0f)
+                {
+                    _alertGroup.blocksRaycasts = false;
+                }
+            }
+
+            // Browsing My Games: keep the YOUR TURN badges fresh.
+            if (_pendingListOnly && _screen == Screen.Lobby && _remote != null &&
+                _remote.Room.YourSeat < 0 && _remote.Connected &&
+                Time.time - _lastGamesRefresh > 20f)
+            {
+                _lastGamesRefresh = Time.time;
+                _remote.ListGames();
+            }
 
             if (_screen != Screen.Game)
             {

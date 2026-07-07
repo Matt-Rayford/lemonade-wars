@@ -25,6 +25,7 @@ namespace LemonadeWars.Protocol
         public const string Room = "room";
         public const string Update = "update";
         public const string Games = "games";
+        public const string TurnAlert = "turn_alert";
         public const string Error = "error";
     }
 
@@ -99,5 +100,15 @@ namespace LemonadeWars.Protocol
     {
         public string Type { get; set; } = MessageType.Games;
         public List<GameSummary> GamesList { get; set; } = new List<GameSummary>();
+    }
+
+    /// <summary>
+    /// A game you're NOT currently watching needs your input. Sent once per turn edge
+    /// to every other live connection of that player.
+    /// </summary>
+    public sealed class TurnAlertMessage
+    {
+        public string Type { get; set; } = MessageType.TurnAlert;
+        public string Code { get; set; } = "";
     }
 }
