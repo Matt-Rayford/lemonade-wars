@@ -175,6 +175,11 @@ namespace LemonadeWars.Unity
         public string ConnectionError { get; private set; } = "";
         public bool Connected => _socket.State == WebSocketState.Open;
 
+        /// <summary>Durable public id from the server's welcome; empty pre-hello.</summary>
+        public string PlayerId { get; private set; } = "";
+        /// <summary>My Games snapshot from the latest welcome/games message.</summary>
+        public List<GameSummary> GamesList { get; private set; } = new List<GameSummary>();
+
         public PlayerView View { get; private set; }
         public IReadOnlyList<GameAction> Moves { get; private set; } = new List<GameAction>();
         public IReadOnlyList<string> Log => _log;
@@ -228,6 +233,10 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------- lobby verbs
 
+        /// <summary>Identify first on every connection; the reply carries My Games.</summary>
+        public void Hello(string playerKey, string name) =>
+            Send(new { type = "hello", playerKey, name });
+        public void ListGames() => Send(new { type = "list_games" });
         public void CreateRoom(string name) => Send(new { type = "create_room", name });
         public void JoinRoom(string code, string name, string token = null) =>
             Send(new { type = "join_room", code, name, token });
@@ -320,11 +329,41 @@ namespace LemonadeWars.Unity
                     Revision++;
                     break;
                 }
+                case MessageType.Welcome:
+                {
+                    PlayerId = (string)message["playerId"] ?? "";
+                    GamesList = ParseGames(message);
+                    Revision++;
+                    break;
+                }
+                case MessageType.Games:
+                {
+                    GamesList = ParseGames(message);
+                    Revision++;
+                    break;
+                }
                 case MessageType.Error:
                     AddLog("! " + (string)message["message"]);
                     Revision++;
                     break;
             }
+        }
+
+        private List<GameSummary> ParseGames(JObject message)
+        {
+            var games = new List<GameSummary>();
+            if (message["gamesList"] is JArray array)
+            {
+                foreach (var entry in array.OfType<JObject>())
+                {
+                    var summary = entry.ToObject<GameSummary>(_serializer);
+                    if (summary != null)
+                    {
+                        games.Add(summary);
+                    }
+                }
+            }
+            return games;
         }
 
         private void Send(object message)

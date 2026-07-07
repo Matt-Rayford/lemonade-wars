@@ -14,6 +14,7 @@ int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS")
     ? d
     : 600;
 var rooms = new RoomManager(db, dataDir, botDelayMs);
+var players = new PlayerRegistry(dataDir);
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
 
@@ -28,7 +29,7 @@ app.Map("/ws", async context =>
         return;
     }
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    await ClientSession.RunAsync(socket, rooms);
+    await ClientSession.RunAsync(socket, rooms, players);
 });
 
 app.Run();

@@ -19,8 +19,9 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
 
     static ServerTests()
     {
-        // Instant bots and an isolated data dir for the shared factory.
+        // Instant bots, no throttling, and an isolated data dir for the shared factory.
         Environment.SetEnvironmentVariable("BOT_DELAY_MS", "0");
+        Environment.SetEnvironmentVariable("RATE_LIMIT_PER_SEC", "0");
         Environment.SetEnvironmentVariable("DATA_DIR",
             Path.Combine(Path.GetTempPath(), "lw-tests-" + Guid.NewGuid().ToString("N")));
     }
@@ -142,15 +143,22 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
 
         public async ValueTask DisposeAsync()
         {
-            _cts.Cancel();
             try
             {
-                await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                // CloseOutputAsync, NOT CloseAsync: CloseAsync performs an internal
+                // ReceiveAsync (waiting for the peer's close ack) that races our
+                // receive loop's outstanding ReceiveAsync — two concurrent receives
+                // violate the WebSocket contract and deadlock TestWebSocket's buffer
+                // semaphore forever, wedging the whole test run.
+                await _socket.CloseOutputAsync(
+                    WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
             }
             catch
             {
                 // already gone
             }
+            _cts.Cancel();
+            _socket.Dispose();
         }
     }
 
@@ -261,5 +269,204 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         await client.SendAsync(new { type = "join_room", code = "ZZZZZ", name = "Lost" });
         var error = await client.NextOfTypeAsync("error");
         Assert.Contains("No room", (string)error["message"]!);
+    }
+
+    // ---------------------------------------------------- identity + async
+
+    [Fact]
+    public async Task RepeatedHelloIsRefused()
+    {
+        await using var churner = await TestClient.ConnectAsync(_factory);
+        for (int i = 0; i < 5; i++)
+        {
+            await churner.SendAsync(new
+            {
+                type = "hello",
+                playerKey = $"churn-key-{i}-{Guid.NewGuid():N}",
+                name = "Churn",
+            });
+            await churner.NextOfTypeAsync("welcome");
+        }
+        await churner.SendAsync(new
+        {
+            type = "hello",
+            playerKey = "churn-key-final-" + Guid.NewGuid().ToString("N"),
+            name = "Churn",
+        });
+        var refused = await churner.NextOfTypeAsync("error");
+        Assert.Contains("identity", (string)refused["message"]!);
+    }
+
+    [Fact]
+    public async Task HelloIsDurableAcrossConnections()
+    {
+        string key = "identity-test-key-" + Guid.NewGuid().ToString("N");
+
+        await using var first = await TestClient.ConnectAsync(_factory);
+        await first.SendAsync(new { type = "hello", playerKey = key, name = "Matt" });
+        var welcome = await first.NextOfTypeAsync("welcome");
+        string playerId = (string)welcome["playerId"]!;
+        Assert.False(string.IsNullOrEmpty(playerId));
+        Assert.Equal("Matt", (string)welcome["name"]!);
+
+        // Same key on a new socket: same identity, rename sticks.
+        await using var second = await TestClient.ConnectAsync(_factory);
+        await second.SendAsync(new { type = "hello", playerKey = key, name = "Matt R" });
+        var again = await second.NextOfTypeAsync("welcome");
+        Assert.Equal(playerId, (string)again["playerId"]!);
+        Assert.Equal("Matt R", (string)again["name"]!);
+
+        // A key too short to be a secret is rejected.
+        await using var bogus = await TestClient.ConnectAsync(_factory);
+        await bogus.SendAsync(new { type = "hello", playerKey = "short", name = "X" });
+        var error = await bogus.NextOfTypeAsync("error");
+        Assert.Contains("player key", (string)error["message"]!);
+    }
+
+    [Fact]
+    public async Task IdentityReclaimsSeatMidGameWithoutToken()
+    {
+        string key = "reclaim-test-key-" + Guid.NewGuid().ToString("N");
+
+        var creator = await TestClient.ConnectAsync(_factory);
+        await creator.SendAsync(new { type = "hello", playerKey = key, name = "Host" });
+        await creator.NextOfTypeAsync("welcome");
+        await creator.SendAsync(new { type = "create_room", name = "Host" });
+        var room = await creator.NextOfTypeAsync("room");
+        string code = (string)room["code"]!;
+        await creator.SendAsync(new { type = "add_bot" });
+        await creator.NextOfTypeAsync("room");
+        await creator.SendAsync(new { type = "start_game" });
+        await creator.NextOfTypeAsync("update");
+
+        // Vanish, then return with identity only — no room token, no code memory
+        // beyond what My Games provides.
+        await creator.DisposeAsync();
+        await using var comeback = await TestClient.ConnectAsync(_factory);
+        await comeback.SendAsync(new { type = "hello", playerKey = key, name = "Host" });
+        var welcome = await comeback.NextOfTypeAsync("welcome");
+        var mine = ((JArray)welcome["gamesList"]!)
+            .FirstOrDefault(g => (string?)g["code"] == code);
+        Assert.NotNull(mine);
+        Assert.True((bool)mine!["started"]!);
+        Assert.False((bool)mine["finished"]!);
+        Assert.True((bool)mine["yourTurn"]!); // Lemon Lord choice awaits every player
+
+        await comeback.SendAsync(new { type = "join_room", code, name = "Host" });
+        var rejoin = await comeback.NextOfTypeAsync("room");
+        Assert.Equal(0, (int)rejoin["yourSeat"]!);
+        // Rejoining a started room re-sends the live view with legal moves.
+        var update = await comeback.NextOfTypeAsync("update");
+        Assert.NotNull(update["view"]);
+    }
+
+    [Fact]
+    public async Task SameIdentityTwiceInALobbyGetsTwoSeats()
+    {
+        // Two running instances on one machine share PlayerPrefs and thus one key —
+        // the second must NOT steal the first's connected lobby seat.
+        string key = "twin-test-key-" + Guid.NewGuid().ToString("N");
+
+        await using var first = await TestClient.ConnectAsync(_factory);
+        await first.SendAsync(new { type = "hello", playerKey = key, name = "Twin" });
+        await first.NextOfTypeAsync("welcome");
+        await first.SendAsync(new { type = "create_room", name = "Twin" });
+        var room = await first.NextOfTypeAsync("room");
+        string code = (string)room["code"]!;
+
+        await using var second = await TestClient.ConnectAsync(_factory);
+        await second.SendAsync(new { type = "hello", playerKey = key, name = "Twin" });
+        await second.NextOfTypeAsync("welcome");
+        await second.SendAsync(new { type = "join_room", code, name = "Twin" });
+        var joined = await second.NextOfTypeAsync("room");
+
+        Assert.Equal(1, (int)joined["yourSeat"]!);
+        Assert.Equal(2, ((JArray)joined["seats"]!).Count);
+    }
+
+    [Fact]
+    public async Task ListGamesRequiresHelloAndTracksRooms()
+    {
+        await using var anonymous = await TestClient.ConnectAsync(_factory);
+        await anonymous.SendAsync(new { type = "list_games" });
+        var refused = await anonymous.NextOfTypeAsync("error");
+        Assert.Contains("Unknown or out-of-order", (string)refused["message"]!);
+
+        string key = "list-test-key-" + Guid.NewGuid().ToString("N");
+        await using var player = await TestClient.ConnectAsync(_factory);
+        await player.SendAsync(new { type = "hello", playerKey = key, name = "Lister" });
+        var welcome = await player.NextOfTypeAsync("welcome");
+        Assert.Empty((JArray)welcome["gamesList"]!);
+
+        await player.SendAsync(new { type = "create_room", name = "Lister" });
+        await player.NextOfTypeAsync("room");
+        await player.SendAsync(new { type = "list_games" });
+        var games = await player.NextOfTypeAsync("games");
+        var entries = (JArray)games["gamesList"]!;
+        Assert.Single(entries);
+        Assert.False((bool)entries[0]["started"]!);
+        Assert.Equal(0, (int)entries[0]["yourSeat"]!);
+    }
+}
+
+/// <summary>Periodic room retirement, without the web host.</summary>
+public class RoomSweepTests
+{
+    private static LemonadeWars.Server.RoomManager FreshManager()
+    {
+        var db = LemonadeWars.Server.GameDataLocator.LoadDatabase();
+        string dir = Path.Combine(Path.GetTempPath(), "lw-sweep-" + Guid.NewGuid().ToString("N"));
+        return new LemonadeWars.Server.RoomManager(db, dir, 0);
+    }
+
+    [Fact]
+    public void FreshLobbiesSurviveTheSweep()
+    {
+        var manager = FreshManager();
+        var room = manager.Create();
+        Assert.Equal(0, manager.Sweep()); // default TTLs: a brand-new lobby stays
+        Assert.NotNull(manager.Find(room.Code));
+    }
+
+    [Fact]
+    public void ExpiredEmptyLobbiesAreRetiredAndRefuseLateJoins()
+    {
+        var manager = FreshManager();
+        var room = manager.Create();
+        Assert.Equal(1, manager.Sweep(lobbyTtl: TimeSpan.Zero));
+        Assert.Null(manager.Find(room.Code));
+        // The retire flag closes the race: a join hitting the ghost room errors
+        // cleanly instead of taking a seat nobody can ever list or resume.
+        var seat = room.Join("Late", null, null, null!, out string error);
+        Assert.Null(seat);
+        Assert.Contains("expired", error);
+    }
+}
+
+/// <summary>Boot-time graveyard sweep, without the web host.</summary>
+public class RoomGcTests
+{
+    [Fact]
+    public void OldCorruptOrFinishedLogsAreSweptAtBoot()
+    {
+        var db = LemonadeWars.Server.GameDataLocator.LoadDatabase();
+        string dir = Path.Combine(Path.GetTempPath(), "lw-gc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        string oldGarbage = Path.Combine(dir, "AAAAA.jsonl");
+        File.WriteAllText(oldGarbage, "not json\n");
+        File.SetLastWriteTimeUtc(oldGarbage, DateTime.UtcNow.AddDays(-10));
+
+        string freshGarbage = Path.Combine(dir, "BBBBB.jsonl");
+        File.WriteAllText(freshGarbage, "not json\n");
+
+        string registry = Path.Combine(dir, "players.jsonl");
+        File.WriteAllText(registry, "{\"keyHash\":\"x\",\"playerId\":\"p1\",\"name\":\"N\"}\n");
+
+        _ = new LemonadeWars.Server.RoomManager(db, dir, 0);
+
+        Assert.False(File.Exists(oldGarbage));   // past grace: deleted
+        Assert.True(File.Exists(freshGarbage));  // unreadable but recent: kept for debugging
+        Assert.True(File.Exists(registry));      // identity store is never a room log
     }
 }

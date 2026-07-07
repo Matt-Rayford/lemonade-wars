@@ -10,6 +10,7 @@ namespace LemonadeWars.Protocol
     public static class MessageType
     {
         // client -> server
+        public const string Hello = "hello";
         public const string CreateRoom = "create_room";
         public const string JoinRoom = "join_room";
         public const string AddBot = "add_bot";
@@ -17,10 +18,13 @@ namespace LemonadeWars.Protocol
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";
+        public const string ListGames = "list_games";
 
         // server -> client
+        public const string Welcome = "welcome";
         public const string Room = "room";
         public const string Update = "update";
+        public const string Games = "games";
         public const string Error = "error";
     }
 
@@ -65,5 +69,35 @@ namespace LemonadeWars.Protocol
     {
         public string Type { get; set; } = MessageType.Error;
         public string Message { get; set; } = "";
+    }
+
+    /// <summary>One of the caller's games, for the My Games list.</summary>
+    public sealed class GameSummary
+    {
+        public string Code { get; set; } = "";
+        public List<string> Players { get; set; } = new List<string>();
+        public int YourSeat { get; set; }
+        public bool Started { get; set; }
+        public bool Finished { get; set; }
+        /// <summary>The game is waiting on YOUR input (turn or response window).</summary>
+        public bool YourTurn { get; set; }
+        /// <summary>Whose turn it is right now (empty pre-start / post-finish).</summary>
+        public string TurnPlayerName { get; set; } = "";
+    }
+
+    /// <summary>Reply to hello: your durable identity and everything you're playing.</summary>
+    public sealed class WelcomeMessage
+    {
+        public string Type { get; set; } = MessageType.Welcome;
+        public string PlayerId { get; set; } = "";
+        public string Name { get; set; } = "";
+        public List<GameSummary> GamesList { get; set; } = new List<GameSummary>();
+    }
+
+    /// <summary>Reply to list_games: a fresh My Games snapshot.</summary>
+    public sealed class GamesMessage
+    {
+        public string Type { get; set; } = MessageType.Games;
+        public List<GameSummary> GamesList { get; set; } = new List<GameSummary>();
     }
 }

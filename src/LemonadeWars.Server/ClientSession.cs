@@ -35,10 +35,35 @@ public static class GameDataLocator
 public static class ClientSession
 {
     private const int MaxMessageBytes = 64 * 1024;
+    /// <summary>Per-identity cap on unfinished games — create-room spam guard.</summary>
+    private const int MaxActiveGamesPerPlayer = 5;
+    /// <summary>Identity churn guard: hello floods would mint registry records forever.</summary>
+    private const int MaxHellosPerConnection = 5;
 
-    public static async Task RunAsync(WebSocket socket, RoomManager rooms)
+    /// <summary>Global room ceiling (MAX_ROOMS env) — the anonymous-spam backstop:
+    /// identity caps don't bind clients that never say hello, this does.</summary>
+    private static int MaxRooms =>
+        int.TryParse(Environment.GetEnvironmentVariable("MAX_ROOMS"), out int r) ? r : 2000;
+
+    /// <summary>Sustained messages/second per socket (RATE_LIMIT_PER_SEC; 0 disables —
+    /// tests hammer full games through a single socket). Read per connection, not at
+    /// type load, so test env setup can never race the static initializer.</summary>
+    private static double RatePerSecond =>
+        double.TryParse(Environment.GetEnvironmentVariable("RATE_LIMIT_PER_SEC"), out double r)
+            ? r
+            : 10;
+
+    public static async Task RunAsync(WebSocket socket, RoomManager rooms,
+        PlayerRegistry players)
     {
         Room? room = null;
+        PlayerRegistry.Player? identity = null;
+        int hellos = 0;
+        // Token bucket: bursts are fine, a firehose is not.
+        double rate = RatePerSecond;
+        double burst = rate * 3;
+        double tokens = burst;
+        DateTime lastRefill = DateTime.UtcNow;
         try
         {
             while (socket.State == WebSocketState.Open)
@@ -47,6 +72,19 @@ public static class ClientSession
                 if (text == null)
                 {
                     break;
+                }
+
+                if (rate > 0)
+                {
+                    var now = DateTime.UtcNow;
+                    tokens = Math.Min(burst, tokens + (now - lastRefill).TotalSeconds * rate);
+                    lastRefill = now;
+                    if (tokens < 1)
+                    {
+                        await SendErrorAsync(socket, "Too many messages — slow down.");
+                        continue;
+                    }
+                    tokens -= 1;
                 }
 
                 JObject message;
@@ -62,10 +100,54 @@ public static class ClientSession
 
                 switch ((string?)message["type"])
                 {
+                    case MessageType.Hello:
+                    {
+                        if (++hellos > MaxHellosPerConnection)
+                        {
+                            await SendErrorAsync(socket, "Too many identity changes.");
+                            break;
+                        }
+                        identity = players.Identify(
+                            (string?)message["playerKey"], (string?)message["name"]);
+                        if (identity == null)
+                        {
+                            await SendErrorAsync(socket, "Invalid player key.");
+                            break;
+                        }
+                        await SendAsync(socket, new WelcomeMessage
+                        {
+                            PlayerId = identity.PlayerId,
+                            Name = identity.Name,
+                            GamesList = rooms.GamesFor(identity.PlayerId),
+                        });
+                        break;
+                    }
+                    case MessageType.ListGames when identity != null:
+                    {
+                        await SendAsync(socket, new GamesMessage
+                        {
+                            GamesList = rooms.GamesFor(identity.PlayerId),
+                        });
+                        break;
+                    }
                     case MessageType.CreateRoom:
                     {
+                        if (identity != null &&
+                            rooms.ActiveGameCount(identity.PlayerId) >= MaxActiveGamesPerPlayer)
+                        {
+                            await SendErrorAsync(socket,
+                                "You have too many games going — finish or abandon some first.");
+                            break;
+                        }
+                        if (rooms.RoomCount >= MaxRooms)
+                        {
+                            await SendErrorAsync(socket,
+                                "The server is full right now — try again later.");
+                            break;
+                        }
                         room = rooms.Create();
-                        room.Join((string?)message["name"] ?? "", null, socket, out _);
+                        room.Join((string?)message["name"] ?? "", null,
+                            identity?.PlayerId, socket, out _);
                         break;
                     }
                     case MessageType.JoinRoom:
@@ -77,7 +159,8 @@ public static class ClientSession
                             break;
                         }
                         var seat = found.Join((string?)message["name"] ?? "",
-                            (string?)message["token"], socket, out string error);
+                            (string?)message["token"], identity?.PlayerId, socket,
+                            out string error);
                         if (seat == null)
                         {
                             await SendErrorAsync(socket, error);
@@ -167,11 +250,13 @@ public static class ClientSession
         }
     }
 
-    private static Task SendErrorAsync(WebSocket socket, string message)
+    private static Task SendErrorAsync(WebSocket socket, string message) =>
+        SendAsync(socket, new ErrorMessage { Message = message });
+
+    private static Task SendAsync(WebSocket socket, object message)
     {
         byte[] payload = Encoding.UTF8.GetBytes(
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new ErrorMessage { Message = message }, WireCodec.Settings));
+            Newtonsoft.Json.JsonConvert.SerializeObject(message, WireCodec.Settings));
         return socket.State == WebSocketState.Open
             ? socket.SendAsync(payload, WebSocketMessageType.Text, true, CancellationToken.None)
             : Task.CompletedTask;

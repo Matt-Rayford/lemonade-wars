@@ -48,6 +48,7 @@ namespace LemonadeWars.Unity
         // Lobby verb deferred until the socket opens.
         private bool _pendingSend;
         private bool _pendingCreate;
+        private bool _pendingListOnly;
         private string _pendingName;
         private string _pendingCode;
         private string _pendingToken;
@@ -155,17 +156,14 @@ namespace LemonadeWars.Unity
             };
             _lobby.OnHost = (url, name) => ConnectRemote(url, true, name, "", "");
             _lobby.OnJoin = (url, name, code) => ConnectRemote(url, false, name, code, "");
-            _lobby.OnResume = () => ConnectRemote(
-                PlayerPrefs.GetString("lw_server"), false,
-                PlayerPrefs.GetString("lw_name"),
-                PlayerPrefs.GetString("lw_code"),
-                PlayerPrefs.GetString("lw_token"));
+            _lobby.OnMyGames = (url, name) => ConnectRemote(url, false, name, "", "", listOnly: true);
+            _lobby.OnGamesBack = () => BackToMenu("");
+            _lobby.OnGamesRefresh = () => _remote?.ListGames();
             _lobby.OnAddBot = () => _remote?.AddBot();
             _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");
-            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
             StartCoroutine(ServerStatusLoop());
 
             // Above the table, below the modal overlays built after it.
@@ -217,7 +215,24 @@ namespace LemonadeWars.Unity
             EnterGame();
         }
 
-        private void ConnectRemote(string url, bool create, string name, string code, string token)
+        /// <summary>Durable identity secret; generated once and never shown anywhere.</summary>
+        private static string PlayerKey
+        {
+            get
+            {
+                string key = PlayerPrefs.GetString("lw_player_key", "");
+                if (string.IsNullOrEmpty(key))
+                {
+                    key = System.Guid.NewGuid().ToString("N") + System.Guid.NewGuid().ToString("N");
+                    PlayerPrefs.SetString("lw_player_key", key);
+                    PlayerPrefs.Save();
+                }
+                return key;
+            }
+        }
+
+        private void ConnectRemote(string url, bool create, string name, string code,
+            string token, bool listOnly = false)
         {
             _session?.Dispose();
             _remote = RemoteGameSession.Connect(url);
@@ -226,6 +241,7 @@ namespace LemonadeWars.Unity
             _pendingSend = true;
             _pendingSince = Time.time;
             _pendingCreate = create;
+            _pendingListOnly = listOnly;
             _pendingName = name;
             _pendingCode = code;
             _pendingToken = token;
@@ -234,6 +250,24 @@ namespace LemonadeWars.Unity
             _screen = Screen.Lobby;
             _lobbyRevision = -1;
             _lobby.ShowLobby(_remote.Room, "Connecting to " + url + "...", false);
+        }
+
+        /// <summary>A My Games row was picked: enter that room on the same connection.</summary>
+        private void JoinFromList(string code)
+        {
+            if (_remote == null)
+            {
+                return;
+            }
+            // The stored per-room token still helps pre-identity games; identity
+            // covers everything created from now on.
+            string token = PlayerPrefs.GetString("lw_code", "") == code
+                ? PlayerPrefs.GetString("lw_token", "")
+                : "";
+            _remote.JoinRoom(code, _lobby.DisplayName,
+                string.IsNullOrEmpty(token) ? null : token);
+            _lobbyRevision = -1;
+            _lobby.ShowLobby(_remote.Room, $"Joining {code}...", false);
         }
 
         /// <summary>Remember enough to resume this room after a crash or redeploy.</summary>
@@ -267,6 +301,12 @@ namespace LemonadeWars.Unity
                 return;
             }
             _lobbyRevision = _remote.Revision;
+            if (_pendingListOnly && _remote.Room.YourSeat < 0)
+            {
+                // Browsing My Games: keep rendering the list until a room is picked.
+                _lobby.ShowGames(_remote.GamesList, JoinFromList);
+                return;
+            }
             string status = _remote.ConnectionError.Length > 0
                 ? _remote.ConnectionError
                 : _remote.Log.LastOrDefault(l => l.StartsWith("!")) ?? "";
@@ -399,11 +439,14 @@ namespace LemonadeWars.Unity
                 if (_remote.Connected)
                 {
                     _pendingSend = false;
+                    // Identity first on every connection: seats bind to it, and the
+                    // welcome reply carries the My Games list.
+                    _remote.Hello(PlayerKey, _pendingName);
                     if (_pendingCreate)
                     {
                         _remote.CreateRoom(_pendingName);
                     }
-                    else
+                    else if (!_pendingListOnly)
                     {
                         _remote.JoinRoom(_pendingCode, _pendingName,
                             string.IsNullOrEmpty(_pendingToken) ? null : _pendingToken);
@@ -482,7 +525,6 @@ namespace LemonadeWars.Unity
             _dice.Clear();
             _fx.Clear();
             _lobby.ShowMenu(status);
-            _lobby.SetResumeInfo(PlayerPrefs.GetString("lw_code", ""));
         }
 
         /// <summary>Ping the server's /health while the menu is visible: the status dot.</summary>
