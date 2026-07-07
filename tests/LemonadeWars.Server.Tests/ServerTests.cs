@@ -389,6 +389,32 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task BotDifficultyIsSetAndBroadcast()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.SendAsync(new { type = "create_room", name = "Host" });
+        await host.NextOfTypeAsync("room");
+
+        await host.SendAsync(new { type = "add_bot", level = "hard" });
+        var room = await host.NextOfTypeAsync("room");
+        Assert.Equal("hard", (string)room["seats"]![1]!["botLevel"]!);
+
+        await host.SendAsync(new { type = "set_bot_level", seat = 1, level = "easy" });
+        room = await host.NextOfTypeAsync("room");
+        Assert.Equal("easy", (string)room["seats"]![1]!["botLevel"]!);
+
+        // Garbage levels normalize to medium instead of erroring.
+        await host.SendAsync(new { type = "set_bot_level", seat = 1, level = "nightmare" });
+        room = await host.NextOfTypeAsync("room");
+        Assert.Equal("medium", (string)room["seats"]![1]!["botLevel"]!);
+
+        // Humans are not tunable.
+        await host.SendAsync(new { type = "set_bot_level", seat = 0, level = "hard" });
+        var refused = await host.NextOfTypeAsync("error");
+        Assert.Contains("not a bot", (string)refused["message"]!);
+    }
+
+    [Fact]
     public async Task AbsentPlayerGetsTurnAlertOnOtherConnection()
     {
         string hostKey = "alert-host-" + Guid.NewGuid().ToString("N");

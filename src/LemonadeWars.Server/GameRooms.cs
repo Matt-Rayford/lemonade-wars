@@ -20,6 +20,8 @@ public sealed class Seat
     /// <summary>Durable public identity (PlayerRegistry); null for bots and legacy clients.</summary>
     public string? PlayerId { get; set; }
     public bool IsBot { get; set; }
+    /// <summary>Difficulty for bot seats: easy / medium / hard (BotFactory levels).</summary>
+    public string BotLevel { get; set; } = BotFactory.Medium;
     /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
     public bool Ready { get; set; }
     /// <summary>The occupant's connection; all sends go through its single lock.</summary>
@@ -44,7 +46,7 @@ public sealed class Room
     private readonly CardDatabase _db;
     private readonly object _sync = new();
     private readonly List<Seat> _seats = new();
-    private readonly Dictionary<int, GreedyBot> _bots = new();
+    private readonly Dictionary<int, IBot> _bots = new();
     private readonly string? _storePath;
     private readonly int _botDelayMs;
     /// <summary>Cross-game turn alerts: (playerId, roomCode) when a seat needs input.</summary>
@@ -97,8 +99,12 @@ public sealed class Room
             var tokens = header["tokens"]!.Select(t => (string)t!).ToArray();
             // Pre-identity logs have no players array: those seats stay token-only.
             var players = (header["players"] as JArray)?.Select(p => (string?)p).ToArray();
+            // Pre-difficulty logs have no botLevels: those bots rehydrate as medium.
+            var levels = (header["botLevels"] as JArray)?.Select(l => (string?)l).ToArray();
             for (int i = 0; i < names.Length; i++)
             {
+                string botLevel = BotFactory.Normalize(
+                    levels != null && i < levels.Length ? levels[i] : null);
                 room._seats.Add(new Seat
                 {
                     Index = i,
@@ -108,10 +114,14 @@ public sealed class Room
                     Token = tokens[i],
                     PlayerId = players != null && i < players.Length &&
                                !string.IsNullOrEmpty(players[i]) ? players[i] : null,
+                    BotLevel = botLevel,
                 });
                 if (bots[i])
                 {
-                    room._bots[i] = new GreedyBot();
+                    // Bot decisions are persisted as actions, so the bot itself does
+                    // not need to be deterministic across rehydrations.
+                    room._bots[i] = BotFactory.Create(botLevel,
+                        BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8)));
                 }
             }
 
@@ -149,6 +159,7 @@ public sealed class Room
                 ["bots"] = new JArray(_seats.Select(s => s.IsBot)),
                 ["tokens"] = new JArray(_seats.Select(s => s.Token)),
                 ["players"] = new JArray(_seats.Select(s => s.PlayerId ?? "")),
+                ["botLevels"] = new JArray(_seats.Select(s => s.BotLevel)),
             },
         };
         AppendLine(header.ToString(Newtonsoft.Json.Formatting.None));
@@ -247,7 +258,7 @@ public sealed class Room
         return seat;
     }
 
-    public string AddBot(int requestingSeat)
+    public string AddBot(int requestingSeat, string? level = null)
     {
         List<Seat> toNotify;
         lock (_sync)
@@ -271,7 +282,34 @@ public sealed class Room
                 Name = botNames[_seats.Count % botNames.Length] + " (bot)",
                 IsBot = true,
                 Ready = true,
+                BotLevel = BotFactory.Normalize(level),
             });
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
+        return "";
+    }
+
+    /// <summary>Host retunes a bot seat's difficulty in the lobby.</summary>
+    public string SetBotLevel(int requestingSeat, int botSeat, string? level)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            if (requestingSeat != 0)
+            {
+                return "Only the host can change bot difficulty.";
+            }
+            if (_game != null)
+            {
+                return "The game already started.";
+            }
+            var seat = _seats.FirstOrDefault(s => s.Index == botSeat);
+            if (seat == null || !seat.IsBot)
+            {
+                return "That seat is not a bot.";
+            }
+            seat.BotLevel = BotFactory.Normalize(level);
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);
@@ -356,7 +394,8 @@ public sealed class Room
             _game = Game.Create(_db, _seats.Select(s => s.Name).ToArray(), seed);
             foreach (var seat in _seats.Where(s => s.IsBot))
             {
-                _bots[seat.Index] = new GreedyBot();
+                _bots[seat.Index] = BotFactory.Create(seat.BotLevel,
+                    BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8)));
             }
             PersistHeader(seed);
         }
@@ -564,6 +603,7 @@ public sealed class Room
                     Seat = s.Index,
                     Name = s.Name,
                     IsBot = s.IsBot,
+                    BotLevel = s.IsBot ? s.BotLevel : "",
                     Connected = s.IsBot || s.Connected,
                     Ready = s.Ready,
                 }).ToList(),

@@ -59,15 +59,21 @@ namespace LemonadeWars.Unity
         public bool HumanAutoplay { get; set; }
         public event Action<GameEvent> EventEmitted;
 
-        public LocalGameSession(CardDatabase db, string[] names, int humanSeat, ulong seed)
+        public LocalGameSession(CardDatabase db, string[] names, int humanSeat, ulong seed,
+            IReadOnlyList<string> botLevels = null)
         {
             Seat = humanSeat;
             _game = Game.Create(db, names, seed);
+            int botIndex = 0;
             for (int i = 0; i < names.Length; i++)
             {
                 if (i != humanSeat)
                 {
-                    _bots[i] = new GreedyBot();
+                    string level = botLevels != null && botIndex < botLevels.Count
+                        ? botLevels[botIndex]
+                        : BotFactory.Medium;
+                    _bots[i] = BotFactory.Create(level, seed * 77UL + (ulong)i);
+                    botIndex++;
                 }
             }
             AddLog($"New game — {names.Length} players, you are {names[humanSeat]}.");
@@ -89,6 +95,28 @@ namespace LemonadeWars.Unity
 
         public void Tick()
         {
+            // A search bot thinks off the main thread; nothing mutates the game while
+            // it does, and its move applies here once ready — no frame hitches.
+            if (_pendingChoice != null)
+            {
+                if (!_pendingChoice.IsCompleted)
+                {
+                    return;
+                }
+                var thought = _pendingChoice;
+                _pendingChoice = null;
+                try
+                {
+                    ApplyBotAction(thought.Result);
+                }
+                catch (System.Exception)
+                {
+                    // Stale or faulted think (e.g. autopilot toggled mid-thought):
+                    // drop it; the next tick re-decides from the current state.
+                }
+                return;
+            }
+
             if (_game.State.Stage == GameStage.Finished ||
                 UnityEngine.Time.time < _nextBotStep)
             {
@@ -111,15 +139,29 @@ namespace LemonadeWars.Unity
                     continue;
                 }
                 _nextBotStep = UnityEngine.Time.time + BotStepSeconds;
-                var bot = actor == Seat ? _autopilot : (GreedyBot)_bots[actor];
-                foreach (var gameEvent in _game.Apply(bot.Choose(_game, actor)))
+                IBot bot = actor == Seat ? _autopilot : _bots[actor];
+                if (bot is SearchBot)
                 {
-                    AddLog(gameEvent.ToString());
-                    EventEmitted?.Invoke(gameEvent);
+                    var game = _game;
+                    int seat = actor;
+                    _pendingChoice = Task.Run(() => bot.Choose(game, seat));
+                    return;
                 }
-                Refresh();
+                ApplyBotAction(bot.Choose(_game, actor));
                 return;
             }
+        }
+
+        private Task<GameAction> _pendingChoice;
+
+        private void ApplyBotAction(GameAction action)
+        {
+            foreach (var gameEvent in _game.Apply(action))
+            {
+                AddLog(gameEvent.ToString());
+                EventEmitted?.Invoke(gameEvent);
+            }
+            Refresh();
         }
 
         private void Refresh()
@@ -244,6 +286,8 @@ namespace LemonadeWars.Unity
             Send(new { type = "join_room", code, name, token });
         public void AddBot() => Send(new { type = "add_bot" });
         public void RemoveBot(int seat) => Send(new { type = "remove_bot", seat });
+        public void SetBotLevel(int seat, string level) =>
+            Send(new { type = "set_bot_level", seat, level });
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 

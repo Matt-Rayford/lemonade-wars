@@ -181,7 +181,18 @@ public static class ClientSession
                     }
                     case MessageType.AddBot when room != null:
                     {
-                        string error = room.AddBot(room.SeatIndexOf(connection));
+                        string error = room.AddBot(room.SeatIndexOf(connection),
+                            (string?)message["level"]);
+                        if (error.Length > 0)
+                        {
+                            await SendErrorAsync(connection, error);
+                        }
+                        break;
+                    }
+                    case MessageType.SetBotLevel when room != null:
+                    {
+                        string error = room.SetBotLevel(room.SeatIndexOf(connection),
+                            (int?)message["seat"] ?? -1, (string?)message["level"]);
                         if (error.Length > 0)
                         {
                             await SendErrorAsync(connection, error);
