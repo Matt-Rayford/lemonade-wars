@@ -97,6 +97,9 @@ namespace LemonadeWars.Unity
 
         private RectTransform _playersColumn;
         private Texture2D _lemonIcon;
+        private Texture2D _vpIcon;
+        private Texture2D _cashIcon;
+        private Texture2D _tantrumIcon;
         private TMP_Text _boardOwnerLabel;
         private bool _viewingOwnBoard = true;
         /// <summary>Whose board the table currently shows; -1 = your own.</summary>
@@ -157,6 +160,9 @@ namespace LemonadeWars.Unity
             _host = host;
             _canvasRoot = canvasRoot;
             _lemonIcon = LoadIcon("lemon.png");
+            _vpIcon = LoadIcon("VictoryPoint.png");
+            _cashIcon = LoadIcon("Cash.png");
+            _tantrumIcon = LoadIcon("Tantrum.png");
             Build(canvasRoot);
         }
 
@@ -1829,14 +1835,24 @@ namespace LemonadeWars.Unity
             var nameText = UiKit.CreateText(row.transform,
                 nameLabel, 19, TextAnchor.LowerLeft, Color.white);
             nameText.raycastTarget = false;
-            UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.5f), new Vector2(1, 1),
-                new Vector2(80, 2), new Vector2(-52, -8));
-            var statsText = UiKit.CreateText(row.transform,
-                $"VP: {player.InGameVictoryPoints}   Cash: ${player.Money}", 16,
-                TextAnchor.UpperLeft, new Color(0.82f, 0.84f, 0.88f), body: true);
-            statsText.raycastTarget = false;
-            UiKit.Anchor((RectTransform)statsText.transform, new Vector2(0, 0), new Vector2(1, 0.5f),
-                new Vector2(80, 8), new Vector2(-52, -2));
+            UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.56f), new Vector2(1, 1),
+                new Vector2(80, 2), new Vector2(-52, -2));
+            // Icon stats under the name: VP, cash, and tantrums (the physical game
+            // keeps tantrums public on the table; the bar is our table).
+            var statsGo = new GameObject("Stats", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            statsGo.transform.SetParent(row.transform, false);
+            UiKit.Anchor((RectTransform)statsGo.transform, new Vector2(0, 0), new Vector2(1, 0.56f),
+                new Vector2(80, 4), new Vector2(-52, -1));
+            var statsLayout = statsGo.GetComponent<HorizontalLayoutGroup>();
+            statsLayout.spacing = 4;
+            statsLayout.childAlignment = TextAnchor.MiddleLeft;
+            statsLayout.childForceExpandWidth = false;
+            statsLayout.childForceExpandHeight = false;
+            statsLayout.childControlWidth = true;
+            statsLayout.childControlHeight = true;
+            AddStat(statsGo.transform, _vpIcon, player.InGameVictoryPoints.ToString());
+            AddStat(statsGo.transform, _cashIcon, $"${player.Money}");
+            AddStat(statsGo.transform, _tantrumIcon, player.TantrumCount.ToString(), last: true);
 
             // Yellow rim on whoever's board the table currently displays.
             if (isViewedBoard)
@@ -1876,6 +1892,35 @@ namespace LemonadeWars.Unity
                 ViewedBoardPlayer = clickedId == viewerId ? -1 : clickedId;
                 OnBoardViewChanged?.Invoke();
             });
+        }
+
+        /// <summary>One icon-plus-count chip in a player bar's stat row.</summary>
+        private static void AddStat(Transform parent, Texture2D icon, string count, bool last = false)
+        {
+            if (icon != null)
+            {
+                var iconGo = new GameObject("StatIcon", typeof(RectTransform), typeof(RawImage),
+                    typeof(LayoutElement));
+                iconGo.transform.SetParent(parent, false);
+                var iconElement = iconGo.GetComponent<LayoutElement>();
+                iconElement.preferredWidth = 36;
+                iconElement.preferredHeight = 36;
+                iconElement.flexibleWidth = 0;
+                var iconImage = iconGo.GetComponent<RawImage>();
+                iconImage.texture = icon;
+                iconImage.raycastTarget = false;
+            }
+            var text = UiKit.CreateText(parent, count, 18, TextAnchor.MiddleLeft,
+                new Color(0.82f, 0.84f, 0.88f), body: true);
+            text.raycastTarget = false;
+            var textElement = text.gameObject.AddComponent<LayoutElement>();
+            textElement.flexibleWidth = 0;
+            if (!last)
+            {
+                var gap = new GameObject("Gap", typeof(RectTransform), typeof(LayoutElement));
+                gap.transform.SetParent(parent, false);
+                gap.GetComponent<LayoutElement>().preferredWidth = 10;
+            }
         }
 
         /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
