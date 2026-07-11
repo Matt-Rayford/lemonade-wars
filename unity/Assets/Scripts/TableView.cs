@@ -101,6 +101,15 @@ namespace LemonadeWars.Unity
         private bool _viewingOwnBoard = true;
         /// <summary>Whose board the table currently shows; -1 = your own.</summary>
         public int ViewedBoardPlayer = -1;
+        /// <summary>playerId -> "easy"/"medium"/"hard" for bot seats, null for humans.</summary>
+        public System.Func<int, string> BotLevelLookup;
+
+        // Hand arrangement: the player's preferred order, kept across renders.
+        private readonly List<int> _handOrder = new List<int>();
+        private int _reorderCardId = -1;
+        private Vector2 _handDragStart;
+        private float _handStartX;
+        private float _handSpacing;
         /// <summary>Fired when the player switches whose board is displayed.</summary>
         public System.Action OnBoardViewChanged;
         private RectTransform _marketRow;
@@ -186,6 +195,11 @@ namespace LemonadeWars.Unity
             playersLayout.childControlWidth = true;
             _playersColumn = (RectTransform)playersGo.transform;
 
+            // Right column, mirroring the player panels: the action log. Collapsed
+            // it's one slim "latest thing that happened" chip; expanded it's the
+            // recent history — fast bot turns can be replayed at a glance.
+            BuildActionLog();
+
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
             var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
@@ -201,9 +215,19 @@ namespace LemonadeWars.Unity
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
+            // The row is content-sized behind a mask: a 6th stand overflows to the
+            // right and edge-scrolls (like the hand) instead of squishing the columns.
+            board.gameObject.AddComponent<RectMask2D>();
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
+            _boardRow.anchorMin = new Vector2(0f, 0f);
+            _boardRow.anchorMax = new Vector2(0f, 1f);
+            _boardRow.pivot = new Vector2(0f, 0.5f);
+            _boardRow.offsetMin = new Vector2(6f, 6f);
+            _boardRow.offsetMax = new Vector2(6f, -6f);
+            _boardRow.gameObject.AddComponent<ContentSizeFitter>().horizontalFit =
+                ContentSizeFitter.FitMode.PreferredSize;
             // Cards sit at the BOTTOM of the band: the headroom above holds a full
-            // 5-deep tucked-upgrade stack (5 x 44px peeks) without touching the shelf.
+            // 5-deep tucked-upgrade stack (5 x 40px peeks) without touching the shelf.
             _boardRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.LowerLeft;
             _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f), body: true);
@@ -675,7 +699,9 @@ namespace LemonadeWars.Unity
             var grid = contentGo.GetComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(280, 392);
             grid.spacing = new Vector2(18, 18);
-            grid.padding = new RectOffset(8, 8, 8, 8);
+            // Generous side padding: edge cards keep their rounded corners and glow
+            // clear of the viewport mask instead of getting shaved off.
+            grid.padding = new RectOffset(20, 20, 12, 12);
             grid.childAlignment = TextAnchor.UpperCenter;
             contentGo.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
@@ -872,10 +898,106 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ render
 
-        /// <summary>The on-table log is retired for now (First Dibs lives there); kept
-        /// as a no-op until the log returns somewhere nicer.</summary>
+        // ------------------------------------------------------- action log
+
+        private RectTransform _logCollapsed;
+        private RectTransform _logExpandedPanel;
+        private RectTransform _logList;
+        private TMP_Text _logLatest;
+        private readonly List<string> _logLines = new List<string>();
+        private bool _logExpanded;
+        private string _logSignature = "";
+
+        private void BuildActionLog()
+        {
+            var zone = UiKit.CreatePanel(Root, "ActionLog", new Color(0, 0, 0, 0));
+            zone.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(zone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
+                new Vector2(4, 0), new Vector2(-10, -4));
+
+            // Collapsed: the latest line on a slim chip at the zone's bottom.
+            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
+            UiKit.Anchor(_logCollapsed, new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(0, 0), new Vector2(0, 26));
+            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
+                new Color(0.86f, 0.88f, 0.92f), body: true);
+            _logLatest.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(-26, 0));
+            var expandHint = UiKit.CreateText(_logCollapsed, "+", 15, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            expandHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)expandHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+                new Vector2(-24, 0), new Vector2(-4, 0));
+            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
+            _logCollapsed.gameObject.SetActive(false);
+
+            // Expanded: the recent history, newest at the top, header click collapses.
+            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
+            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one);
+            var header = UiKit.CreatePanel(_logExpandedPanel, "LogHeader", new Color(0, 0, 0, 0.45f));
+            UiKit.Anchor(header, new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -24), new Vector2(0, 0));
+            var headerText = UiKit.CreateText(header, "ACTION LOG", 13, TextAnchor.MiddleLeft,
+                new Color(1f, 0.92f, 0.55f));
+            headerText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)headerText.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(0, 0));
+            var collapseHint = UiKit.CreateText(header, "–", 15, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            collapseHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)collapseHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+                new Vector2(-24, 0), new Vector2(-4, 0));
+            UiKit.AddClick(header.gameObject, ToggleLog);
+            var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
+            listHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -26));
+            _logList = UiKit.CreateScrollList(listHost);
+            _logList.GetComponent<VerticalLayoutGroup>().spacing = 2;
+            _logExpandedPanel.gameObject.SetActive(false);
+        }
+
+        private void ToggleLog()
+        {
+            _logExpanded = !_logExpanded;
+            _logExpandedPanel.gameObject.SetActive(_logExpanded);
+            RenderLog();
+        }
+
+        /// <summary>Feed the friendly action-log lines (oldest first).</summary>
         public void SetLog(IEnumerable<string> lines)
         {
+            _logLines.Clear();
+            if (lines != null)
+            {
+                _logLines.AddRange(lines);
+            }
+            string signature = _logLines.Count + "|" +
+                (_logLines.Count > 0 ? _logLines[_logLines.Count - 1] : "");
+            if (signature == _logSignature)
+            {
+                return;
+            }
+            _logSignature = signature;
+            RenderLog();
+        }
+
+        private void RenderLog()
+        {
+            _logLatest.text = _logLines.Count > 0 ? _logLines[_logLines.Count - 1] : "";
+            _logCollapsed.gameObject.SetActive(!_logExpanded && _logLines.Count > 0);
+            if (!_logExpanded)
+            {
+                return;
+            }
+            UiKit.Clear(_logList);
+            for (int i = _logLines.Count - 1; i >= 0; i--)
+            {
+                var line = UiKit.CreateText(_logList, _logLines[i], 13, TextAnchor.MiddleLeft,
+                    i == _logLines.Count - 1 ? Color.white : new Color(0.78f, 0.80f, 0.84f),
+                    body: true);
+                line.gameObject.AddComponent<LayoutElement>().minHeight = 18;
+            }
         }
 
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
@@ -1055,8 +1177,21 @@ namespace LemonadeWars.Unity
             int count = view.Hand.Count;
             if (count == 0)
             {
+                _handOrder.Clear();
                 return;
             }
+
+            // Respect the player's own arrangement (drag a card sideways to move it);
+            // cards we haven't seen yet — fresh draws — join on the right.
+            var hand = view.Hand
+                .OrderBy(c =>
+                {
+                    int index = _handOrder.IndexOf(c.InstanceId);
+                    return index < 0 ? int.MaxValue : index;
+                })
+                .ToList();
+            _handOrder.Clear();
+            _handOrder.AddRange(hand.Select(c => c.InstanceId));
 
             const float width = 190f;
             const float height = 266f;
@@ -1081,10 +1216,12 @@ namespace LemonadeWars.Unity
             float startX = _handMaxScroll > 0f
                 ? -hostWidth / 2f + edgeFade + width / 2f
                 : -span / 2f + width / 2f;
+            _handStartX = startX;
+            _handSpacing = spacing;
 
             for (int i = 0; i < count; i++)
             {
-                var card = view.Hand[i];
+                var card = hand[i];
                 int optionCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
                     ? moves.Count
                     : 0;
@@ -1122,14 +1259,15 @@ namespace LemonadeWars.Unity
                     // Or drag: past the hand band the card arms and the arrow appears;
                     // release over a glowing bar to fire, anywhere else to abort.
                     var drag = image.gameObject.AddComponent<DragRelay>();
-                    drag.Began = _ =>
+                    drag.Began = position =>
                     {
                         _attackDragAborted = false;
+                        _handDragStart = position;
                         _preview.SetDragging(true);
                     };
                     drag.Moved = position =>
                     {
-                        if (_attackCardId < 0 && !_attackDragAborted &&
+                        if (_attackCardId < 0 && _reorderCardId < 0 && !_attackDragAborted &&
                             !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                         {
                             var targets = AttackTargetsFor?.Invoke(captured);
@@ -1137,10 +1275,42 @@ namespace LemonadeWars.Unity
                             {
                                 BeginAttackTargeting(captured, targets, dragMode: true);
                             }
+                            return;
+                        }
+                        // Sideways inside the band: rearrange the hand instead.
+                        if (_attackCardId < 0 &&
+                            RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
+                        {
+                            if (_reorderCardId < 0 &&
+                                Mathf.Abs(position.x - _handDragStart.x) > 30f)
+                            {
+                                _reorderCardId = captured;
+                                frame.SetAsLastSibling();
+                                motion.TargetY = raisedY;
+                            }
+                            if (_reorderCardId == captured)
+                            {
+                                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                                    _handHost, position, null, out var local);
+                                frame.anchoredPosition = new Vector2(
+                                    local.x, frame.anchoredPosition.y);
+                            }
                         }
                     };
-                    drag.Ended = _ =>
+                    drag.Ended = position =>
                     {
+                        if (_reorderCardId == captured)
+                        {
+                            _reorderCardId = -1;
+                            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                                _handHost, position, null, out var local);
+                            int slot = _handSpacing > 0f
+                                ? Mathf.RoundToInt((local.x + _handScroll - _handStartX) / _handSpacing)
+                                : 0;
+                            _handOrder.Remove(captured);
+                            _handOrder.Insert(Mathf.Clamp(slot, 0, _handOrder.Count), captured);
+                            OnBoardViewChanged?.Invoke(); // force a re-render in the new order
+                        }
                         if (_attackCardId == captured && _attackDragMode)
                         {
                             FinishAttackTargeting();
@@ -1171,6 +1341,63 @@ namespace LemonadeWars.Unity
                     });
                 _preview.Attach(image.gameObject, texture);
             }
+        }
+
+        private float _boardScroll;
+
+        /// <summary>
+        /// Same disappearing edge-scroll as the hand, for a board with 6+ stands:
+        /// hover near the band's left/right edge to slide the row. Call every frame.
+        /// </summary>
+        public void TickBoardScroll(Vector2 screenPosition)
+        {
+            if (_boardPanel == null || _boardRow == null)
+            {
+                return;
+            }
+            float overflow = _boardRow.rect.width + 12f - _boardPanel.rect.width;
+            if (overflow <= 0f)
+            {
+                if (_boardScroll != 0f)
+                {
+                    _boardScroll = 0f;
+                    ApplyBoardScroll();
+                }
+                return;
+            }
+            _boardScroll = Mathf.Clamp(_boardScroll, 0f, overflow);
+            if (!RectTransformUtility.RectangleContainsScreenPoint(_boardPanel, screenPosition))
+            {
+                return;
+            }
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _boardPanel, screenPosition, null, out var local);
+            var rect = _boardPanel.rect;
+            float fraction = (local.x - rect.xMin) / Mathf.Max(1f, rect.width);
+            const float zone = 0.15f;
+            float velocity = 0f;
+            if (fraction < zone)
+            {
+                velocity = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            else if (fraction > 1f - zone)
+            {
+                velocity = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            if (velocity == 0f)
+            {
+                return;
+            }
+            _boardScroll = Mathf.Clamp(
+                _boardScroll + velocity * 700f * Time.deltaTime, 0f, overflow);
+            ApplyBoardScroll();
+        }
+
+        private void ApplyBoardScroll()
+        {
+            var position = _boardRow.anchoredPosition;
+            position.x = 6f - _boardScroll;
+            _boardRow.anchoredPosition = position;
         }
 
         /// <summary>
@@ -1575,9 +1802,18 @@ namespace LemonadeWars.Unity
             letter.raycastTarget = false;
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
-            // Name on top, VP / Cash below.
+            // Name on top, VP / Cash below. Bot seats wear their difficulty in the
+            // same colors as the lobby chips.
+            string nameLabel = player.Name + (isMe ? "  (you)" : "");
+            string botLevel = BotLevelLookup?.Invoke(playerId);
+            if (!string.IsNullOrEmpty(botLevel))
+            {
+                string levelColor = botLevel == "hard" ? "#FF9E73"
+                    : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
+                nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";
+            }
             var nameText = UiKit.CreateText(row.transform,
-                player.Name + (isMe ? "  (you)" : ""), 19, TextAnchor.LowerLeft, Color.white);
+                nameLabel, 19, TextAnchor.LowerLeft, Color.white);
             nameText.raycastTarget = false;
             UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.5f), new Vector2(1, 1),
                 new Vector2(80, 2), new Vector2(-52, -8));

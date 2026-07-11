@@ -46,9 +46,15 @@ namespace LemonadeWars.Engine.Ai
                 {
                     string name = LemonName(p.CardInstanceId);
                     string detail = "";
-                    if (p.TargetPlayerId is int victim)
+                    if (p.TargetPlayerId is int victim && p.TargetEquippedInstanceId is int loot)
                     {
-                        detail = $" -> {PlayerName(victim)}";
+                        // Finders Keepers: name the exact card taken, not just the victim —
+                        // otherwise every steal variant reads identically.
+                        detail = $" -> {PlayerName(victim)}: steal {BmName(loot)}";
+                    }
+                    else if (p.TargetPlayerId is int victim2)
+                    {
+                        detail = $" -> {PlayerName(victim2)}";
                     }
                     else if (p.TargetEquippedInstanceId is int eq)
                     {
@@ -83,6 +89,18 @@ namespace LemonadeWars.Engine.Ai
                     {
                         detail = " -> " + string.Join(", ", p.SelectedInstanceIds.Select(BmName));
                     }
+                    // Stand-target equips can land on different stands (or replace a full
+                    // slot): say where, so those variants stop looking like duplicates.
+                    if (p.EquipStandInstanceId is int dest)
+                    {
+                        int destIdx = s.Players[action.PlayerId].Stands.FindIndex(x => x.InstanceId == dest);
+                        detail += $" (onto stand #{destIdx + 1}" +
+                                  (p.EquipReplaceInstanceId is int rep ? $", replacing {BmName(rep)})" : ")");
+                    }
+                    else if (p.EquipReplaceInstanceId is int rep2)
+                    {
+                        detail += $" (replacing {BmName(rep2)})";
+                    }
                     return $"Play {name}{detail}";
                 }
                 case RespondToWindow r:
@@ -109,7 +127,20 @@ namespace LemonadeWars.Engine.Ai
                                   game.Db.StandType(s.Players[action.PlayerId].Stands
                                       .First(st => st.InstanceId == id).StandTypeId).Name))) + ")";
                 case SubmitRetarget r:
-                    return $"Retarget -> {BmName(r.TargetEquippedInstanceId ?? 0)}";
+                {
+                    string label = $"Steal {BmName(r.TargetEquippedInstanceId ?? 0)}";
+                    if (r.EquipStandInstanceId is int dest)
+                    {
+                        int destIdx = s.Players[action.PlayerId].Stands.FindIndex(x => x.InstanceId == dest);
+                        label += $" (onto stand #{destIdx + 1}" +
+                                 (r.EquipReplaceInstanceId is int rep ? $", replacing {BmName(rep)})" : ")");
+                    }
+                    else if (r.EquipReplaceInstanceId is int rep2)
+                    {
+                        label += $" (replacing {BmName(rep2)})";
+                    }
+                    return label;
+                }
                 case SkipFreePlay _:
                     return "Skip";
                 case SubmitAbilityChoice c:

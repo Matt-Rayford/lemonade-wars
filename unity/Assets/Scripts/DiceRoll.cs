@@ -155,7 +155,9 @@ namespace LemonadeWars.Unity
         public void EnqueueReroll(string rollerName, int value, bool isYou)
         {
             EnqueueRoll(
-                isYou ? "YOU REROLL THE DIE..." : $"{rollerName.ToUpperInvariant()} REROLLS THE DIE...",
+                isYou
+                    ? "YOU PLAY OUT OF STOCK — REROLLING..."
+                    : $"{rollerName.ToUpperInvariant()} PLAYS OUT OF STOCK — REROLLING...",
                 value);
         }
 
@@ -173,14 +175,16 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// A card modified the roll (Pushy Salesman, Spiked Lemonade): the settled die
+        /// A card modified the roll (Take Two, Sugared Up, Downsell): the settled die
         /// kicks up and rolls onto the new face instead of tumbling from scratch.
+        /// The owner's name says WHOSE card just changed the number.
         /// </summary>
-        public void EnqueueModifier(string sourceName, int newValue)
+        public void EnqueueModifier(string ownerName, string sourceName, int newValue, bool isYou)
         {
+            string owner = isYou ? "YOUR" : $"{ownerName.ToUpperInvariant()}'S";
             _queue.Enqueue(new Roll
             {
-                Title = $"{sourceName.ToUpperInvariant()} CHANGES THE ROLL...",
+                Title = $"{owner} {sourceName.ToUpperInvariant()} CHANGES THE ROLL...",
                 Value = Mathf.Clamp(newValue, 1, 6),
                 Flip = true,
             });

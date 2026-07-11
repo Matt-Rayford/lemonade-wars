@@ -136,6 +136,7 @@ namespace LemonadeWars.Unity
 
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview, this);
+            _table.BotLevelLookup = id => _session?.BotLevelOf(id);
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
             _table.OnAttackPick = ResolveAttackOnPlayer;
@@ -194,7 +195,7 @@ namespace LemonadeWars.Unity
             };
 
             // Built last: overlays render on top.
-            _prompt = new Prompt(root, this);
+            _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
             _dice = new DiceRoller(root);
             _dice.OnFinished = () =>
@@ -377,6 +378,9 @@ namespace LemonadeWars.Unity
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
+            _actionLog.Clear();
+            _saleEarnings = null;
+            _endShown = false;
         }
 
         /// <summary>Typed engine events drive presentation moments (dice, later: effects).</summary>
@@ -386,9 +390,30 @@ namespace LemonadeWars.Unity
             {
                 return; // autopilot is for fast testing — no theatre
             }
+            string logLine = LogLine(gameEvent);
+            if (logLine != null)
+            {
+                _actionLog.Add(logLine);
+                if (_actionLog.Count > 40)
+                {
+                    _actionLog.RemoveAt(0);
+                }
+            }
             if (gameEvent is SaleRolled roll)
             {
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
+                // Start collecting this roll's earnings for the "you earned" recap.
+                _saleEarnings = new List<string>();
+                _saleTotal = 0;
+            }
+            else if (gameEvent is StandSold sold)
+            {
+                _fx.QueueMoney(sold.PlayerId, sold.Earnings);
+                if (sold.PlayerId == _session.Seat && _saleEarnings != null)
+                {
+                    _saleEarnings.Add($"{StandName(sold.StandInstanceId)} +${sold.Earnings}");
+                    _saleTotal += sold.Earnings;
+                }
             }
             else if (gameEvent is DieRerolled reroll)
             {
@@ -397,11 +422,17 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is RollModified modified)
             {
-                _dice.EnqueueModifier(BlackMarketName(modified.SourceDefId), modified.NewValue);
+                _dice.EnqueueModifier(NameOf(modified.PlayerId), BlackMarketName(modified.SourceDefId),
+                    modified.NewValue, modified.PlayerId == _session.Seat);
             }
             else if (gameEvent is MoneyChanged money)
             {
                 _fx.QueueMoney(money.PlayerId, money.Amount);
+                if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
+                {
+                    _saleEarnings.Add($"{money.Reason} +${money.Amount}");
+                    _saleTotal += money.Amount;
+                }
             }
             else if (gameEvent is CardDrawn drawn && drawn.PlayerId == _session.Seat)
             {
@@ -594,6 +625,10 @@ namespace LemonadeWars.Unity
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
+                if (_prompt.IsOpen && _prompt.IsCancelable)
+                {
+                    _prompt.Hide();
+                }
                 _table.CancelOverlays();
             }
             if (Input.GetKeyDown(KeyCode.D) && _session != null)
@@ -605,13 +640,137 @@ namespace LemonadeWars.Unity
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
+            _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();
+            // Roll fully resolved: recap what the viewer earned. The entries collect
+            // across the Applies of a roll (windows can hold it open several frames),
+            // so flush only once the pending roll is gone.
+            if (_saleEarnings != null && View != null && View.PendingRollValue == null)
+            {
+                if (_saleEarnings.Count > 0)
+                {
+                    _fx.QueueToast($"YOU EARN ${_saleTotal}:  " +
+                        string.Join("  ·  ", _saleEarnings).ToUpperInvariant());
+                }
+                _saleEarnings = null;
+            }
+            // The final scoreboard waits for the last effects to land, then shows once.
+            if (View != null && View.Stage == GameStage.Finished && !_endShown &&
+                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen)
+            {
+                _endShown = true;
+                ShowEndSummary();
+            }
             _fx.Tick();
             TickPresentationWatchdog();
+        }
+
+        private List<string> _saleEarnings;
+        private int _saleTotal;
+        private bool _endShown;
+        private readonly List<string> _actionLog = new List<string>();
+
+        /// <summary>
+        /// Game over: announce the winner and reveal everyone's full score — in-game VP
+        /// plus the secret Lemon Lords, met or missed.
+        /// </summary>
+        private void ShowEndSummary()
+        {
+            _prompt.Hide();
+            var rows = View.Players
+                .Select(p =>
+                {
+                    int lordVp = p.FinishedLords.Count(l => l.Met);
+                    int total = p.InGameVictoryPoints + lordVp;
+                    string lords = p.FinishedLords.Count > 0
+                        ? "   [" + string.Join(", ", p.FinishedLords.Select(l =>
+                            _db.Title(l.TitleId).Name + (l.Met ? " +1" : " —"))) + "]"
+                        : "";
+                    return (total, label: $"{p.Name} — {total} VP{lords}");
+                })
+                .OrderByDescending(r => r.total)
+                .ToList();
+            string winners = string.Join(" & ", View.Winners.Select(NameOf));
+            string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
+            _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
+                new List<Texture2D>(),
+                rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
+                showCancel: true);
+        }
+
+        private string StandName(int standInstanceId)
+        {
+            foreach (var panel in View.Players)
+            {
+                foreach (var stand in panel.Stands)
+                {
+                    if (stand.InstanceId == standInstanceId)
+                    {
+                        return _db.StandType(stand.StandTypeId).Name;
+                    }
+                }
+            }
+            return "Stand";
+        }
+
+        /// <summary>
+        /// Friendly one-liner for the action log; null for events too noisy to log
+        /// (draws, individual money ticks, window bookkeeping).
+        /// </summary>
+        private string LogLine(GameEvent e)
+        {
+            switch (e)
+            {
+                case TurnStarted turn: return $"— {NameOf(turn.PlayerId)}'s turn —";
+                case LemonCardPlayed played:
+                    return $"{NameOf(played.PlayerId)} plays {LemonName(played.DefId)}" +
+                           (played.TargetPlayerId is int t ? $" on {NameOf(t)}" : "");
+                case PlayCancelled cancelled:
+                    return $"{NameOf(cancelled.OwnerId)}'s {LemonName(cancelled.DefId)} is cancelled";
+                case AttackRedirected redirect:
+                    return $"{NameOf(redirect.ByPlayerId)} tags the attack to {NameOf(redirect.NewTargetId)}";
+                case AttackReflected reflect:
+                    return $"{NameOf(reflect.ByPlayerId)} reflects the attack onto {NameOf(reflect.NewTargetId)}";
+                case AttackFizzled fizzle:
+                    return $"{NameOf(fizzle.OwnerId)}'s {LemonName(fizzle.DefId)} fizzles";
+                case StandPurchased standBuy:
+                    return $"{NameOf(standBuy.PlayerId)} buys a {_db.StandType(standBuy.StandTypeId).Name}";
+                case BlackMarketPurchased bmBuy:
+                    return $"{NameOf(bmBuy.PlayerId)} buys {BlackMarketName(bmBuy.DefId)}";
+                case BraggingRightsPurchased brag:
+                    return $"{NameOf(brag.PlayerId)} buys Bragging Rights (${brag.Price})";
+                case TitleClaimed title:
+                    return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
+                case SaleRolled rolled:
+                    return $"{NameOf(rolled.PlayerId)} rolls a {rolled.Value}";
+                case DieRerolled reroll:
+                    return $"{NameOf(reroll.ByPlayerId)} plays Out of Stock — reroll: {reroll.NewValue}";
+                case RollModified modified:
+                    return $"{NameOf(modified.PlayerId)}'s {BlackMarketName(modified.SourceDefId)} " +
+                           $"changes the roll to {modified.NewValue}";
+                case MoneyStolen theft:
+                    return $"{NameOf(theft.ToPlayerId)} steals ${theft.Amount} from {NameOf(theft.FromPlayerId)}";
+                case CardsStolen cards:
+                    return $"{NameOf(cards.ToPlayerId)} steals {cards.Count} card(s) from {NameOf(cards.FromPlayerId)}";
+                case HandsTraded traded:
+                    return $"{NameOf(traded.PlayerA)} and {NameOf(traded.PlayerB)} trade hands";
+                case TimeoutDrawn timeout:
+                    return $"{NameOf(timeout.PlayerId)} draws a Timeout!";
+                case WhiniestBabyMoved baby when baby.ToPlayerId is int b:
+                    return $"{NameOf(b)} is now the Whiniest Baby";
+                case SpoiledRottenMoved rotten when rotten.ToPlayerId is int r:
+                    return $"{NameOf(r)} is now Spoiled Rotten";
+                case TrapPlaced trap:
+                    return $"{NameOf(trap.OwnerId)} sets a trap on {NameOf(trap.OnPlayerId)}'s turf";
+                case GameEnded ended:
+                    return $"Game over — {string.Join(", ", ended.Winners.Select(NameOf))} wins!";
+                default:
+                    return null;
+            }
         }
 
         private float _stuckSince = -1f;
@@ -1127,8 +1286,93 @@ namespace LemonadeWars.Unity
         private List<Prompt.Option> ToOptions(IEnumerable<GameAction> moves)
         {
             return moves
-                .Select(m => new Prompt.Option(_session.LabelFor(m), () => Submit(m)))
+                .Select(m => new Prompt.Option(_session.LabelFor(m), () => Submit(m), ArtForMove(m)))
                 .ToList();
+        }
+
+        /// <summary>
+        /// The card an option would play, so response buttons ("Respond with Tantrum")
+        /// can show what the card actually does. Null for card-less moves (Pass, buys).
+        /// </summary>
+        private Texture2D ArtForMove(GameAction move)
+        {
+            switch (move)
+            {
+                case RespondToWindow respond when respond.EquippedInstanceId is int eq:
+                    return EquippedArt(eq);
+                case RespondToWindow respond:
+                    return HandArt(respond.CardInstanceId);
+                case UseTurnAbility ability:
+                    return EquippedArt(ability.EquippedInstanceId);
+                case PlayLemonCard play when play.TargetEquippedInstanceId is int loot:
+                    // Steal variants: show the LOOT, not the (identical) attack card.
+                    return EquippedArt(loot);
+                case PlayLemonCard play:
+                    return HandArt(play.CardInstanceId);
+                case SubmitRetarget retarget when retarget.TargetEquippedInstanceId is int newLoot:
+                    return EquippedArt(newLoot);
+                case SubmitAbilityChoice choice when choice.EquippedInstanceId is int copy:
+                    return EquippedArt(copy);
+                default:
+                    return null;
+            }
+        }
+
+        private Texture2D HandArt(int instanceId)
+        {
+            var card = View.Hand.FirstOrDefault(c => c.InstanceId == instanceId);
+            return card == null ? null : _art.Lemon(card.DefId);
+        }
+
+        private Texture2D EquippedArt(int instanceId)
+        {
+            var info = EquippedInfoOf(instanceId);
+            return info == null ? null : _art.BlackMarket(info.DefId, info.Shape ?? Shape.Square);
+        }
+
+        private PlayerView.CardInfo EquippedInfoOf(int instanceId)
+        {
+            foreach (var panel in View.Players)
+            {
+                foreach (var card in panel.TurfEquipped)
+                {
+                    if (card.InstanceId == instanceId)
+                    {
+                        return card;
+                    }
+                }
+                foreach (var stand in panel.Stands)
+                {
+                    foreach (var card in stand.Equipped)
+                    {
+                        if (card.InstanceId == instanceId)
+                        {
+                            return card;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <summary>"Juice Box Joey: do the thing" when the ability's source card is known.</summary>
+        private string Prefixed(PlayerView.DecisionInfo decision, string action)
+        {
+            string source = SourceCardName(decision);
+            return source != null
+                ? $"{source}: {action}"
+                : char.ToUpperInvariant(action[0]) + action.Substring(1);
+        }
+
+        /// <summary>"Juice Box Joey" for a decision raised by an equipped ability; null otherwise.</summary>
+        private string SourceCardName(PlayerView.DecisionInfo decision)
+        {
+            if (!(decision?.SourceInstanceId is int src))
+            {
+                return null;
+            }
+            var info = EquippedInfoOf(src);
+            return info == null ? null : BlackMarketName(info.DefId);
         }
 
         // ----------------------------------------------------------- render
@@ -1166,7 +1410,7 @@ namespace LemonadeWars.Unity
                 RenderStatus();
                 RenderBanner();
                 _table.Render(View, _db, groups);
-                _table.SetLog(_session.Log);
+                _table.SetLog(_actionLog);
                 RenderActionBar(groups);
             }
             catch (System.Exception e)
@@ -1247,6 +1491,13 @@ namespace LemonadeWars.Unity
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
                          (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
+                // The table is stalled on someone else: say who, so a quiet moment
+                // (their response window, their discard) never reads as a hang.
+                if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
+                {
+                    string verb = View.StackTop != null ? " to respond" : "";
+                    status += $"  |  WAITING ON {string.Join(", ", View.ActingPlayers.Select(NameOf)).ToUpperInvariant()}{verb}";
+                }
             }
             _statusText.text = status;
         }
@@ -1336,7 +1587,12 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            _prompt.Show(ModalTitle(), ModalCards(), ToOptions(groups.ModalMoves), showCancel: false);
+            // Skip/Pass lead the list: with dozens of play variants below, the "do
+            // nothing" escape hatch must never scroll off-screen.
+            var orderedMoves = groups.ModalMoves
+                .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
+                .ToList();
+            _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
         }
 
         /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>
@@ -1408,21 +1664,21 @@ namespace LemonadeWars.Unity
                 case DecisionKind.AbilityDiscard:
                     pool = View.Hand.ToList();
                     required = decision.RequiredCount;
-                    title = $"Discard {required} card(s)";
+                    title = Prefixed(decision, $"discard {required} card(s)");
                     accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
                 case DecisionKind.AbilityPickCard:
                     pool = View.RevealedHand ?? new List<PlayerView.CardInfo>();
                     required = 1;
-                    title = $"Pick a card from {NameOf(decision.ChosenPlayerId ?? 0)}'s hand";
+                    title = Prefixed(decision, $"pick a card from {NameOf(decision.ChosenPlayerId ?? 0)}'s hand");
                     accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
                 case DecisionKind.AbilityGiveBack:
                     pool = View.Hand.Where(c => c.InstanceId != decision.StolenCardId).ToList();
                     required = 1;
-                    title = "Give back a different card";
+                    title = Prefixed(decision, "give back a different card");
                     accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
                     break;
 
@@ -1443,14 +1699,20 @@ namespace LemonadeWars.Unity
             var decision = View.MyDecisions.FirstOrDefault();
             if (decision != null)
             {
+                // Name the equipped card behind an ability decision: "you're robbing
+                // because of Juice Box Joey" beats a bare "choose who to rob".
+                string source = SourceCardName(decision);
                 switch (decision.Kind)
                 {
-                    case DecisionKind.TimeoutFine: return "Timeout! Pay your tantrum fine";
+                    case DecisionKind.TimeoutFine:
+                        return $"Timeout! Pay the ${decision.RequiredMoney} fine " +
+                               $"(you have ${View.Players[View.ViewerId].Money})";
                     case DecisionKind.AttackRetarget: return "Your attack was redirected — pick a new target";
                     case DecisionKind.FreePlayOffer: return "Smear Campaign: free play?";
                     case DecisionKind.ForcedPlay: return "Reverse Engineer: play the recovered card";
                     case DecisionKind.BouncerAttack: return "Bouncer: strike back?";
-                    case DecisionKind.AbilityVictim: return "Choose who to rob";
+                    case DecisionKind.AbilityVictim:
+                        return source != null ? $"{source}: choose who to rob" : "Choose who to rob";
                     case DecisionKind.InnovationCopy: return "Innovation: copy which ability?";
                     case DecisionKind.WordOfMouthStand: return "Word of Mouth: which stand sells?";
                     default: return decision.Kind.ToString();
@@ -1466,7 +1728,13 @@ namespace LemonadeWars.Unity
                 {
                     // The single attack moment: who hits whom, reactions right below.
                     string victim = t == View.ViewerId ? "you" : NameOf(t);
-                    return $"{NameOf(top.OwnerId)} attacks {victim} with {cardName}!";
+                    string title = $"{NameOf(top.OwnerId)} attacks {victim} with {cardName}!";
+                    if (!string.IsNullOrEmpty(top.StolenDefId))
+                    {
+                        // Finders Keepers / That's Not Fair: name the loot.
+                        title += $"  Target: {_db.BlackMarket(top.StolenDefId).Name}.";
+                    }
+                    return title;
                 }
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
@@ -1487,12 +1755,27 @@ namespace LemonadeWars.Unity
         private List<Texture2D> ModalCards()
         {
             var cards = new List<Texture2D>();
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision?.SourceInstanceId is int src)
+            {
+                // The equipped card whose ability is asking — the "why" of this modal.
+                var sourceArt = EquippedArt(src);
+                if (sourceArt != null)
+                {
+                    cards.Add(sourceArt);
+                }
+            }
             if (View.StackTop != null)
             {
                 var top = View.StackTop;
                 cards.Add(top.IsPurchase
                     ? _art.BlackMarket(top.DefId, top.Shape ?? Shape.Square)
                     : _art.Lemon(top.DefId));
+                if (!string.IsNullOrEmpty(top.StolenDefId))
+                {
+                    // Show what the steal is aimed at, right next to the attack.
+                    cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
             }
             return cards;
         }

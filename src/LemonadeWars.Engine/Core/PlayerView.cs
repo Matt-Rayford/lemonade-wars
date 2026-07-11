@@ -79,6 +79,8 @@ namespace LemonadeWars.Engine.Core
             public List<string> FirstDibsClaimed { get; set; } = new List<string>();
             public int BraggingRights { get; set; }
             public int InGameVictoryPoints { get; set; }
+            /// <summary>Kept Lemon Lords — revealed to everyone once the game is Finished.</summary>
+            public List<LordStatus> FinishedLords { get; set; } = new List<LordStatus>();
         }
 
         public sealed class StandPanel
@@ -112,6 +114,9 @@ namespace LemonadeWars.Engine.Core
             public string DefId { get; set; } = "";
             public Shape? Shape { get; set; }
             public int? AttackTargetId { get; set; }
+            /// <summary>Finders Keepers / That's Not Fair: the equipped card being taken (public table info).</summary>
+            public string? StolenDefId { get; set; }
+            public Shape? StolenShape { get; set; }
         }
 
         public sealed class DecisionInfo
@@ -123,6 +128,8 @@ namespace LemonadeWars.Engine.Core
             public int? ChosenPlayerId { get; set; }
             public int? CardInstanceId { get; set; }
             public int? StackItemId { get; set; }
+            /// <summary>The equipped Black Market card whose ability raised this decision.</summary>
+            public int? SourceInstanceId { get; set; }
             /// <summary>When set, only these hand cards may answer (Whiniest Baby's drawn pair).</summary>
             public List<int>? EligibleCardIds { get; set; }
         }
@@ -204,6 +211,7 @@ namespace LemonadeWars.Engine.Core
                         ChosenPlayerId = d.ChosenPlayerId,
                         CardInstanceId = d.CardInstanceId,
                         StackItemId = d.StackItemId,
+                        SourceInstanceId = d.SourceInstanceId,
                         EligibleCardIds = d.EligibleCardIds?.ToList(),
                     }).ToList(),
                 Winners = State.Winners.ToList(),
@@ -224,6 +232,12 @@ namespace LemonadeWars.Engine.Core
                         : (Shape?)null,
                     AttackTargetId = top.AttackTargetId,
                 };
+                if (top.TargetEquippedInstanceId is int stolen &&
+                    State.BlackMarketInstances.TryGetValue(stolen, out var stolenInstance))
+                {
+                    view.StackTop.StolenDefId = stolenInstance.DefId;
+                    view.StackTop.StolenShape = stolenInstance.Shape;
+                }
             }
 
             // Don's Blessings: the ability owner looks at the victim's hand while picking.
@@ -250,6 +264,13 @@ namespace LemonadeWars.Engine.Core
                     FirstDibsClaimed = p.FirstDibsClaimed.ToList(),
                     BraggingRights = p.BraggingRights,
                     InGameVictoryPoints = p.InGameVictoryPoints,
+                    FinishedLords = State.Stage == GameStage.Finished
+                        ? p.LemonLordKept.Select(id => new PlayerView.LordStatus
+                        {
+                            TitleId = id,
+                            Met = MeetsLemonLord(p, id),
+                        }).ToList()
+                        : new List<PlayerView.LordStatus>(),
                     Stands = p.Stands.Select(s => new PlayerView.StandPanel
                     {
                         InstanceId = s.InstanceId,

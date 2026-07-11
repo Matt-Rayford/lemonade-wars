@@ -36,6 +36,8 @@ namespace LemonadeWars.Unity
         void Submit(GameAction action);
         /// <summary>Advance bots / pump the socket. Call every frame.</summary>
         void Tick();
+        /// <summary>"easy"/"medium"/"hard" for bot seats, null for humans.</summary>
+        string BotLevelOf(int playerId);
     }
 
     // ------------------------------------------------------------------ local
@@ -43,7 +45,9 @@ namespace LemonadeWars.Unity
     /// <summary>Single-machine play: our Game, our bots, zero latency.</summary>
     public sealed class LocalGameSession : IGameSession
     {
-        private const float BotStepSeconds = 0.35f;
+        // Play-tester verdict: 0.35s reads as a blur — a human-ish beat between bot
+        // actions lets the log/floaters land before the next thing happens.
+        private const float BotStepSeconds = 1.0f;
 
         private readonly Game _game;
         private readonly Dictionary<int, IBot> _bots = new Dictionary<int, IBot>();
@@ -72,13 +76,20 @@ namespace LemonadeWars.Unity
                     string level = botLevels != null && botIndex < botLevels.Count
                         ? botLevels[botIndex]
                         : BotFactory.Medium;
+                    level = BotFactory.Normalize(level);
                     _bots[i] = BotFactory.Create(level, seed * 77UL + (ulong)i);
+                    _botLevels[i] = level;
                     botIndex++;
                 }
             }
             AddLog($"New game — {names.Length} players, you are {names[humanSeat]}.");
             Refresh();
         }
+
+        private readonly Dictionary<int, string> _botLevels = new Dictionary<int, string>();
+
+        public string BotLevelOf(int playerId) =>
+            _botLevels.TryGetValue(playerId, out var level) ? level : null;
 
         public string LabelFor(GameAction move) => MoveDescriber.Describe(_game, move);
 
@@ -248,6 +259,12 @@ namespace LemonadeWars.Unity
         public int Seat => Room.YourSeat;
         public bool HumanAutoplay { get; set; }
         public event Action<GameEvent> EventEmitted;
+
+        public string BotLevelOf(int playerId)
+        {
+            var seat = Room.Seats.FirstOrDefault(s => s.Seat == playerId);
+            return seat != null && seat.IsBot ? BotFactory.Normalize(seat.BotLevel) : null;
+        }
 
         public static RemoteGameSession Connect(string url)
         {
