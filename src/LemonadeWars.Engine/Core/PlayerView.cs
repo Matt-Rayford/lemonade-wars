@@ -79,6 +79,8 @@ namespace LemonadeWars.Engine.Core
             public List<string> FirstDibsClaimed { get; set; } = new List<string>();
             public int BraggingRights { get; set; }
             public int InGameVictoryPoints { get; set; }
+            /// <summary>Kept Lemon Lords — revealed to everyone once the game is Finished.</summary>
+            public List<LordStatus> FinishedLords { get; set; } = new List<LordStatus>();
         }
 
         public sealed class StandPanel
@@ -262,6 +264,13 @@ namespace LemonadeWars.Engine.Core
                     FirstDibsClaimed = p.FirstDibsClaimed.ToList(),
                     BraggingRights = p.BraggingRights,
                     InGameVictoryPoints = p.InGameVictoryPoints,
+                    FinishedLords = State.Stage == GameStage.Finished
+                        ? p.LemonLordKept.Select(id => new PlayerView.LordStatus
+                        {
+                            TitleId = id,
+                            Met = MeetsLemonLord(p, id),
+                        }).ToList()
+                        : new List<PlayerView.LordStatus>(),
                     Stands = p.Stands.Select(s => new PlayerView.StandPanel
                     {
                         InstanceId = s.InstanceId,

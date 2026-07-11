@@ -380,6 +380,7 @@ namespace LemonadeWars.Unity
             _wasMyTurn = false;
             _actionLog.Clear();
             _saleEarnings = null;
+            _endShown = false;
         }
 
         /// <summary>Typed engine events drive presentation moments (dice, later: effects).</summary>
@@ -624,6 +625,10 @@ namespace LemonadeWars.Unity
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
+                if (_prompt.IsOpen && _prompt.IsCancelable)
+                {
+                    _prompt.Hide();
+                }
                 _table.CancelOverlays();
             }
             if (Input.GetKeyDown(KeyCode.D) && _session != null)
@@ -635,6 +640,7 @@ namespace LemonadeWars.Unity
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
+            _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
             _dice.Tick();
             // Render first: the turn banner opens in there, and the effects tick must
@@ -652,13 +658,49 @@ namespace LemonadeWars.Unity
                 }
                 _saleEarnings = null;
             }
+            // The final scoreboard waits for the last effects to land, then shows once.
+            if (View != null && View.Stage == GameStage.Finished && !_endShown &&
+                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen)
+            {
+                _endShown = true;
+                ShowEndSummary();
+            }
             _fx.Tick();
             TickPresentationWatchdog();
         }
 
         private List<string> _saleEarnings;
         private int _saleTotal;
+        private bool _endShown;
         private readonly List<string> _actionLog = new List<string>();
+
+        /// <summary>
+        /// Game over: announce the winner and reveal everyone's full score — in-game VP
+        /// plus the secret Lemon Lords, met or missed.
+        /// </summary>
+        private void ShowEndSummary()
+        {
+            _prompt.Hide();
+            var rows = View.Players
+                .Select(p =>
+                {
+                    int lordVp = p.FinishedLords.Count(l => l.Met);
+                    int total = p.InGameVictoryPoints + lordVp;
+                    string lords = p.FinishedLords.Count > 0
+                        ? "   [" + string.Join(", ", p.FinishedLords.Select(l =>
+                            _db.Title(l.TitleId).Name + (l.Met ? " +1" : " —"))) + "]"
+                        : "";
+                    return (total, label: $"{p.Name} — {total} VP{lords}");
+                })
+                .OrderByDescending(r => r.total)
+                .ToList();
+            string winners = string.Join(" & ", View.Winners.Select(NameOf));
+            string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
+            _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
+                new List<Texture2D>(),
+                rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
+                showCancel: true);
+        }
 
         private string StandName(int standInstanceId)
         {
@@ -1545,7 +1587,12 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            _prompt.Show(ModalTitle(), ModalCards(), ToOptions(groups.ModalMoves), showCancel: false);
+            // Skip/Pass lead the list: with dozens of play variants below, the "do
+            // nothing" escape hatch must never scroll off-screen.
+            var orderedMoves = groups.ModalMoves
+                .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
+                .ToList();
+            _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
         }
 
         /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>

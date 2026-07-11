@@ -37,8 +37,12 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _root;
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
+        private RectTransform _cancelHost;
+        private TMP_Text _moreHint;
 
         public bool IsOpen { get; private set; }
+        /// <summary>True while an optional (dismissable) prompt is up — Esc may close it.</summary>
+        public bool IsCancelable { get; private set; }
         /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
         public bool RootVisible => _root.gameObject.activeSelf;
 
@@ -71,11 +75,24 @@ namespace LemonadeWars.Unity
             rowLayout.childControlHeight = true;
             _cardStrip = (RectTransform)rowGo.transform;
 
-            // Options flow in a centered column below the card.
+            // Options flow in a centered column below the card. The scroll area stops
+            // short of the bottom: Cancel lives OUTSIDE it, pinned and always visible,
+            // so a flooded option list can never hide the way out.
             var listHost = UiKit.CreatePanel(_root, "Options", new Color(0, 0, 0, 0));
             UiKit.Anchor(listHost, new Vector2(0.27f, 0.03f), new Vector2(0.73f, 0.44f));
-            _optionList = UiKit.CreateScrollList(listHost);
+            var scrollHost = UiKit.CreatePanel(listHost, "OptionScroll", new Color(0, 0, 0, 0));
+            UiKit.Anchor(scrollHost, new Vector2(0, 0.17f), new Vector2(1, 1));
+            _optionList = UiKit.CreateScrollList(scrollHost);
             _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
+
+            _moreHint = UiKit.CreateText(listHost, "scroll for more options", 13,
+                TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f, 0.9f), body: true);
+            _moreHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_moreHint.transform, new Vector2(0, 0.155f), new Vector2(1, 0.21f));
+            UiKit.AddTextShadow(_moreHint);
+
+            _cancelHost = UiKit.CreatePanel(listHost, "CancelRow", new Color(0, 0, 0, 0));
+            UiKit.Anchor(_cancelHost, new Vector2(0, 0), new Vector2(1, 0.14f));
 
             _root.gameObject.SetActive(false);
         }
@@ -103,13 +120,21 @@ namespace LemonadeWars.Unity
             }
 
             UiKit.Clear(_optionList);
+            UiKit.Clear(_cancelHost);
+            IsCancelable = showCancel;
+            // Big lists compress so more choices fit before scrolling starts.
+            bool compact = options.Count > 8;
             foreach (var option in options)
             {
-                AddOptionButton(option.Label, option.OnPick, emphasized: true, option.Card);
+                AddOptionButton(_optionList, option.Label, option.OnPick,
+                    emphasized: true, option.Card, compact);
             }
+            _moreHint.gameObject.SetActive(options.Count > 9);
             if (showCancel)
             {
-                AddOptionButton("Cancel", null, emphasized: false, null);
+                var cancel = AddOptionButton(_cancelHost, "Cancel", null,
+                    emphasized: false, null, compact: false);
+                UiKit.Anchor((RectTransform)cancel.transform, Vector2.zero, Vector2.one);
             }
 
             // Appears next frame, once the backdrop blur has been captured.
@@ -119,24 +144,26 @@ namespace LemonadeWars.Unity
         public void Hide()
         {
             IsOpen = false;
+            IsCancelable = false;
             _root.gameObject.SetActive(false);
             _backdrop.Hide();
         }
 
         /// <summary>Dark rounded button that turns lemonade-yellow on hover.</summary>
-        private void AddOptionButton(string label, System.Action onPick, bool emphasized, Texture2D card)
+        private GameObject AddOptionButton(RectTransform parent, string label, System.Action onPick,
+            bool emphasized, Texture2D card, bool compact)
         {
             var go = new GameObject("Option", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
-            go.transform.SetParent(_optionList, false);
+            go.transform.SetParent(parent, false);
             var background = go.GetComponent<Image>();
             background.sprite = UiSprites.RoundedRect;
             background.type = Image.Type.Sliced;
             background.color = ButtonIdle;
             var layout = go.GetComponent<LayoutElement>();
-            layout.minHeight = 46;
+            layout.minHeight = compact ? 34 : 46;
             layout.flexibleWidth = 1;
 
-            var text = UiKit.CreateText(go.transform, label, 18, TextAnchor.MiddleCenter,
+            var text = UiKit.CreateText(go.transform, label, compact ? 15 : 18, TextAnchor.MiddleCenter,
                 emphasized ? TextIdle : new Color(0.75f, 0.75f, 0.75f));
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
                 new Vector2(12, 2), new Vector2(card != null ? -44 : -12, -2));
@@ -150,7 +177,7 @@ namespace LemonadeWars.Unity
                 var thumbRect = (RectTransform)thumbGo.transform;
                 thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
                 thumbRect.pivot = new Vector2(1f, 0.5f);
-                thumbRect.sizeDelta = new Vector2(28f, 39f);
+                thumbRect.sizeDelta = compact ? new Vector2(22f, 30f) : new Vector2(28f, 39f);
                 thumbRect.anchoredPosition = new Vector2(-8f, 0);
                 var thumbImage = thumbGo.GetComponent<RawImage>();
                 thumbImage.texture = card;
@@ -174,6 +201,7 @@ namespace LemonadeWars.Unity
                 Hide();
                 onPick?.Invoke();
             });
+            return go;
         }
     }
 

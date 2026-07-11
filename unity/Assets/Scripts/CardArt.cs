@@ -23,8 +23,17 @@ namespace LemonadeWars.Unity
             _manifest = JObject.Parse(File.ReadAllText(manifestPath));
         }
 
-        public Texture2D Lemon(string defId) =>
-            Load((string)_manifest["lemon"]?[defId]);
+        public Texture2D Lemon(string defId)
+        {
+            var token = _manifest["lemon"]?[defId];
+            if (token == null)
+            {
+                // Timeouts live in the supporting section but flow through the Lemon
+                // discard, so the viewer asks for them here.
+                token = _manifest["supporting"]?[defId];
+            }
+            return Load(token is JArray variants ? (string)variants.First : (string)token);
+        }
 
         public Texture2D BlackMarket(string defId, Shape shape) =>
             Load((string)_manifest["blackMarket"]?[defId]?[shape.ToString().ToLowerInvariant()]);
