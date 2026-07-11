@@ -188,6 +188,11 @@ namespace LemonadeWars.Unity
             playersLayout.childControlWidth = true;
             _playersColumn = (RectTransform)playersGo.transform;
 
+            // Right column, mirroring the player panels: the action log. Collapsed
+            // it's one slim "latest thing that happened" chip; expanded it's the
+            // recent history — fast bot turns can be replayed at a glance.
+            BuildActionLog();
+
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
             var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
@@ -874,10 +879,106 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ render
 
-        /// <summary>The on-table log is retired for now (First Dibs lives there); kept
-        /// as a no-op until the log returns somewhere nicer.</summary>
+        // ------------------------------------------------------- action log
+
+        private RectTransform _logCollapsed;
+        private RectTransform _logExpandedPanel;
+        private RectTransform _logList;
+        private TMP_Text _logLatest;
+        private readonly List<string> _logLines = new List<string>();
+        private bool _logExpanded;
+        private string _logSignature = "";
+
+        private void BuildActionLog()
+        {
+            var zone = UiKit.CreatePanel(Root, "ActionLog", new Color(0, 0, 0, 0));
+            zone.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(zone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
+                new Vector2(4, 0), new Vector2(-10, -4));
+
+            // Collapsed: the latest line on a slim chip at the zone's bottom.
+            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
+            UiKit.Anchor(_logCollapsed, new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(0, 0), new Vector2(0, 26));
+            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
+                new Color(0.86f, 0.88f, 0.92f), body: true);
+            _logLatest.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(-26, 0));
+            var expandHint = UiKit.CreateText(_logCollapsed, "+", 15, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            expandHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)expandHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+                new Vector2(-24, 0), new Vector2(-4, 0));
+            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
+            _logCollapsed.gameObject.SetActive(false);
+
+            // Expanded: the recent history, newest at the top, header click collapses.
+            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
+            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one);
+            var header = UiKit.CreatePanel(_logExpandedPanel, "LogHeader", new Color(0, 0, 0, 0.45f));
+            UiKit.Anchor(header, new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -24), new Vector2(0, 0));
+            var headerText = UiKit.CreateText(header, "ACTION LOG", 13, TextAnchor.MiddleLeft,
+                new Color(1f, 0.92f, 0.55f));
+            headerText.raycastTarget = false;
+            UiKit.Anchor((RectTransform)headerText.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(0, 0));
+            var collapseHint = UiKit.CreateText(header, "–", 15, TextAnchor.MiddleCenter,
+                new Color(1f, 0.92f, 0.55f));
+            collapseHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)collapseHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+                new Vector2(-24, 0), new Vector2(-4, 0));
+            UiKit.AddClick(header.gameObject, ToggleLog);
+            var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
+            listHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -26));
+            _logList = UiKit.CreateScrollList(listHost);
+            _logList.GetComponent<VerticalLayoutGroup>().spacing = 2;
+            _logExpandedPanel.gameObject.SetActive(false);
+        }
+
+        private void ToggleLog()
+        {
+            _logExpanded = !_logExpanded;
+            _logExpandedPanel.gameObject.SetActive(_logExpanded);
+            RenderLog();
+        }
+
+        /// <summary>Feed the friendly action-log lines (oldest first).</summary>
         public void SetLog(IEnumerable<string> lines)
         {
+            _logLines.Clear();
+            if (lines != null)
+            {
+                _logLines.AddRange(lines);
+            }
+            string signature = _logLines.Count + "|" +
+                (_logLines.Count > 0 ? _logLines[_logLines.Count - 1] : "");
+            if (signature == _logSignature)
+            {
+                return;
+            }
+            _logSignature = signature;
+            RenderLog();
+        }
+
+        private void RenderLog()
+        {
+            _logLatest.text = _logLines.Count > 0 ? _logLines[_logLines.Count - 1] : "";
+            _logCollapsed.gameObject.SetActive(!_logExpanded && _logLines.Count > 0);
+            if (!_logExpanded)
+            {
+                return;
+            }
+            UiKit.Clear(_logList);
+            for (int i = _logLines.Count - 1; i >= 0; i--)
+            {
+                var line = UiKit.CreateText(_logList, _logLines[i], 13, TextAnchor.MiddleLeft,
+                    i == _logLines.Count - 1 ? Color.white : new Color(0.78f, 0.80f, 0.84f),
+                    body: true);
+                line.gameObject.AddComponent<LayoutElement>().minHeight = 18;
+            }
         }
 
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)

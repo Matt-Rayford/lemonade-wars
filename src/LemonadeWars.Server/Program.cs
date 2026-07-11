@@ -12,7 +12,7 @@ string dataDir = Environment.GetEnvironmentVariable("DATA_DIR")
     ?? Path.Combine(AppContext.BaseDirectory, "rooms");
 int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int d)
     ? d
-    : 600;
+    : 1100;
 var connections = new ConnectionRegistry();
 var rooms = new RoomManager(db, dataDir, botDelayMs, connections.NotifyTurn);
 var players = new PlayerRegistry(dataDir);

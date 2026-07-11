@@ -778,14 +778,18 @@ namespace LemonadeWars.Engine.Core
         {
             if (def.Target == EquipTarget.Stand)
             {
+                // Free slots first: the top option (and a tie-breaking greedy bot)
+                // should never silently trash an existing upgrade.
                 foreach (var stand in player.Stands)
                 {
-                    int limit = Db.StandType(stand.StandTypeId).UpgradeSlots;
-                    if (stand.Equipped.Count < limit)
+                    if (stand.Equipped.Count < Db.StandType(stand.StandTypeId).UpgradeSlots)
                     {
                         yield return (stand.InstanceId, null);
                     }
-                    else
+                }
+                foreach (var stand in player.Stands)
+                {
+                    if (stand.Equipped.Count >= Db.StandType(stand.StandTypeId).UpgradeSlots)
                     {
                         foreach (int replace in stand.Equipped)
                         {

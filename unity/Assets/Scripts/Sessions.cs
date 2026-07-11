@@ -45,7 +45,9 @@ namespace LemonadeWars.Unity
     /// <summary>Single-machine play: our Game, our bots, zero latency.</summary>
     public sealed class LocalGameSession : IGameSession
     {
-        private const float BotStepSeconds = 0.35f;
+        // Play-tester verdict: 0.35s reads as a blur — a human-ish beat between bot
+        // actions lets the log/floaters land before the next thing happens.
+        private const float BotStepSeconds = 1.0f;
 
         private readonly Game _game;
         private readonly Dictionary<int, IBot> _bots = new Dictionary<int, IBot>();

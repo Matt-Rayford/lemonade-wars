@@ -196,9 +196,9 @@ namespace LemonadeWars.Engine.Ai
                 case "steal-the-cashbox":
                     return target == null ? 0 : 18 + target.Stands.Count * 3;
                 case "thats-not-fair":
-                    return 34;
+                    return 22 + StolenValue(game, me, play);
                 case "finders-keepers":
-                    return 38;
+                    return 26 + StolenValue(game, me, play);
                 case "connections":
                     return 44; // a free Black Market card
                 case "reduce-and-reuse":
@@ -215,6 +215,36 @@ namespace LemonadeWars.Engine.Ai
                     return game.State.WhiniestBabyHolder == me.PlayerId ? 40 : 12;
                 default:
                     return 10;
+            }
+        }
+
+        /// <summary>
+        /// How much the equipped card a steal would take is worth TO US — so the bot grabs
+        /// the Diluted Lemonade, not whatever enumerates first.
+        /// </summary>
+        private static double StolenValue(Game game, PlayerState me, PlayLemonCard play)
+        {
+            if (!(play.TargetEquippedInstanceId is int eq) ||
+                !game.State.BlackMarketInstances.TryGetValue(eq, out var instance))
+            {
+                return 6;
+            }
+            var def = game.Db.BlackMarket(instance.DefId);
+            switch (def.Name)
+            {
+                case "Diluted Lemonade": return 12;   // flat +$2 on every sale
+                case "Pushy Salesman": return 9;
+                case "Spiked Lemonade":
+                    return def.Number is int pour && game.PourNumbersOf(me).Contains(pour) ? 3 : 9;
+                case "Pink Lemonade": return 7;
+                default:
+                    switch (def.Timing)
+                    {
+                        case EffectTiming.OnSale: return 8;
+                        case EffectTiming.PowerPour: return 6;
+                        case EffectTiming.OnYourTurn: return 5;
+                        default: return def.Category == "Defense" ? 6 : 4;
+                    }
             }
         }
 
