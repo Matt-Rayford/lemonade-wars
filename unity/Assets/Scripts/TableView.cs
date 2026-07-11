@@ -101,6 +101,8 @@ namespace LemonadeWars.Unity
         private bool _viewingOwnBoard = true;
         /// <summary>Whose board the table currently shows; -1 = your own.</summary>
         public int ViewedBoardPlayer = -1;
+        /// <summary>playerId -> "easy"/"medium"/"hard" for bot seats, null for humans.</summary>
+        public System.Func<int, string> BotLevelLookup;
         /// <summary>Fired when the player switches whose board is displayed.</summary>
         public System.Action OnBoardViewChanged;
         private RectTransform _marketRow;
@@ -1575,9 +1577,18 @@ namespace LemonadeWars.Unity
             letter.raycastTarget = false;
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
-            // Name on top, VP / Cash below.
+            // Name on top, VP / Cash below. Bot seats wear their difficulty in the
+            // same colors as the lobby chips.
+            string nameLabel = player.Name + (isMe ? "  (you)" : "");
+            string botLevel = BotLevelLookup?.Invoke(playerId);
+            if (!string.IsNullOrEmpty(botLevel))
+            {
+                string levelColor = botLevel == "hard" ? "#FF9E73"
+                    : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
+                nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";
+            }
             var nameText = UiKit.CreateText(row.transform,
-                player.Name + (isMe ? "  (you)" : ""), 19, TextAnchor.LowerLeft, Color.white);
+                nameLabel, 19, TextAnchor.LowerLeft, Color.white);
             nameText.raycastTarget = false;
             UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.5f), new Vector2(1, 1),
                 new Vector2(80, 2), new Vector2(-52, -8));

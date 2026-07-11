@@ -82,9 +82,11 @@ namespace LemonadeWars.Engine.Ai
                 case ChooseLemonLords choose:
                     return choose.KeepTitleIds.Sum(id => LordAffinity(id));
                 case InitialBuyStand buyStand:
-                    // Classic first for the mid-range economy, then bargain for frequency.
-                    return buyStand.StandTypeId == "classic" ? 60
-                        : buyStand.StandTypeId == "bargain" ? 55 : 50;
+                    // Classic first for the mid-range economy, then bargain for frequency —
+                    // unless an unclaimed First Dibs stand title tips the scales.
+                    return (buyStand.StandTypeId == "classic" ? 60
+                        : buyStand.StandTypeId == "bargain" ? 55 : 50)
+                        + StandTitleBonus(game, me, buyStand.StandTypeId);
                 case InitialBuyEnd _:
                     return 5;
 
@@ -106,12 +108,12 @@ namespace LemonadeWars.Engine.Ai
                     }
                     double typeValue = buy.StandTypeId == "gourmet" ? 46
                         : buy.StandTypeId == "classic" ? 48 : 44;
-                    return typeValue - me.Stands.Count * 4;
+                    return typeValue - me.Stands.Count * 4 + StandTitleBonus(game, me, buy.StandTypeId);
                 }
                 case BuyBlackMarket bm:
                 {
                     var def = game.Db.BlackMarket(s.BlackMarketInstances[s.Market[bm.MarketIndex]].DefId);
-                    double value = 30 + BmAffinity(def) - def.Cost * 0.5;
+                    double value = 30 + BmAffinity(game, me, def, bm) - def.Cost * 0.5;
                     // Replacing an existing card is usually a downgrade path.
                     if (bm.ReplaceInstanceId != null)
                     {
@@ -297,13 +299,64 @@ namespace LemonadeWars.Engine.Ai
             }
         }
 
+        /// <summary>
+        /// Pull toward the stand type an unclaimed First Dibs title rewards (penny-pincher:
+        /// 5 bargain, local-legend: 4 classic, connoisseur: 3 gourmet + 1 other). Grows with
+        /// each matching stand owned, so a bot that starts a collection commits to it.
+        /// </summary>
+        private static double StandTitleBonus(Game game, PlayerState me, string standTypeId)
+        {
+            var row = game.State.FirstDibsRow;
+            int Owned(string type) => me.Stands.Count(st => st.StandTypeId == type);
+            if (standTypeId == "bargain" && row.Contains("penny-pincher") && Owned("bargain") < 5)
+            {
+                return 6 + Owned("bargain") * 4;
+            }
+            if (standTypeId == "classic" && row.Contains("local-legend") && Owned("classic") < 4)
+            {
+                return 6 + Owned("classic") * 4;
+            }
+            if (row.Contains("connoisseur"))
+            {
+                if (standTypeId == "gourmet" && Owned("gourmet") < 3)
+                {
+                    return 6 + Owned("gourmet") * 4;
+                }
+                // Three gourmets down, all-gourmet board: the title's "1 other Stand".
+                if (standTypeId != "gourmet" && Owned("gourmet") >= 3 && me.Stands.Count == Owned("gourmet"))
+                {
+                    return 12;
+                }
+            }
+            return 0;
+        }
+
         /// <summary>Rough desirability of a Black Market card beyond its sticker price.</summary>
-        private static double BmAffinity(BlackMarketCardDef def)
+        private static double BmAffinity(Game game, PlayerState me, BlackMarketCardDef def, BuyBlackMarket bm)
         {
             switch (def.Name)
             {
-                case "Pushy Salesman": return 8;   // more sale numbers = more income
-                case "Spiked Lemonade": return 7;
+                case "Pushy Salesman":
+                {
+                    // A sale number the target stand already sells on earns nothing.
+                    var stand = me.Stands.FirstOrDefault(st => st.InstanceId == bm.TargetStandInstanceId);
+                    if (def.Number is int sale && stand != null &&
+                        game.SaleNumbersOf(stand).Contains(sale))
+                    {
+                        return -25;
+                    }
+                    return 8;   // more sale numbers = more income
+                }
+                case "Spiked Lemonade":
+                {
+                    // A pour number we already cover adds nothing — unless we secretly
+                    // hold Pour Master (end with 2+ Spiked Lemonades) and collect anyway.
+                    if (def.Number is int pour && game.PourNumbersOf(me).Contains(pour))
+                    {
+                        return me.LemonLordKept.Contains("pour-master") ? 5 : -25;
+                    }
+                    return 7;
+                }
                 default:
                     switch (def.Timing)
                     {

@@ -136,6 +136,7 @@ namespace LemonadeWars.Unity
 
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview, this);
+            _table.BotLevelLookup = id => _session?.BotLevelOf(id);
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
             _table.OnAttackPick = ResolveAttackOnPlayer;
@@ -194,7 +195,7 @@ namespace LemonadeWars.Unity
             };
 
             // Built last: overlays render on top.
-            _prompt = new Prompt(root, this);
+            _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
             _dice = new DiceRoller(root);
             _dice.OnFinished = () =>
@@ -397,7 +398,8 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is RollModified modified)
             {
-                _dice.EnqueueModifier(BlackMarketName(modified.SourceDefId), modified.NewValue);
+                _dice.EnqueueModifier(NameOf(modified.PlayerId), BlackMarketName(modified.SourceDefId),
+                    modified.NewValue, modified.PlayerId == _session.Seat);
             }
             else if (gameEvent is MoneyChanged money)
             {
@@ -1127,8 +1129,60 @@ namespace LemonadeWars.Unity
         private List<Prompt.Option> ToOptions(IEnumerable<GameAction> moves)
         {
             return moves
-                .Select(m => new Prompt.Option(_session.LabelFor(m), () => Submit(m)))
+                .Select(m => new Prompt.Option(_session.LabelFor(m), () => Submit(m), ArtForMove(m)))
                 .ToList();
+        }
+
+        /// <summary>
+        /// The card an option would play, so response buttons ("Respond with Tantrum")
+        /// can show what the card actually does. Null for card-less moves (Pass, buys).
+        /// </summary>
+        private Texture2D ArtForMove(GameAction move)
+        {
+            switch (move)
+            {
+                case RespondToWindow respond when respond.EquippedInstanceId is int eq:
+                    return EquippedArt(eq);
+                case RespondToWindow respond:
+                    return HandArt(respond.CardInstanceId);
+                case UseTurnAbility ability:
+                    return EquippedArt(ability.EquippedInstanceId);
+                case PlayLemonCard play:
+                    return HandArt(play.CardInstanceId);
+                default:
+                    return null;
+            }
+        }
+
+        private Texture2D HandArt(int instanceId)
+        {
+            var card = View.Hand.FirstOrDefault(c => c.InstanceId == instanceId);
+            return card == null ? null : _art.Lemon(card.DefId);
+        }
+
+        private Texture2D EquippedArt(int instanceId)
+        {
+            foreach (var panel in View.Players)
+            {
+                foreach (var card in panel.TurfEquipped)
+                {
+                    if (card.InstanceId == instanceId)
+                    {
+                        return _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                    }
+                }
+                foreach (var stand in panel.Stands)
+                {
+                    foreach (var card in stand.Equipped)
+                    {
+                        if (card.InstanceId == instanceId)
+                        {
+                            return _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                        }
+                    }
+                }
+            }
+            return null;
         }
 
         // ----------------------------------------------------------- render
@@ -1247,6 +1301,13 @@ namespace LemonadeWars.Unity
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
                          (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
+                // The table is stalled on someone else: say who, so a quiet moment
+                // (their response window, their discard) never reads as a hang.
+                if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
+                {
+                    string verb = View.StackTop != null ? " to respond" : "";
+                    status += $"  |  WAITING ON {string.Join(", ", View.ActingPlayers.Select(NameOf)).ToUpperInvariant()}{verb}";
+                }
             }
             _statusText.text = status;
         }
@@ -1466,7 +1527,13 @@ namespace LemonadeWars.Unity
                 {
                     // The single attack moment: who hits whom, reactions right below.
                     string victim = t == View.ViewerId ? "you" : NameOf(t);
-                    return $"{NameOf(top.OwnerId)} attacks {victim} with {cardName}!";
+                    string title = $"{NameOf(top.OwnerId)} attacks {victim} with {cardName}!";
+                    if (!string.IsNullOrEmpty(top.StolenDefId))
+                    {
+                        // Finders Keepers / That's Not Fair: name the loot.
+                        title += $"  Target: {_db.BlackMarket(top.StolenDefId).Name}.";
+                    }
+                    return title;
                 }
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
@@ -1493,6 +1560,11 @@ namespace LemonadeWars.Unity
                 cards.Add(top.IsPurchase
                     ? _art.BlackMarket(top.DefId, top.Shape ?? Shape.Square)
                     : _art.Lemon(top.DefId));
+                if (!string.IsNullOrEmpty(top.StolenDefId))
+                {
+                    // Show what the steal is aimed at, right next to the attack.
+                    cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
             }
             return cards;
         }

@@ -17,17 +17,21 @@ namespace LemonadeWars.Unity
         {
             public readonly string Label;
             public readonly System.Action OnPick;
+            /// <summary>When set, the button wears a thumbnail and Alt/Cmd-hover previews the card.</summary>
+            public readonly Texture2D Card;
 
-            public Option(string label, System.Action onPick)
+            public Option(string label, System.Action onPick, Texture2D card = null)
             {
                 Label = label;
                 OnPick = onPick;
+                Card = card;
             }
         }
 
         private static readonly Color ButtonIdle = new Color(0.15f, 0.18f, 0.25f, 0.96f);
         private static readonly Color TextIdle = new Color(0.96f, 0.96f, 0.92f);
 
+        private readonly CardPreview _preview;
         private readonly ModalBackdrop _backdrop;
         private readonly TMP_Text _title;
         private readonly RectTransform _root;
@@ -38,8 +42,9 @@ namespace LemonadeWars.Unity
         /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
         public bool RootVisible => _root.gameObject.activeSelf;
 
-        public Prompt(RectTransform canvasRoot, MonoBehaviour host)
+        public Prompt(RectTransform canvasRoot, MonoBehaviour host, CardPreview preview = null)
         {
+            _preview = preview;
             _root = UiKit.CreatePanel(canvasRoot, "Prompt", new Color(0, 0, 0, 0));
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
             _backdrop = new ModalBackdrop(_root, host);
@@ -100,11 +105,11 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_optionList);
             foreach (var option in options)
             {
-                AddOptionButton(option.Label, option.OnPick, emphasized: true);
+                AddOptionButton(option.Label, option.OnPick, emphasized: true, option.Card);
             }
             if (showCancel)
             {
-                AddOptionButton("Cancel", null, emphasized: false);
+                AddOptionButton("Cancel", null, emphasized: false, null);
             }
 
             // Appears next frame, once the backdrop blur has been captured.
@@ -119,7 +124,7 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>Dark rounded button that turns lemonade-yellow on hover.</summary>
-        private void AddOptionButton(string label, System.Action onPick, bool emphasized)
+        private void AddOptionButton(string label, System.Action onPick, bool emphasized, Texture2D card)
         {
             var go = new GameObject("Option", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
             go.transform.SetParent(_optionList, false);
@@ -134,7 +139,24 @@ namespace LemonadeWars.Unity
             var text = UiKit.CreateText(go.transform, label, 18, TextAnchor.MiddleCenter,
                 emphasized ? TextIdle : new Color(0.75f, 0.75f, 0.75f));
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(12, 2), new Vector2(-12, -2));
+                new Vector2(12, 2), new Vector2(card != null ? -44 : -12, -2));
+
+            if (card != null)
+            {
+                // Mini card on the right edge; Alt/Cmd over the button blows it up so
+                // the option's rules text is always one keypress away.
+                var thumbGo = new GameObject("CardThumb", typeof(RectTransform), typeof(RawImage));
+                thumbGo.transform.SetParent(go.transform, false);
+                var thumbRect = (RectTransform)thumbGo.transform;
+                thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
+                thumbRect.pivot = new Vector2(1f, 0.5f);
+                thumbRect.sizeDelta = new Vector2(28f, 39f);
+                thumbRect.anchoredPosition = new Vector2(-8f, 0);
+                var thumbImage = thumbGo.GetComponent<RawImage>();
+                thumbImage.texture = card;
+                thumbImage.raycastTarget = false;
+                _preview?.Attach(go, card);
+            }
 
             UiKit.AddHover(go,
                 () =>
@@ -232,8 +254,7 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Wire a card image to preview on hover: shows after a 1s dwell, or instantly
-        /// while Alt/Cmd is held.
+        /// Wire a card image to preview on hover: shows while Alt/Cmd is held.
         /// </summary>
         public void Attach(GameObject cardGo, Texture2D texture)
         {
@@ -242,14 +263,12 @@ namespace LemonadeWars.Unity
     }
 
     /// <summary>
-    /// Gates the preview: 1 second of continuous hover, or Alt/Cmd for instant show.
-    /// A preview opened via the key closes the moment the key is released — the key
-    /// takes precedence over the dwell timer — and stays closed until the next hover.
+    /// Gates the preview: shows only while Alt/Cmd is held over a card (play-testers
+    /// found the hover-dwell auto-zoom intrusive), and closes the moment the key or
+    /// the hover ends.
     /// </summary>
     public sealed class PreviewDriver : MonoBehaviour
     {
-        private const float DwellSeconds = 1f;
-
         public System.Action ShowReady;
         public System.Action HideRequested;
         public Texture2D PendingTexture { get; private set; }
@@ -259,9 +278,6 @@ namespace LemonadeWars.Unity
         private GameObject _source;
         private bool _hovering;
         private bool _shown;
-        private bool _shownByKey;
-        private bool _suppressed;
-        private float _elapsed;
 
         public void BeginHover(GameObject source, Texture2D texture)
         {
@@ -273,9 +289,6 @@ namespace LemonadeWars.Unity
             PendingTexture = texture;
             _hovering = true;
             _shown = false;
-            _shownByKey = false;
-            _suppressed = false;
-            _elapsed = 0f;
         }
 
         public void EndHover()
@@ -283,8 +296,6 @@ namespace LemonadeWars.Unity
             _source = null;
             _hovering = false;
             _shown = false;
-            _shownByKey = false;
-            _suppressed = false;
             PendingTexture = null;
         }
 
@@ -306,36 +317,15 @@ namespace LemonadeWars.Unity
             bool modifier = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) ||
                             Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
 
-            if (_shown)
+            if (_shown && !modifier)
             {
-                if (_shownByKey && !modifier)
-                {
-                    // Key released: close and stay closed until the next hover.
-                    _shown = false;
-                    _suppressed = true;
-                    HideRequested?.Invoke();
-                }
+                _shown = false;
+                HideRequested?.Invoke();
                 return;
             }
-            // Re-pressing the key always reopens; suppression only blocks the dwell timer
-            // (so a key-dismissed preview cannot sneak back via elapsed time).
-            if (modifier)
+            if (!_shown && modifier)
             {
                 _shown = true;
-                _shownByKey = true;
-                ShowReady?.Invoke();
-                return;
-            }
-            if (_suppressed)
-            {
-                return;
-            }
-
-            _elapsed += Time.deltaTime;
-            if (_elapsed >= DwellSeconds)
-            {
-                _shown = true;
-                _shownByKey = false;
                 ShowReady?.Invoke();
             }
         }

@@ -112,6 +112,9 @@ namespace LemonadeWars.Engine.Core
             public string DefId { get; set; } = "";
             public Shape? Shape { get; set; }
             public int? AttackTargetId { get; set; }
+            /// <summary>Finders Keepers / That's Not Fair: the equipped card being taken (public table info).</summary>
+            public string? StolenDefId { get; set; }
+            public Shape? StolenShape { get; set; }
         }
 
         public sealed class DecisionInfo
@@ -224,6 +227,12 @@ namespace LemonadeWars.Engine.Core
                         : (Shape?)null,
                     AttackTargetId = top.AttackTargetId,
                 };
+                if (top.TargetEquippedInstanceId is int stolen &&
+                    State.BlackMarketInstances.TryGetValue(stolen, out var stolenInstance))
+                {
+                    view.StackTop.StolenDefId = stolenInstance.DefId;
+                    view.StackTop.StolenShape = stolenInstance.Shape;
+                }
             }
 
             // Don's Blessings: the ability owner looks at the victim's hand while picking.
