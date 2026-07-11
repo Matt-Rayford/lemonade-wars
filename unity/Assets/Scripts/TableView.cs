@@ -1835,14 +1835,14 @@ namespace LemonadeWars.Unity
             var nameText = UiKit.CreateText(row.transform,
                 nameLabel, 19, TextAnchor.LowerLeft, Color.white);
             nameText.raycastTarget = false;
-            UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.5f), new Vector2(1, 1),
-                new Vector2(80, 2), new Vector2(-52, -8));
+            UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.56f), new Vector2(1, 1),
+                new Vector2(80, 2), new Vector2(-52, -2));
             // Icon stats under the name: VP, cash, and tantrums (the physical game
             // keeps tantrums public on the table; the bar is our table).
             var statsGo = new GameObject("Stats", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             statsGo.transform.SetParent(row.transform, false);
-            UiKit.Anchor((RectTransform)statsGo.transform, new Vector2(0, 0), new Vector2(1, 0.5f),
-                new Vector2(80, 6), new Vector2(-52, -2));
+            UiKit.Anchor((RectTransform)statsGo.transform, new Vector2(0, 0), new Vector2(1, 0.56f),
+                new Vector2(80, 4), new Vector2(-52, -1));
             var statsLayout = statsGo.GetComponent<HorizontalLayoutGroup>();
             statsLayout.spacing = 4;
             statsLayout.childAlignment = TextAnchor.MiddleLeft;
@@ -1903,14 +1903,14 @@ namespace LemonadeWars.Unity
                     typeof(LayoutElement));
                 iconGo.transform.SetParent(parent, false);
                 var iconElement = iconGo.GetComponent<LayoutElement>();
-                iconElement.preferredWidth = 20;
-                iconElement.preferredHeight = 20;
+                iconElement.preferredWidth = 36;
+                iconElement.preferredHeight = 36;
                 iconElement.flexibleWidth = 0;
                 var iconImage = iconGo.GetComponent<RawImage>();
                 iconImage.texture = icon;
                 iconImage.raycastTarget = false;
             }
-            var text = UiKit.CreateText(parent, count, 16, TextAnchor.MiddleLeft,
+            var text = UiKit.CreateText(parent, count, 18, TextAnchor.MiddleLeft,
                 new Color(0.82f, 0.84f, 0.88f), body: true);
             text.raycastTarget = false;
             var textElement = text.gameObject.AddComponent<LayoutElement>();
