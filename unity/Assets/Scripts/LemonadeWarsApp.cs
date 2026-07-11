@@ -1533,10 +1533,10 @@ namespace LemonadeWars.Unity
             }
             else
             {
+                // Tantrum counts moved onto the player bars, where everyone's shows.
                 status = (_session.HumanAutoplay ? "AUTOPILOT [B]" : "[B] autopilot") +
                          (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
-                         (me.TantrumCount > 0 ? $"  |  {me.TantrumCount} tantrums" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
                 // The table is stalled on someone else: say who, so a quiet moment
                 // (their response window, their discard) never reads as a hang.
