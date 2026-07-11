@@ -13,6 +13,7 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed class LobbyUi
     {
+        public System.Action OnRulebook;
         public System.Action<IReadOnlyList<(string Name, string Level)>> OnStartSolo; // bots
         public System.Action<string, string> OnHost;          // serverUrl, name
         public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
@@ -98,6 +99,7 @@ namespace LemonadeWars.Unity
             MenuButton("Host online room", () => OnHost?.Invoke(_serverInput.text, DisplayName));
             MenuButton("Join room", ShowJoin);
             MenuButton("My games", () => OnMyGames?.Invoke(_serverInput.text, DisplayName));
+            MenuButton("Rulebook", () => OnRulebook?.Invoke());
             MenuButton("Settings", ShowSettings);
 
             _menuStatus = UiKit.CreateText(column.transform, "", 16,

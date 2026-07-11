@@ -277,6 +277,9 @@ namespace LemonadeWars.Unity
             content.anchorMin = new Vector2(0, 1);
             content.anchorMax = new Vector2(1, 1);
             content.pivot = new Vector2(0.5f, 1);
+            // Fresh RectTransforms default to sizeDelta (100,100): with stretch anchors
+            // that is +100px of WIDTH, center-pivoted — rows poke 50px past BOTH edges.
+            content.sizeDelta = Vector2.zero;
             var layout = contentGo.GetComponent<VerticalLayoutGroup>();
             layout.spacing = 4;
             layout.padding = new RectOffset(4, 4, 4, 4);

@@ -229,7 +229,18 @@ namespace LemonadeWars.Unity
             _alertGroup.alpha = 0f;
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
+
+            // Built last: the pause menu and rulebook draw above every screen.
+            PauseMenu.ApplySavedVolume();
+            _pause = new PauseMenu(root);
+            _rulebook = new RulebookViewer(root, Application.streamingAssetsPath);
+            _pause.OnRulebook = () => _rulebook.Open();
+            _pause.OnQuit = () => BackToMenu("");
+            _lobby.OnRulebook = () => _rulebook.Open();
         }
+
+        private PauseMenu _pause;
+        private RulebookViewer _rulebook;
 
         private void OnTurnAlert(string code)
         {
@@ -602,16 +613,38 @@ namespace LemonadeWars.Unity
                 _remote.ListGames();
             }
 
+            // Rulebook keys work on every screen (main menu included); a consumed Esc
+            // must not fall through into the in-game handling this same frame.
+            bool escConsumed = false;
+            if (_rulebook.IsOpen)
+            {
+                if (Input.GetKeyDown(KeyCode.LeftArrow))
+                {
+                    _rulebook.Step(-1);
+                }
+                if (Input.GetKeyDown(KeyCode.RightArrow))
+                {
+                    _rulebook.Step(1);
+                }
+                if (Input.GetKeyDown(KeyCode.Escape))
+                {
+                    _rulebook.Close();
+                    escConsumed = true;
+                }
+            }
+
             if (_screen != Screen.Game)
             {
                 return;
             }
 
-            if (Input.GetKeyDown(KeyCode.N) && _session is LocalGameSession)
+            // Letter hotkeys go quiet while the rulebook is up — its search box eats
+            // keystrokes, and "n" must not restart the game mid-word.
+            if (Input.GetKeyDown(KeyCode.N) && !_rulebook.IsOpen && _session is LocalGameSession)
             {
                 StartLocalGame(_soloBots);
             }
-            if (Input.GetKeyDown(KeyCode.B) && _session != null)
+            if (Input.GetKeyDown(KeyCode.B) && !_rulebook.IsOpen && _session != null)
             {
                 _session.HumanAutoplay = !_session.HumanAutoplay;
                 _prompt.Hide();
@@ -623,15 +656,29 @@ namespace LemonadeWars.Unity
                 _modalRevision = -1;
             }
 
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape) && !escConsumed)
             {
-                if (_prompt.IsOpen && _prompt.IsCancelable)
+                // Esc peels back one layer at a time: pause menu, then whatever is
+                // cancellable (aiming, optional menus, discards) — and only with a
+                // clear table does it open the pause menu.
+                if (_pause.IsOpen)
                 {
-                    _prompt.Hide();
+                    _pause.Close();
                 }
-                _table.CancelOverlays();
+                else if ((_prompt.IsOpen && _prompt.IsCancelable) || _table.HasActiveOverlay)
+                {
+                    if (_prompt.IsOpen && _prompt.IsCancelable)
+                    {
+                        _prompt.Hide();
+                    }
+                    _table.CancelOverlays();
+                }
+                else
+                {
+                    _pause.Open();
+                }
             }
-            if (Input.GetKeyDown(KeyCode.D) && _session != null)
+            if (Input.GetKeyDown(KeyCode.D) && !_rulebook.IsOpen && _session != null)
             {
                 DumpDebugState();
             }

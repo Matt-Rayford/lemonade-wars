@@ -217,7 +217,9 @@ namespace LemonadeWars.Unity
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             // The row is content-sized behind a mask: a 6th stand overflows to the
             // right and edge-scrolls (like the hand) instead of squishing the columns.
-            board.gameObject.AddComponent<RectMask2D>();
+            // The soft edge only switches on while there IS overflow (see
+            // TickBoardScroll) so a board that fits stays crisp.
+            _boardMask = board.gameObject.AddComponent<RectMask2D>();
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
             _boardRow.anchorMin = new Vector2(0f, 0f);
             _boardRow.anchorMax = new Vector2(0f, 1f);
@@ -591,6 +593,10 @@ namespace LemonadeWars.Unity
         /// clicking off it. Attack aim first, then equip targeting, then the discard
         /// browser (only one is ever open at a time).
         /// </summary>
+        /// <summary>True while something Esc-cancellable is up (aiming, equip, discards).</summary>
+        public bool HasActiveOverlay =>
+            _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf;
+
         public void CancelOverlays()
         {
             if (_attackCardId >= 0)
@@ -695,6 +701,7 @@ namespace LemonadeWars.Unity
             content.anchorMin = new Vector2(0, 1);
             content.anchorMax = new Vector2(1, 1);
             content.pivot = new Vector2(0.5f, 1);
+            content.sizeDelta = Vector2.zero; // default is (100,100): +100px width overflow
             // Reading size — same scale as the Lemon Lord picker at game setup.
             var grid = contentGo.GetComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(280, 392);
@@ -1344,6 +1351,7 @@ namespace LemonadeWars.Unity
         }
 
         private float _boardScroll;
+        private RectMask2D _boardMask;
 
         /// <summary>
         /// Same disappearing edge-scroll as the hand, for a board with 6+ stands:
@@ -1356,6 +1364,12 @@ namespace LemonadeWars.Unity
                 return;
             }
             float overflow = _boardRow.rect.width + 12f - _boardPanel.rect.width;
+            // The hand-style faded edge doubles as the "this scrolls" cue.
+            var softness = overflow > 0f ? new Vector2Int(70, 0) : Vector2Int.zero;
+            if (_boardMask.softness != softness)
+            {
+                _boardMask.softness = softness;
+            }
             if (overflow <= 0f)
             {
                 if (_boardScroll != 0f)
