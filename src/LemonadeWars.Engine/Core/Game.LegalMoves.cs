@@ -421,7 +421,8 @@ namespace LemonadeWars.Engine.Core
                     foreach (int id in player.Turf.Equipped)
                     {
                         if (RollAbilityIds.Contains(EquippedDef(id).Id) &&
-                            !State.UsedTurnAbilities.Contains(id))
+                            !State.UsedTurnAbilities.Contains(id) &&
+                            RollAbilityUsable(EquippedDef(id).Id))
                         {
                             moves.Add(new UseTurnAbility { PlayerId = player.PlayerId, EquippedInstanceId = id });
                         }
