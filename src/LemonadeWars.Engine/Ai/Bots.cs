@@ -112,8 +112,11 @@ namespace LemonadeWars.Engine.Ai
                 }
                 case BuyBlackMarket bm:
                 {
-                    var def = game.Db.BlackMarket(s.BlackMarketInstances[s.Market[bm.MarketIndex]].DefId);
-                    double value = 30 + BmAffinity(game, me, def, bm) - def.Cost * 0.5;
+                    var instance = s.BlackMarketInstances[s.Market[bm.MarketIndex]];
+                    var def = game.Db.BlackMarket(instance.DefId);
+                    double value = 30 + BmAffinity(game, me, def, bm) - def.Cost * 0.5
+                        + LordEquipBonus(game, me, def, bm.TargetStandInstanceId)
+                        + ShapeTitleBonus(game, me, instance.Shape);
                     // Replacing an existing card is usually a downgrade path.
                     if (bm.ReplaceInstanceId != null)
                     {
@@ -124,7 +127,22 @@ namespace LemonadeWars.Engine.Ai
                 case RefreshMarket _:
                     return 2;
                 case DrawLemonCard _:
-                    return me.Hand.Count < 7 ? 25 : 12;
+                {
+                    double draw = me.Hand.Count < 7 ? 25 : 12;
+                    foreach (string lordId in UnmetLords(game, me))
+                    {
+                        if (lordId == "hoarder")
+                        {
+                            draw = 32; // needs 10 cards in hand — keep drawing
+                        }
+                        else if (lordId == "fuming-phil" || lordId == "pam-the-planner" ||
+                                 lordId == "meltdown-master")
+                        {
+                            draw += 5; // fishing for the counted card type
+                        }
+                    }
+                    return draw;
+                }
                 case EndTurn _:
                     return 1;
 
@@ -149,11 +167,11 @@ namespace LemonadeWars.Engine.Ai
                     if (choice.CardInstanceIds.Count > 0)
                     {
                         // Give away / discard the least valuable card.
-                        return 20 - choice.CardInstanceIds.Sum(id => CardValue(game, id));
+                        return 20 - choice.CardInstanceIds.Sum(id => CardValue(game, me, id));
                     }
                     return 20;
                 case SubmitDiscard discard:
-                    return 20 - discard.InstanceIds.Sum(id => CardValue(game, id));
+                    return 20 - discard.InstanceIds.Sum(id => CardValue(game, me, id));
                 case SubmitTimeoutPayment _:
                     return 20;
                 case SubmitRetarget _:
@@ -210,8 +228,17 @@ namespace LemonadeWars.Engine.Ai
                 case "rebrand":
                     return 10;
                 case "apologize":
+                    // Expert Whiner WANTS to end the game as the Whiniest Baby.
+                    if (me.LemonLordKept.Contains("expert-whiner"))
+                    {
+                        return 4;
+                    }
                     return game.State.WhiniestBabyHolder == me.PlayerId ? 35 : 8;
                 case "blame-changer":
+                    if (me.LemonLordKept.Contains("expert-whiner"))
+                    {
+                        return 5;
+                    }
                     return game.State.WhiniestBabyHolder == me.PlayerId ? 40 : 12;
                 default:
                     return 10;
@@ -230,20 +257,23 @@ namespace LemonadeWars.Engine.Ai
                 return 6;
             }
             var def = game.Db.BlackMarket(instance.DefId);
+            double lordPull = LordEquipBonus(game, me, def, play.EquipStandInstanceId) +
+                              ShapeTitleBonus(game, me, instance.Shape);
             switch (def.Name)
             {
-                case "Diluted Lemonade": return 12;   // flat +$2 on every sale
-                case "Pushy Salesman": return 9;
+                case "Diluted Lemonade": return 12 + lordPull;   // flat +$2 on every sale
+                case "Pushy Salesman": return 9 + lordPull;
                 case "Spiked Lemonade":
-                    return def.Number is int pour && game.PourNumbersOf(me).Contains(pour) ? 3 : 9;
-                case "Pink Lemonade": return 7;
+                    return (def.Number is int pour && game.PourNumbersOf(me).Contains(pour) ? 3 : 9)
+                        + lordPull;
+                case "Pink Lemonade": return 7 + lordPull;
                 default:
                     switch (def.Timing)
                     {
-                        case EffectTiming.OnSale: return 8;
-                        case EffectTiming.PowerPour: return 6;
-                        case EffectTiming.OnYourTurn: return 5;
-                        default: return def.Category == "Defense" ? 6 : 4;
+                        case EffectTiming.OnSale: return 8 + lordPull;
+                        case EffectTiming.PowerPour: return 6 + lordPull;
+                        case EffectTiming.OnYourTurn: return 5 + lordPull;
+                        default: return (def.Category == "Defense" ? 6 : 4) + lordPull;
                     }
             }
         }
@@ -268,16 +298,20 @@ namespace LemonadeWars.Engine.Ai
                     {
                         return 0;
                     }
+                    // Friendly Fran (zero tantrums) is a whole VP: a spotless pile
+                    // makes throwing one much less attractive.
+                    double franBrake = me.TantrumPile.Count == 0 &&
+                        me.LemonLordKept.Contains("friendly-fran") ? 30 : 0;
                     if (stackTop.AttackTargetId == me.PlayerId)
                     {
-                        return 60; // cancel an attack on us
+                        return 60 - franBrake; // cancel an attack on us
                     }
                     if (stackTop.Kind == StackItemKind.BlackMarketPurchase)
                     {
                         var def = game.Db.BlackMarket(s.BlackMarketInstances[stackTop.BmInstanceId!.Value].DefId);
-                        return def.Cost >= 6 ? 30 : 6;
+                        return (def.Cost >= 6 ? 30 : 6) - franBrake;
                     }
-                    return 6;
+                    return 6 - franBrake;
                 }
                 case "tag-youre-it":
                     return stackTop?.AttackTargetId == me.PlayerId ? 65 : 5;
@@ -358,7 +392,31 @@ namespace LemonadeWars.Engine.Ai
                     return 12;
                 }
             }
-            return 0;
+            // Kept lords with stand-flavored conditions pull the stand mix too.
+            double lordBonus = 0;
+            foreach (string lordId in UnmetLords(game, me))
+            {
+                if (lordId == "bare-bones")
+                {
+                    lordBonus += 4; // more stands = easier to keep 3 of them empty
+                }
+                else if (lordId == "budget-beast" && standTypeId == "bargain")
+                {
+                    lordBonus += 4;
+                }
+                else if (lordId == "elite-squeezer" && standTypeId == "gourmet" &&
+                         !me.Stands.Any(st => st.StandTypeId == "gourmet"))
+                {
+                    lordBonus += 5;
+                }
+            }
+            // The next stand comes off the top of its supply pile: its shape may feed
+            // an unclaimed First Dibs shape title.
+            if (game.State.StandSupply.TryGetValue(standTypeId, out var pile) && pile.Count > 0)
+            {
+                lordBonus += ShapeTitleBonus(game, me, pile[0]);
+            }
+            return lordBonus;
         }
 
         /// <summary>Rough desirability of a Black Market card beyond its sticker price.</summary>
@@ -399,18 +457,161 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>How much we like keeping a card (higher = keep; discard/give low values).</summary>
-        private static double CardValue(Game game, int instanceId)
+        private static double CardValue(Game game, PlayerState me, int instanceId)
         {
             var def = game.Db.Lemon(game.State.LemonInstances[instanceId].DefId);
+            double value;
             switch (def.Type)
             {
                 case LemonCardType.Instant:
-                    return def.Id == "tantrum" ? 8 : 6;
+                    value = def.Id == "tantrum" ? 8 : 6;
+                    break;
                 case LemonCardType.Attack:
-                    return 5;
+                    value = 5;
+                    break;
                 default:
-                    return 4;
+                    value = 4;
+                    break;
             }
+            // Cards that count toward an unmet hand-composition lord are keepers.
+            foreach (string lordId in UnmetLords(game, me))
+            {
+                if (lordId == "fuming-phil" && def.Type == LemonCardType.Attack)
+                {
+                    value += 5;
+                }
+                else if (lordId == "pam-the-planner" && def.Type == LemonCardType.Plan)
+                {
+                    value += 5;
+                }
+                else if (lordId == "meltdown-master" && def.Id == "tantrum")
+                {
+                    value += 6;
+                }
+                else if (lordId == "hoarder")
+                {
+                    value += 2;
+                }
+            }
+            return value;
+        }
+
+        // -------------------------------------------- Lemon Lord awareness
+
+        private static IEnumerable<string> UnmetLords(Game game, PlayerState me) =>
+            me.LemonLordKept.Where(id => !game.MeetsLemonLord(me, id));
+
+        /// <summary>Does equipping this card advance the counted condition of a lord?</summary>
+        private static bool LordWantsEquip(string lordId, BlackMarketCardDef def)
+        {
+            switch (lordId)
+            {
+                case "pour-master": return def.Name == "Spiked Lemonade";
+                case "pushover": return def.Name == "Pushy Salesman";
+                case "cash-queen": return def.Cost >= 6;
+                case "card-shark": return def.Icons.Contains("draw");
+                case "flow-master": return def.Timing == EffectTiming.PowerPour;
+                case "no-bullies-allowed": return def.Category == "Defense";
+                case "profit-pusher": return def.Icons.Contains("dollar");
+                case "roll-wrangler": return def.Category == "Roll Modification";
+                case "sales-engine": return def.Timing == EffectTiming.OnSale;
+                case "swindling-sammy": return def.Icons.Contains("steal-card");
+                case "thieving-tommy": return def.Icons.Contains("steal-dollar");
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// A kept lord is a full VP at game end: acquiring an equip that advances one
+        /// (buy, steal, Connections take) earns a strong pull, destination-aware for
+        /// the stand-specific lords, with a brake for Bare Bones boards.
+        /// </summary>
+        private static double LordEquipBonus(Game game, PlayerState me, BlackMarketCardDef def,
+            int? destinationStandId)
+        {
+            double bonus = 0;
+            foreach (string lordId in UnmetLords(game, me))
+            {
+                if (LordWantsEquip(lordId, def))
+                {
+                    bonus += 9;
+                }
+                switch (lordId)
+                {
+                    case "elite-squeezer":
+                        if (destinationStandId is int gourmetDest && me.Stands.Any(st =>
+                                st.InstanceId == gourmetDest && st.StandTypeId == "gourmet"))
+                        {
+                            bonus += 6; // 4 equips on one gourmet stand
+                        }
+                        break;
+                    case "budget-beast":
+                        if ((def.Id == "diluted-lemonade" || def.Id == "pink-lemonade") &&
+                            destinationStandId is int bargainDest && me.Stands.Any(st =>
+                                st.InstanceId == bargainDest && st.StandTypeId == "bargain"))
+                        {
+                            bonus += 8; // a bargain stand earning $3+
+                        }
+                        break;
+                    case "bare-bones":
+                        if (def.Target == EquipTarget.Stand &&
+                            me.Stands.Count(st => st.Equipped.Count == 0) <= 3)
+                        {
+                            bonus -= 7; // equipping would spend a needed empty stand
+                        }
+                        break;
+                }
+            }
+            return bonus;
+        }
+
+        /// <summary>
+        /// First Dibs shape titles (6 squares/diamonds/circles, 2 of each): once a
+        /// collection is started, matching shapes get a growing pull.
+        /// </summary>
+        private static double ShapeTitleBonus(Game game, PlayerState me, Shape? shape)
+        {
+            if (!(shape is Shape wanted))
+            {
+                return 0;
+            }
+            var row = game.State.FirstDibsRow;
+            int owned = ShapeCount(game, me, wanted);
+            double bonus = 0;
+            string title = wanted == Shape.Square ? "block-builder"
+                : wanted == Shape.Diamond ? "diamond-dealer" : "full-circle";
+            if (row.Contains(title) && owned >= 2 && owned < 6)
+            {
+                bonus += 1.5 + owned;
+            }
+            if (row.Contains("balanced-set") && owned < 2)
+            {
+                bonus += 3;
+            }
+            return bonus;
+        }
+
+        private static int ShapeCount(Game game, PlayerState me, Shape shape)
+        {
+            int count = me.Stands.Count(st => st.Shape == shape);
+            foreach (int id in me.Turf.Equipped)
+            {
+                if (game.State.BlackMarketInstances[id].Shape == shape)
+                {
+                    count++;
+                }
+            }
+            foreach (var stand in me.Stands)
+            {
+                foreach (int id in stand.Equipped)
+                {
+                    if (game.State.BlackMarketInstances[id].Shape == shape)
+                    {
+                        count++;
+                    }
+                }
+            }
+            return count;
         }
 
         /// <summary>Static preference between Lemon Lord titles at the keep-2 choice.</summary>

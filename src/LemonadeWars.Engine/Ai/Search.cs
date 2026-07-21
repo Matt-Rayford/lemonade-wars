@@ -139,7 +139,7 @@ namespace LemonadeWars.Engine.Ai
         private const int RolloutActionCap = 1200;
         private const int MinWorlds = 2;
 
-        public SearchBot(ulong seed, int budgetMs = 250, int maxCandidates = 12, int maxWorlds = 12)
+        public SearchBot(ulong seed, int budgetMs = 300, int maxCandidates = 14, int maxWorlds = 14)
         {
             _rng = new DeterministicRng(seed);
             _budgetMs = budgetMs;
@@ -262,16 +262,22 @@ namespace LemonadeWars.Engine.Ai
             double win = state.Stage == GameStage.Finished && state.Winners.Contains(playerId)
                 ? 1.0 / state.Winners.Count
                 : 0.0;
-            return win * Math.Pow(0.999, steps) + Standing(state, playerId) * 0.05;
+            return win * Math.Pow(0.999, steps) + Standing(game, playerId) * 0.05;
         }
 
-        /// <summary>Relative VP/money position in [0,1] — the tiebreak gradient.</summary>
-        private static double Standing(GameState state, int playerId)
+        /// <summary>
+        /// Relative FULL-score position in [0,1] — in-game VP plus met Lemon Lords,
+        /// with money as the gradient. Ignoring lords here taught the search to rush
+        /// VP races it was actually losing on the final count.
+        /// </summary>
+        private static double Standing(Game game, int playerId)
         {
-            var me = state.Players[playerId];
-            double mine = me.InGameVictoryPoints * 10 + me.Money * 0.5;
-            double bestOther = state.Players.Where(p => p.PlayerId != playerId)
-                .Max(p => p.InGameVictoryPoints * 10 + p.Money * 0.5);
+            var state = game.State;
+            double Score(PlayerState p) =>
+                (p.InGameVictoryPoints + p.LemonLordKept.Count(id => game.MeetsLemonLord(p, id))) * 10
+                + p.Money * 0.5;
+            double mine = Score(state.Players[playerId]);
+            double bestOther = state.Players.Where(p => p.PlayerId != playerId).Max(Score);
             return Math.Max(0.0, Math.Min(1.0, 0.5 + (mine - bestOther) * 0.02));
         }
     }
