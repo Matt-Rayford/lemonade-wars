@@ -1896,6 +1896,38 @@ namespace LemonadeWars.Unity
                     }
                     return title;
                 }
+                // Responses name WHAT they answer — "Dex tantrums" alone caused real
+                // misreads at the table (which thing is being tantrummed?).
+                string answered = null;
+                if (!string.IsNullOrEmpty(top.RespondingToDefId))
+                {
+                    answered = top.RespondingToIsPurchase
+                        ? $"the {_db.BlackMarket(top.RespondingToDefId).Name} purchase"
+                        : _db.Lemon(top.RespondingToDefId).Name;
+                    if (top.RespondingToOwnerId is int owner && !top.RespondingToIsPurchase)
+                    {
+                        answered = (owner == View.ViewerId ? "your " : NameOf(owner) + "'s ") + answered;
+                    }
+                }
+                if (top.DefId == "tantrum" && answered != null)
+                {
+                    return $"{NameOf(top.OwnerId)} tantrums {answered}! — respond?";
+                }
+                if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+                {
+                    // Who it's going to, with the intel that decides a counter-tantrum.
+                    var target = View.Players[redirect];
+                    string who = redirect == View.ViewerId ? "YOU" : NameOf(redirect);
+                    return $"{NameOf(top.OwnerId)} tags {answered ?? "the attack"} to {who} " +
+                           $"(${target.Money}, {target.HandCount} cards) — respond?";
+                }
+                if (top.DefId == "im-rubber-youre-glue" && answered != null)
+                {
+                    string backAt = top.RespondingToOwnerId is int attacker
+                        ? (attacker == View.ViewerId ? "YOU" : NameOf(attacker))
+                        : "the attacker";
+                    return $"{NameOf(top.OwnerId)} reflects {answered} back at {backAt}! — respond?";
+                }
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
                     : $"{NameOf(top.OwnerId)} played {cardName}";
@@ -1935,6 +1967,13 @@ namespace LemonadeWars.Unity
                 {
                     // Show what the steal is aimed at, right next to the attack.
                     cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
+                if (!string.IsNullOrEmpty(top.RespondingToDefId))
+                {
+                    // The card being tantrummed / tagged / reflected, beside the response.
+                    cards.Add(top.RespondingToIsPurchase
+                        ? _art.BlackMarket(top.RespondingToDefId, top.RespondingToShape ?? Shape.Square)
+                        : _art.Lemon(top.RespondingToDefId));
                 }
             }
             return cards;
