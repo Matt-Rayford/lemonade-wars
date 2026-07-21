@@ -686,6 +686,7 @@ namespace LemonadeWars.Unity
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);
+            _table.TickPlayerPick(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
@@ -855,7 +856,8 @@ namespace LemonadeWars.Unity
             bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy;
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
             bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
-                                (_picker.IsOpen && _picker.RootVisible);
+                                (_picker.IsOpen && _picker.RootVisible) ||
+                                _table.PlayerPickActive;
             bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
             bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
                                 (_picker.IsOpen && !_picker.RootVisible);
@@ -1468,6 +1470,17 @@ namespace LemonadeWars.Unity
                 _statusText.text = $"render error: {e.GetType().Name} — check the console";
             }
             MaybeAnnounceTurn();
+            // A finished player-pick (or a state that moved past it) must drop the
+            // aiming overlay, or the arrow lingers over a resolved decision.
+            if (_table.PlayerPickActive)
+            {
+                var decision = View.MyDecisions.FirstOrDefault();
+                if (groups == null || !groups.IsModal ||
+                    decision == null || decision.Kind != DecisionKind.AbilityVictim)
+                {
+                    _table.EndPlayerPick();
+                }
+            }
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
                 return; // decisions wait behind the ONWARD! button / the die / effects
@@ -1630,6 +1643,10 @@ namespace LemonadeWars.Unity
             _modalRevision = revision;
             _modalSignature = signature;
             _autoModalOpen = true;
+            if (TryShowPlayerPick(groups))
+            {
+                return;
+            }
             if (TryShowPicker())
             {
                 return;
@@ -1640,6 +1657,41 @@ namespace LemonadeWars.Unity
                 .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
                 .ToList();
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
+        }
+
+        /// <summary>
+        /// "Choose who to rob" aims at the player bars instead of opening a modal:
+        /// the ability card floats mid-screen, the bars stay readable (money, hand
+        /// size, VP are exactly the stats you pick a victim by), and the attack
+        /// arrow language does the rest.
+        /// </summary>
+        private bool TryShowPlayerPick(MoveGroups groups)
+        {
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null || decision.Kind != DecisionKind.AbilityVictim)
+            {
+                return false;
+            }
+            if (_table.PlayerPickActive)
+            {
+                return true; // already aiming this decision
+            }
+            var byVictim = new Dictionary<int, GameAction>();
+            foreach (var move in groups.ModalMoves)
+            {
+                if (move is SubmitAbilityChoice choice && choice.TargetPlayerId is int victim)
+                {
+                    byVictim[victim] = move;
+                }
+            }
+            if (byVictim.Count == 0)
+            {
+                return false;
+            }
+            var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
+            _table.BeginPlayerPick(art, new HashSet<int>(byVictim.Keys),
+                picked => Submit(byVictim[picked]));
+            return true;
         }
 
         /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>
