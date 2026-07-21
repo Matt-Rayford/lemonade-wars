@@ -290,6 +290,47 @@ public sealed class Room
         return "";
     }
 
+    /// <summary>Room-wide bot pacing: "slow" / "medium" / "fast".</summary>
+    public string BotSpeed { get; private set; } = "medium";
+    private int _botDelayOverrideMs = -1;
+
+    /// <summary>
+    /// Any seated human may change the pace, before or during the game — the player
+    /// drowning in bot actions is rarely the host. Last write wins; the broadcast
+    /// keeps every client's speed chip in sync.
+    /// </summary>
+    public string SetSpeed(int requestingSeat, string? speed)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            if (requestingSeat < 0)
+            {
+                return "You are not seated in this room.";
+            }
+            switch ((speed ?? "").Trim().ToLowerInvariant())
+            {
+                case "slow":
+                    BotSpeed = "slow";
+                    _botDelayOverrideMs = 2200;
+                    break;
+                case "fast":
+                    BotSpeed = "fast";
+                    _botDelayOverrideMs = 500;
+                    break;
+                case "medium":
+                    BotSpeed = "medium";
+                    _botDelayOverrideMs = -1; // server default (BOT_DELAY_MS)
+                    break;
+                default:
+                    return "Speed must be slow, medium, or fast.";
+            }
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
+        return "";
+    }
+
     /// <summary>Host retunes a bot seat's difficulty in the lobby.</summary>
     public string SetBotLevel(int requestingSeat, int botSeat, string? level)
     {
@@ -512,9 +553,10 @@ public sealed class Room
                     PersistAction(action);
                 }
                 await BroadcastGameAsync(events);
-                if (_botDelayMs > 0)
+                int delayMs = _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
+                if (delayMs > 0)
                 {
-                    await Task.Delay(_botDelayMs);
+                    await Task.Delay(delayMs);
                 }
             }
         }
@@ -598,6 +640,7 @@ public sealed class Room
                 YourSeat = seat.Index,
                 Token = seat.Token,
                 Started = started,
+                Speed = BotSpeed,
                 Seats = seats.Select(s => new SeatInfo
                 {
                     Seat = s.Index,

@@ -415,6 +415,23 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task GameSpeedIsSetAndBroadcast()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.SendAsync(new { type = "create_room", name = "Host" });
+        var room = await host.NextOfTypeAsync("room");
+        Assert.Equal("medium", (string)room["speed"]!);
+
+        await host.SendAsync(new { type = "set_speed", speed = "fast" });
+        room = await host.NextOfTypeAsync("room");
+        Assert.Equal("fast", (string)room["speed"]!);
+
+        await host.SendAsync(new { type = "set_speed", speed = "ludicrous" });
+        var refused = await host.NextOfTypeAsync("error");
+        Assert.Contains("slow, medium, or fast", (string)refused["message"]!);
+    }
+
+    [Fact]
     public async Task AbsentPlayerGetsTurnAlertOnOtherConnection()
     {
         string hostKey = "alert-host-" + Guid.NewGuid().ToString("N");

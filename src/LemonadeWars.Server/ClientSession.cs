@@ -199,6 +199,16 @@ public static class ClientSession
                         }
                         break;
                     }
+                    case MessageType.SetSpeed when room != null:
+                    {
+                        string error = room.SetSpeed(room.SeatIndexOf(connection),
+                            (string?)message["speed"]);
+                        if (error.Length > 0)
+                        {
+                            await SendErrorAsync(connection, error);
+                        }
+                        break;
+                    }
                     case MessageType.RemoveBot when room != null:
                     {
                         string error = room.RemoveBot(room.SeatIndexOf(connection),

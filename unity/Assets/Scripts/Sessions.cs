@@ -47,7 +47,9 @@ namespace LemonadeWars.Unity
     {
         // Play-tester verdict: 0.35s reads as a blur — a human-ish beat between bot
         // actions lets the log/floaters land before the next thing happens.
-        private const float BotStepSeconds = 1.0f;
+        // Play-tester verdict: 0.35s reads as a blur — a human-ish beat between bot
+        // actions lets the log/floaters land. Adjustable via the in-game speed chip.
+        public float BotStepSeconds = 1.0f;
 
         private readonly Game _game;
         private readonly Dictionary<int, IBot> _bots = new Dictionary<int, IBot>();
@@ -224,6 +226,8 @@ namespace LemonadeWars.Unity
         public string Token = "";
         public bool Started;
         public List<SeatInfo> Seats = new List<SeatInfo>();
+        /// <summary>Room-wide bot pacing, server-confirmed: "slow" / "medium" / "fast".</summary>
+        public string Speed = "medium";
     }
 
     /// <summary>Networked play against the Lemonade Wars server.</summary>
@@ -322,6 +326,7 @@ namespace LemonadeWars.Unity
         public void RemoveBot(int seat) => Send(new { type = "remove_bot", seat });
         public void SetBotLevel(int seat, string level) =>
             Send(new { type = "set_bot_level", seat, level });
+        public void SetSpeed(string speed) => Send(new { type = "set_speed", speed });
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 
@@ -368,6 +373,7 @@ namespace LemonadeWars.Unity
                     Room.YourSeat = room.YourSeat;
                     Room.Token = room.Token;
                     Room.Started = room.Started;
+                    Room.Speed = room.Speed;
                     Room.Seats = room.Seats;
                     Revision++;
                     RoomChanged?.Invoke();
