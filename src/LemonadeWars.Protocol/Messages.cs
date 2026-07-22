@@ -16,6 +16,7 @@ namespace LemonadeWars.Protocol
         public const string AddBot = "add_bot";
         public const string RemoveBot = "remove_bot";
         public const string SetBotLevel = "set_bot_level";
+        public const string SetSpeed = "set_speed";
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";
@@ -50,6 +51,8 @@ namespace LemonadeWars.Protocol
         /// <summary>Reconnect token — present only in messages to the seat it belongs to.</summary>
         public string Token { get; set; } = "";
         public bool Started { get; set; }
+        /// <summary>Bot pacing for this room: "slow" / "medium" / "fast".</summary>
+        public string Speed { get; set; } = "medium";
         public List<SeatInfo> Seats { get; set; } = new List<SeatInfo>();
     }
 

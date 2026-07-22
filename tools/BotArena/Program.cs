@@ -35,6 +35,7 @@ int budgetMs = args.Length > 4 ? int.Parse(args[4]) : 120;
 var db = LoadDatabase();
 var wins = new ConcurrentBag<double>();
 var actionCounts = new ConcurrentBag<int>();
+var heroLords = new ConcurrentBag<int>();
 int finished = 0;
 var stopwatch = Stopwatch.StartNew();
 
@@ -60,6 +61,8 @@ Parallel.For(0, games, new ParallelOptions { MaxDegreeOfParallelism = Environmen
         actionCounts.Add(actions);
         var winners = game.State.Winners;
         wins.Add(winners.Contains(heroSeat) ? 1.0 / winners.Count : 0.0);
+        var heroPlayer = game.State.Players[heroSeat];
+        heroLords.Add(heroPlayer.LemonLordKept.Count(id => game.MeetsLemonLord(heroPlayer, id)));
     }
     catch (InvalidOperationException e)
     {
@@ -89,6 +92,7 @@ Console.WriteLine($"  hero win share : {winRate:P1}  (95% CI {center - margin:P1
 Console.WriteLine($"  fair baseline  : {expected:P1}");
 Console.WriteLine($"  lift           : {winRate / expected:F2}x");
 Console.WriteLine($"  avg actions    : {actionCounts.Average():F0}  |  wall time {stopwatch.Elapsed.TotalSeconds:F0}s");
+Console.WriteLine($"  hero lords met : {(heroLords.Count > 0 ? heroLords.Average() : 0):F2} of 2 at game end");
 
 static void Probe(ulong seed, int heroSeat, int budgetMs)
 {

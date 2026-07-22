@@ -307,10 +307,12 @@ namespace LemonadeWars.Engine.Tests
             int downsell = RigEquip(game, a, "downsell");
             // A bystander with Out of Stock keeps the roll window open around the modify.
             GiveCard(game, Seat(game, 1), "out-of-stock");
+            // The owner holds one too: a natural roll of 1 would otherwise (correctly)
+            // drop Downsell from their options before the test can force the value.
+            GiveCard(game, a, "out-of-stock");
             int money = player.Money;
 
             game.Apply(new EndTurn { PlayerId = a });
-            // Downsell keeps the window open for its owner too.
             Assert.Contains(a, game.State.AwaitingResponse);
             game.State.PendingRoll!.Value = 4;
             game.Apply(new UseTurnAbility { PlayerId = a, EquippedInstanceId = downsell });
@@ -323,6 +325,36 @@ namespace LemonadeWars.Engine.Tests
 
             // Roll 3: both bargains sell.
             Assert.True(game.State.Players[a].Money >= money + 2);
+        }
+
+        [Fact]
+        public void BoundaryRollsHideDownsellAndSugaredUp()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "out-of-stock");
+            int a = Active(game);
+            int downsell = RigEquip(game, a, "downsell");
+            int sugared = RigEquip(game, a, "sugared-up");
+            GiveCard(game, a, "out-of-stock"); // keeps the roll window open for the owner
+
+            game.Apply(new EndTurn { PlayerId = a });
+
+            // A 1 cannot be downsold; a 6 cannot be sugared up.
+            game.State.PendingRoll!.Value = 1;
+            Assert.DoesNotContain(game.LegalMovesFor(a),
+                m => m is UseTurnAbility use && use.EquippedInstanceId == downsell);
+            Assert.Contains(game.LegalMovesFor(a),
+                m => m is UseTurnAbility use && use.EquippedInstanceId == sugared);
+            Assert.Throws<InvalidActionException>(() =>
+                game.Apply(new UseTurnAbility { PlayerId = a, EquippedInstanceId = downsell }));
+
+            game.State.PendingRoll!.Value = 6;
+            Assert.DoesNotContain(game.LegalMovesFor(a),
+                m => m is UseTurnAbility use && use.EquippedInstanceId == sugared);
+            Assert.Contains(game.LegalMovesFor(a),
+                m => m is UseTurnAbility use && use.EquippedInstanceId == downsell);
+            Assert.Throws<InvalidActionException>(() =>
+                game.Apply(new UseTurnAbility { PlayerId = a, EquippedInstanceId = sugared }));
         }
 
         [Fact]

@@ -230,6 +230,18 @@ namespace LemonadeWars.Unity
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
 
+            // Bot pacing chip, top-right: only shows in games that have bots.
+            _speedButton = UiKit.CreateButton(root, "", 16, CycleSpeed);
+            var speedRect = (RectTransform)_speedButton.transform;
+            UiKit.Anchor(speedRect, new Vector2(1f, 1f), new Vector2(1f, 1f));
+            speedRect.pivot = new Vector2(1f, 1f);
+            speedRect.sizeDelta = new Vector2(170f, 36f);
+            speedRect.anchoredPosition = new Vector2(-16f, -12f);
+            _speedLabel = _speedButton.GetComponentInChildren<TMPro.TMP_Text>();
+            _speedLabel.alignment = TMPro.TextAlignmentOptions.Center;
+            UiKit.Anchor((RectTransform)_speedLabel.transform, Vector2.zero, Vector2.one);
+            _speedButton.gameObject.SetActive(false);
+
             // Built last: the pause menu and rulebook draw above every screen.
             PauseMenu.ApplySavedVolume();
             _pause = new PauseMenu(root);
@@ -241,6 +253,51 @@ namespace LemonadeWars.Unity
 
         private PauseMenu _pause;
         private RulebookViewer _rulebook;
+
+        // ------------------------------------------------------- game speed
+
+        private const string SpeedPref = "lw_game_speed";
+        private static readonly string[] SpeedOrder = { "slow", "medium", "fast" };
+        private UnityEngine.UI.Button _speedButton;
+        private TMPro.TMP_Text _speedLabel;
+
+        private static float LocalStepSeconds(string speed) =>
+            speed == "slow" ? 2.0f : speed == "fast" ? 0.45f : 1.0f;
+
+        /// <summary>Local games follow the saved preference; online rooms follow the server.</summary>
+        private string CurrentSpeed() =>
+            _remote != null && _screen == Screen.Game
+                ? (string.IsNullOrEmpty(_remote.Room.Speed) ? "medium" : _remote.Room.Speed)
+                : PlayerPrefs.GetString(SpeedPref, "medium");
+
+        private void CycleSpeed()
+        {
+            string next = SpeedOrder[
+                (System.Array.IndexOf(SpeedOrder, CurrentSpeed()) + 1) % SpeedOrder.Length];
+            PlayerPrefs.SetString(SpeedPref, next);
+            PlayerPrefs.Save();
+            if (_session is LocalGameSession local)
+            {
+                local.BotStepSeconds = LocalStepSeconds(next);
+            }
+            else
+            {
+                _remote?.SetSpeed(next); // the room broadcast confirms + syncs everyone
+            }
+            RefreshSpeedChip();
+        }
+
+        private void RefreshSpeedChip()
+        {
+            bool hasBots = _screen == Screen.Game &&
+                (_session is LocalGameSession ||
+                 (_remote != null && _remote.Room.Seats.Any(s => s.IsBot)));
+            _speedButton.gameObject.SetActive(hasBots);
+            if (hasBots)
+            {
+                _speedLabel.text = $"SPEED: {CurrentSpeed().ToUpperInvariant()}";
+            }
+        }
 
         private void OnTurnAlert(string code)
         {
@@ -267,9 +324,11 @@ namespace LemonadeWars.Unity
             _remote?.Dispose();
             _remote = null;
             _session?.Dispose();
-            _session = new LocalGameSession(_db, names.ToArray(), 0,
+            var localSession = new LocalGameSession(_db, names.ToArray(), 0,
                 (ulong)System.DateTime.Now.Ticks,
                 _soloBots.Select(b => b.Level).ToList());
+            localSession.BotStepSeconds = LocalStepSeconds(PlayerPrefs.GetString(SpeedPref, "medium"));
+            _session = localSession;
             _session.EventEmitted += OnGameEvent;
             EnterGame();
         }
@@ -686,6 +745,7 @@ namespace LemonadeWars.Unity
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);
+            _table.TickPlayerPick(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
@@ -855,7 +915,8 @@ namespace LemonadeWars.Unity
             bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy;
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
             bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
-                                (_picker.IsOpen && _picker.RootVisible);
+                                (_picker.IsOpen && _picker.RootVisible) ||
+                                _table.PlayerPickActive;
             bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
             bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
                                 (_picker.IsOpen && !_picker.RootVisible);
@@ -926,6 +987,7 @@ namespace LemonadeWars.Unity
             _session = null;
             _remote = null;
             _screen = Screen.Menu;
+            _speedButton.gameObject.SetActive(false);
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();
@@ -1468,6 +1530,17 @@ namespace LemonadeWars.Unity
                 _statusText.text = $"render error: {e.GetType().Name} — check the console";
             }
             MaybeAnnounceTurn();
+            // A finished player-pick (or a state that moved past it) must drop the
+            // aiming overlay, or the arrow lingers over a resolved decision.
+            if (_table.PlayerPickActive)
+            {
+                var decision = View.MyDecisions.FirstOrDefault();
+                if (groups == null || !groups.IsModal ||
+                    decision == null || decision.Kind != DecisionKind.AbilityVictim)
+                {
+                    _table.EndPlayerPick();
+                }
+            }
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
                 return; // decisions wait behind the ONWARD! button / the die / effects
@@ -1538,6 +1611,7 @@ namespace LemonadeWars.Unity
                          (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
+                RefreshSpeedChip();
                 // The table is stalled on someone else: say who, so a quiet moment
                 // (their response window, their discard) never reads as a hang.
                 if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
@@ -1630,6 +1704,10 @@ namespace LemonadeWars.Unity
             _modalRevision = revision;
             _modalSignature = signature;
             _autoModalOpen = true;
+            if (TryShowPlayerPick(groups))
+            {
+                return;
+            }
             if (TryShowPicker())
             {
                 return;
@@ -1640,6 +1718,41 @@ namespace LemonadeWars.Unity
                 .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
                 .ToList();
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
+        }
+
+        /// <summary>
+        /// "Choose who to rob" aims at the player bars instead of opening a modal:
+        /// the ability card floats mid-screen, the bars stay readable (money, hand
+        /// size, VP are exactly the stats you pick a victim by), and the attack
+        /// arrow language does the rest.
+        /// </summary>
+        private bool TryShowPlayerPick(MoveGroups groups)
+        {
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null || decision.Kind != DecisionKind.AbilityVictim)
+            {
+                return false;
+            }
+            if (_table.PlayerPickActive)
+            {
+                return true; // already aiming this decision
+            }
+            var byVictim = new Dictionary<int, GameAction>();
+            foreach (var move in groups.ModalMoves)
+            {
+                if (move is SubmitAbilityChoice choice && choice.TargetPlayerId is int victim)
+                {
+                    byVictim[victim] = move;
+                }
+            }
+            if (byVictim.Count == 0)
+            {
+                return false;
+            }
+            var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
+            _table.BeginPlayerPick(art, new HashSet<int>(byVictim.Keys),
+                picked => Submit(byVictim[picked]));
+            return true;
         }
 
         /// <summary>Choose-N-cards moments route to the lift-and-glow picker.</summary>
@@ -1783,6 +1896,38 @@ namespace LemonadeWars.Unity
                     }
                     return title;
                 }
+                // Responses name WHAT they answer — "Dex tantrums" alone caused real
+                // misreads at the table (which thing is being tantrummed?).
+                string answered = null;
+                if (!string.IsNullOrEmpty(top.RespondingToDefId))
+                {
+                    answered = top.RespondingToIsPurchase
+                        ? $"the {_db.BlackMarket(top.RespondingToDefId).Name} purchase"
+                        : _db.Lemon(top.RespondingToDefId).Name;
+                    if (top.RespondingToOwnerId is int owner && !top.RespondingToIsPurchase)
+                    {
+                        answered = (owner == View.ViewerId ? "your " : NameOf(owner) + "'s ") + answered;
+                    }
+                }
+                if (top.DefId == "tantrum" && answered != null)
+                {
+                    return $"{NameOf(top.OwnerId)} tantrums {answered}! — respond?";
+                }
+                if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+                {
+                    // Who it's going to, with the intel that decides a counter-tantrum.
+                    var target = View.Players[redirect];
+                    string who = redirect == View.ViewerId ? "YOU" : NameOf(redirect);
+                    return $"{NameOf(top.OwnerId)} tags {answered ?? "the attack"} to {who} " +
+                           $"(${target.Money}, {target.HandCount} cards) — respond?";
+                }
+                if (top.DefId == "im-rubber-youre-glue" && answered != null)
+                {
+                    string backAt = top.RespondingToOwnerId is int attacker
+                        ? (attacker == View.ViewerId ? "YOU" : NameOf(attacker))
+                        : "the attacker";
+                    return $"{NameOf(top.OwnerId)} reflects {answered} back at {backAt}! — respond?";
+                }
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
                     : $"{NameOf(top.OwnerId)} played {cardName}";
@@ -1822,6 +1967,13 @@ namespace LemonadeWars.Unity
                 {
                     // Show what the steal is aimed at, right next to the attack.
                     cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
+                if (!string.IsNullOrEmpty(top.RespondingToDefId))
+                {
+                    // The card being tantrummed / tagged / reflected, beside the response.
+                    cards.Add(top.RespondingToIsPurchase
+                        ? _art.BlackMarket(top.RespondingToDefId, top.RespondingToShape ?? Shape.Square)
+                        : _art.Lemon(top.RespondingToDefId));
                 }
             }
             return cards;

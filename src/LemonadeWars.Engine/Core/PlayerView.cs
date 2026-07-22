@@ -117,6 +117,13 @@ namespace LemonadeWars.Engine.Core
             /// <summary>Finders Keepers / That's Not Fair: the equipped card being taken (public table info).</summary>
             public string? StolenDefId { get; set; }
             public Shape? StolenShape { get; set; }
+            /// <summary>Responses (Tantrum/Tag/Rubber): the stack item this answers.</summary>
+            public string? RespondingToDefId { get; set; }
+            public int? RespondingToOwnerId { get; set; }
+            public bool RespondingToIsPurchase { get; set; }
+            public Shape? RespondingToShape { get; set; }
+            /// <summary>Tag, You're It!: where the attack is being sent.</summary>
+            public int? RedirectTargetId { get; set; }
         }
 
         public sealed class DecisionInfo
@@ -237,6 +244,26 @@ namespace LemonadeWars.Engine.Core
                 {
                     view.StackTop.StolenDefId = stolenInstance.DefId;
                     view.StackTop.StolenShape = stolenInstance.Shape;
+                }
+                view.StackTop.RedirectTargetId = top.RedirectTargetId;
+                // Name what a response answers, so "Dex tantrums" always says WHAT.
+                var answered = top.RespondingToItemId is int respondingTo
+                    ? State.ResponseStack.FirstOrDefault(i => i.ItemId == respondingTo)
+                    : null;
+                if (answered != null)
+                {
+                    view.StackTop.RespondingToOwnerId = answered.OwnerId;
+                    if (answered.Kind == StackItemKind.BlackMarketPurchase)
+                    {
+                        var instance = State.BlackMarketInstances[answered.BmInstanceId!.Value];
+                        view.StackTop.RespondingToIsPurchase = true;
+                        view.StackTop.RespondingToDefId = instance.DefId;
+                        view.StackTop.RespondingToShape = instance.Shape;
+                    }
+                    else
+                    {
+                        view.StackTop.RespondingToDefId = answered.LemonDefId;
+                    }
                 }
             }
 

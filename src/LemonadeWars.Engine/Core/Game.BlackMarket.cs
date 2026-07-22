@@ -458,7 +458,27 @@ namespace LemonadeWars.Engine.Core
 
         private bool HasUnusedRollAbility(PlayerState player) =>
             player.Turf.Equipped.Any(id =>
-                RollAbilityIds.Contains(EquippedDef(id).Id) && !State.UsedTurnAbilities.Contains(id));
+                RollAbilityIds.Contains(EquippedDef(id).Id) &&
+                !State.UsedTurnAbilities.Contains(id) &&
+                RollAbilityUsable(EquippedDef(id).Id));
+
+        /// <summary>Downsell cannot lower a 1; Sugared Up cannot raise a 6 (card text "max 6").</summary>
+        private bool RollAbilityUsable(string defId)
+        {
+            if (State.PendingRoll == null)
+            {
+                return false;
+            }
+            if (defId == "downsell" && State.PendingRoll.Value <= 1)
+            {
+                return false;
+            }
+            if (defId == "sugared-up" && State.PendingRoll.Value >= Db.Config.SaleDieSides)
+            {
+                return false;
+            }
+            return true;
+        }
 
         private void ApplyUseTurnAbility(UseTurnAbility action, List<GameEvent> events)
         {
@@ -485,6 +505,12 @@ namespace LemonadeWars.Engine.Core
                 {
                     var roll = State.PendingRoll
                         ?? throw new InvalidActionException($"{def.Name} modifies a die that was just rolled.");
+                    if (!RollAbilityUsable(def.Id))
+                    {
+                        throw new InvalidActionException(def.Id == "downsell"
+                            ? "Downsell cannot lower a roll of 1."
+                            : "Sugared Up cannot raise a roll of 6.");
+                    }
                     roll.Value = def.Id == "downsell"
                         ? Math.Max(1, roll.Value - 1)
                         : Math.Min(Db.Config.SaleDieSides, roll.Value + 1);
