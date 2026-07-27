@@ -1144,7 +1144,12 @@ namespace LemonadeWars.Engine.Core
                 StandInstanceId = standInstanceId,
             };
             BumpRevision();
-            events.Add(new SaleRolled { PlayerId = rollerId, Value = State.PendingRoll.Value });
+            events.Add(new SaleRolled
+            {
+                PlayerId = rollerId,
+                Value = State.PendingRoll.Value,
+                Purpose = purpose,
+            });
         }
 
         private void FinalizePendingRoll(List<GameEvent> events)

@@ -87,7 +87,13 @@ namespace LemonadeWars.Engine.Core
     {
         public int PlayerId { get; set; }
         public int Value { get; set; }
-        public override string ToString() => $"P{PlayerId} rolled a {Value}";
+        /// <summary>
+        /// Which kind of roll this is, so the presentation can say so — a player must be
+        /// able to tell a Night Shifts roll from the turn sale before spending Out of Stock.
+        /// Travels as a camelCase string ("nightShifts") via the wire's enum converter.
+        /// </summary>
+        public RollPurpose Purpose { get; set; }
+        public override string ToString() => $"P{PlayerId} rolled a {Value} ({Purpose})";
     }
 
     public sealed class StandSold : GameEvent

@@ -314,7 +314,12 @@ namespace LemonadeWars.Unity
         {
             for (int i = container.childCount - 1; i >= 0; i--)
             {
-                Object.Destroy(container.GetChild(i).gameObject);
+                // Destroy only lands at the END of the frame: detach now, or a layout
+                // group rebuilt in this same frame still counts the corpses as children
+                // and places the fresh content below them.
+                var child = container.GetChild(i);
+                child.SetParent(null, false);
+                Object.Destroy(child.gameObject);
             }
         }
 

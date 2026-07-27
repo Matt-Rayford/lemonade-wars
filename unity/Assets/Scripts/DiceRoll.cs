@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using LemonadeWars.Engine.Core;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -144,11 +145,38 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------------------ public
 
-        public void Enqueue(string rollerName, int value, bool isYou)
+        /// <summary>
+        /// A fresh die. The title names WHAT the roll is for — a Night Shifts die must never
+        /// read like the turn sale, or Out of Stock gets spent on the wrong roll.
+        /// </summary>
+        public void Enqueue(string rollerName, int value, bool isYou, RollPurpose purpose)
         {
-            EnqueueRoll(
-                isYou ? "YOU ROLL FOR SALES..." : $"{rollerName.ToUpperInvariant()} ROLLS FOR SALES...",
-                value);
+            EnqueueRoll(RollTitle(rollerName, isYou, purpose), value);
+        }
+
+        private static string RollTitle(string rollerName, bool isYou, RollPurpose purpose)
+        {
+            string name = rollerName.ToUpperInvariant();
+            switch (purpose)
+            {
+                case RollPurpose.NightShifts:
+                    return isYou
+                        ? "YOU ROLL FOR NIGHT SHIFTS..."
+                        : $"{name} ROLLS FOR NIGHT SHIFTS...";
+                case RollPurpose.SpoiledRotten:
+                    return isYou
+                        ? "YOUR SPOILED ROTTEN ROLL..."
+                        : $"{name}'S SPOILED ROTTEN ROLL...";
+                case RollPurpose.ExtraSale:
+                    // Liquid Energy: everyone sells, so whose hand threw it matters least.
+                    return "AN EXTRA SALE ROLL...";
+                case RollPurpose.TradeWinds:
+                    return isYou
+                        ? "YOUR TRADE WINDS ROLL..."
+                        : $"{name}'S TRADE WINDS ROLL...";
+                default:
+                    return isYou ? "YOU ROLL FOR SALES..." : $"{name} ROLLS FOR SALES...";
+            }
         }
 
         /// <summary>Out of Stock forced a reroll: show the die landing on its new value.</summary>

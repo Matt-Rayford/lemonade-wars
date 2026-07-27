@@ -68,6 +68,14 @@ namespace LemonadeWars.Unity
         public System.Action<int, int> OnAttackPick;         // hand id, victim player id
         private static readonly Color AttackGlowColor = new Color(1f, 0.30f, 0.22f, 0.95f);
         private static readonly Color AttackArrowColor = new Color(0.95f, 0.27f, 0.21f);
+        // Reactions (Tag redirect, Rubber Glue reflect) aim in lemonade-yellow: same
+        // gesture as an attack, visibly NOT one.
+        private static readonly Color ReactionGlowColor = new Color(1f, 0.86f, 0.22f, 0.95f);
+        private static readonly Color ReactionArrowColor = new Color(0.98f, 0.83f, 0.10f);
+        /// <summary>Set by the app: true while the current aim is a window reaction.</summary>
+        public System.Func<bool> AimIsReaction;
+        private Color _aimGlowColor = AttackGlowColor;
+        private Color _aimArrowColor = AttackArrowColor;
         private RectTransform _attackRoot;
         private RectTransform _attackArrowHost;
         private ISet<int> _attackValid;
@@ -575,6 +583,7 @@ namespace LemonadeWars.Unity
                 {
                     if (glow != null)
                     {
+                        glow.GetComponent<Image>().color = AttackGlowColor;
                         glow.SetActive(playerId == hover);
                     }
                 }
@@ -619,6 +628,9 @@ namespace LemonadeWars.Unity
             _attackDragMode = dragMode;
             _attackHover = -1;
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
+            bool reaction = AimIsReaction?.Invoke() == true;
+            _aimGlowColor = reaction ? ReactionGlowColor : AttackGlowColor;
+            _aimArrowColor = reaction ? ReactionArrowColor : AttackArrowColor;
             _preview.SetDragging(true); // no magnify pop-ups while aiming
 
             // Hold the armed card raised and on top: the intercept layer eats the hover
@@ -670,6 +682,7 @@ namespace LemonadeWars.Unity
                 {
                     if (glow != null)
                     {
+                        glow.GetComponent<Image>().color = _aimGlowColor;
                         glow.SetActive(playerId == hover);
                     }
                 }
@@ -698,7 +711,7 @@ namespace LemonadeWars.Unity
             _attackArrowFrom = from;
             _attackArrowTo = to;
             UiKit.Clear(_attackArrowHost);
-            UiKit.DrawDashedArrow(_attackArrowHost, from, to, AttackArrowColor);
+            UiKit.DrawDashedArrow(_attackArrowHost, from, to, _aimArrowColor);
         }
 
         /// <summary>
@@ -1878,6 +1891,13 @@ namespace LemonadeWars.Unity
                 }
                 BuildPlayerRow(view, playerId, isMe, playerId == viewedBoard);
             }
+
+            // Effects read bar anchors in the SAME frame as this render (a purchase
+            // floater spawns from the fx tick immediately after), but a layout group
+            // does not place its children until end of frame — until then every fresh
+            // row sits at the column's center, which dropped the "-$X" on whoever
+            // happened to be sitting mid-column instead of on the buyer.
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_playersColumn);
         }
 
         private void BuildPlayerRow(PlayerView view, int playerId, bool isMe, bool isViewedBoard)
@@ -1930,6 +1950,27 @@ namespace LemonadeWars.Unity
             letter.raycastTarget = false;
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
+            // Victory points: a crown per VP, arcing over the portrait left-to-right —
+            // frees the stat row below for the money/hand/tantrum counts.
+            int crowns = Mathf.Min(player.InGameVictoryPoints, 8);
+            var badgeCenter = new Vector2(12f + 28f, 0f);
+            for (int crown = 0; crown < crowns; crown++)
+            {
+                float degrees = 160f - crown * 32f;
+                float radians = degrees * Mathf.Deg2Rad;
+                var crownGo = new GameObject("Crown", typeof(RectTransform), typeof(RawImage));
+                crownGo.transform.SetParent(row.transform, false);
+                var crownRect = (RectTransform)crownGo.transform;
+                crownRect.anchorMin = crownRect.anchorMax = new Vector2(0f, 0.5f);
+                crownRect.pivot = new Vector2(0.5f, 0.5f);
+                crownRect.sizeDelta = new Vector2(22f, 22f);
+                crownRect.anchoredPosition = badgeCenter +
+                    new Vector2(Mathf.Cos(radians), Mathf.Sin(radians)) * 37f;
+                var crownImage = crownGo.GetComponent<RawImage>();
+                crownImage.texture = _vpIcon;
+                crownImage.raycastTarget = false;
+            }
+
             // Name on top, VP / Cash below. Bot seats wear their difficulty in the
             // same colors as the lobby chips.
             string nameLabel = player.Name + (isMe ? "  (you)" : "");
@@ -1945,24 +1986,17 @@ namespace LemonadeWars.Unity
             nameText.raycastTarget = false;
             UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.56f), new Vector2(1, 1),
                 new Vector2(80, 2), new Vector2(-52, -2));
-            // Icon stats under the name: VP, cash, and tantrums (the physical game
-            // keeps tantrums public on the table; the bar is our table).
-            var statsGo = new GameObject("Stats", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            // Icon stats under the name: cash, hand size, and tantrums (VP crowns arc
+            // over the portrait). FIXED columns — flowing layouts made the icons drift
+            // with digit width, so bars never lined up.
+            var statsGo = new GameObject("Stats", typeof(RectTransform));
             statsGo.transform.SetParent(row.transform, false);
-            UiKit.Anchor((RectTransform)statsGo.transform, new Vector2(0, 0), new Vector2(1, 0.56f),
-                new Vector2(80, 4), new Vector2(-52, -1));
-            var statsLayout = statsGo.GetComponent<HorizontalLayoutGroup>();
-            statsLayout.spacing = 4;
-            statsLayout.childAlignment = TextAnchor.MiddleLeft;
-            statsLayout.childForceExpandWidth = false;
-            statsLayout.childForceExpandHeight = false;
-            statsLayout.childControlWidth = true;
-            statsLayout.childControlHeight = true;
-            AddStat(statsGo.transform, _vpIcon, player.InGameVictoryPoints.ToString());
-            AddStat(statsGo.transform, _cashIcon, $"${player.Money}");
+            var stats = UiKit.Anchor((RectTransform)statsGo.transform,
+                new Vector2(0, 0), new Vector2(1, 0.56f), new Vector2(80, 4), new Vector2(-52, -1));
+            AddStatAt(stats, _cashIcon, $"${player.Money}", 0f, 36f);
             // Hand size is targeting intel: fewer cards = fewer possible reactions.
-            AddStat(statsGo.transform, _art.Back("lemon"), player.HandCount.ToString(), iconWidth: 26f);
-            AddStat(statsGo.transform, _tantrumIcon, player.TantrumCount.ToString(), last: true);
+            AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
+            AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
 
             // Yellow rim on whoever's board the table currently displays.
             if (isViewedBoard)
@@ -2004,19 +2038,19 @@ namespace LemonadeWars.Unity
             });
         }
 
-        /// <summary>One icon-plus-count chip in a player bar's stat row.</summary>
-        private static void AddStat(Transform parent, Texture2D icon, string count, bool last = false,
-            float iconWidth = 36f)
+        /// <summary>One icon-plus-count chip at a fixed column offset in the stat row.</summary>
+        private static void AddStatAt(RectTransform parent, Texture2D icon, string count,
+            float x, float iconWidth)
         {
             if (icon != null)
             {
-                var iconGo = new GameObject("StatIcon", typeof(RectTransform), typeof(RawImage),
-                    typeof(LayoutElement));
+                var iconGo = new GameObject("StatIcon", typeof(RectTransform), typeof(RawImage));
                 iconGo.transform.SetParent(parent, false);
-                var iconElement = iconGo.GetComponent<LayoutElement>();
-                iconElement.preferredWidth = iconWidth;
-                iconElement.preferredHeight = 36;
-                iconElement.flexibleWidth = 0;
+                var iconRect = (RectTransform)iconGo.transform;
+                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
+                iconRect.pivot = new Vector2(0f, 0.5f);
+                iconRect.sizeDelta = new Vector2(iconWidth, 36f);
+                iconRect.anchoredPosition = new Vector2(x, 0f);
                 var iconImage = iconGo.GetComponent<RawImage>();
                 iconImage.texture = icon;
                 iconImage.raycastTarget = false;
@@ -2024,14 +2058,13 @@ namespace LemonadeWars.Unity
             var text = UiKit.CreateText(parent, count, 18, TextAnchor.MiddleLeft,
                 new Color(0.82f, 0.84f, 0.88f), body: true);
             text.raycastTarget = false;
-            var textElement = text.gameObject.AddComponent<LayoutElement>();
-            textElement.flexibleWidth = 0;
-            if (!last)
-            {
-                var gap = new GameObject("Gap", typeof(RectTransform), typeof(LayoutElement));
-                gap.transform.SetParent(parent, false);
-                gap.GetComponent<LayoutElement>().preferredWidth = 6;
-            }
+            // "$20" must never wrap into "$2 / 0" when the row runs tight.
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            var textRect = (RectTransform)text.transform;
+            textRect.anchorMin = textRect.anchorMax = new Vector2(0f, 0.5f);
+            textRect.pivot = new Vector2(0f, 0.5f);
+            textRect.sizeDelta = new Vector2(60f, 34f);
+            textRect.anchoredPosition = new Vector2(x + iconWidth + 5f, 0f);
         }
 
         /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>

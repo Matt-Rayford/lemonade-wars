@@ -54,6 +54,10 @@ namespace LemonadeWars.Engine.Core
         // ---- Interaction surface ----
         public List<int> AwaitingResponse { get; set; } = new List<int>();
         public int? PendingRollValue { get; set; }
+        /// <summary>What the pending die is for, so the UI can name it (Night Shifts, etc.).</summary>
+        public RollPurpose? PendingRollPurpose { get; set; }
+        /// <summary>Who threw the pending die.</summary>
+        public int? PendingRollerId { get; set; }
         /// <summary>Top of the response stack, when a window is open.</summary>
         public StackTopInfo? StackTop { get; set; }
         /// <summary>The viewer's own pending decisions, with the payloads their UI needs.</summary>
@@ -206,6 +210,8 @@ namespace LemonadeWars.Engine.Core
                 SpoiledRottenHolder = State.SpoiledRottenHolder,
                 AwaitingResponse = State.AwaitingResponse.ToList(),
                 PendingRollValue = State.PendingRoll?.Value,
+                PendingRollPurpose = State.PendingRoll?.Purpose,
+                PendingRollerId = State.PendingRoll?.RollerId,
                 TheftOnMe = State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == viewerId,
                 MyDecisions = State.PendingDecisions
                     .Where(d => d.PlayerId == viewerId)
