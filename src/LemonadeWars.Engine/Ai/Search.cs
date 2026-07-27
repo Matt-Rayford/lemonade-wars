@@ -129,7 +129,7 @@ namespace LemonadeWars.Engine.Ai
     /// seat; pick the move with the best average outcome. Time-budgeted so it works
     /// both on the Unity main thread and in the server bot pump.
     /// </summary>
-    public sealed class SearchBot : IBot
+    public sealed class SearchBot : IBot, IHeavyBot
     {
         private readonly DeterministicRng _rng;
         private readonly GreedyBot _rolloutPolicy = new GreedyBot();
@@ -288,6 +288,8 @@ namespace LemonadeWars.Engine.Ai
         public const string Easy = "easy";
         public const string Medium = "medium";
         public const string Hard = "hard";
+        /// <summary>Above hard: the same search with double the time and a wider net.</summary>
+        public const string Wambulence = "wambulence";
 
         public static string Normalize(string? level)
         {
@@ -295,6 +297,7 @@ namespace LemonadeWars.Engine.Ai
             {
                 case Easy: return Easy;
                 case Hard: return Hard;
+                case Wambulence: return Wambulence;
                 default: return Medium;
             }
         }
@@ -304,7 +307,14 @@ namespace LemonadeWars.Engine.Ai
             switch (Normalize(level))
             {
                 case Easy: return new EasyBot(seed);
-                case Hard: return new SearchBot(seed);
+                // Tournament-tuned: at ~750ms the wider search dominates both the old
+                // 300ms/14x14 config AND a same-budget ISMCTS (see tools/BotArena;
+                // "ismcts" and "pimc+" remain as arena levels for future A/Bs).
+                case Hard: return new SearchBot(seed, budgetMs: 750, maxCandidates: 18, maxWorlds: 30);
+                // The wambulence: 1.12x over three HARD bots in the arena. Truncated
+                // ISMCTS only ever TIED this config at equal budget — flat keeps the
+                // crown until someone builds tree reuse.
+                case Wambulence: return new SearchBot(seed, budgetMs: 1400, maxCandidates: 24, maxWorlds: 50);
                 default: return new GreedyBot();
             }
         }

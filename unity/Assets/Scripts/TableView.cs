@@ -1869,8 +1869,9 @@ namespace LemonadeWars.Unity
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
-        /// the player after you; you sit pinned at the bottom. A lemon marks whoever
-        /// holds the active turn.
+        /// the player after you; you sit pinned at the bottom. The lemon is the
+        /// first-player token — it stays put all game (the banner and status line
+        /// already say whose turn it is).
         /// </summary>
         private void RenderPlayers(PlayerView view)
         {
@@ -1913,10 +1914,10 @@ namespace LemonadeWars.Unity
             background.color = new Color(0, 0, 0, 0.32f);
             row.GetComponent<LayoutElement>().minHeight = 82;
 
-            // Active-turn lemon, right edge.
-            if (playerId == view.ActivePlayer && _lemonIcon != null)
+            // First-player lemon token, right edge — stays put for the whole game.
+            if (playerId == view.FirstPlayer && _lemonIcon != null)
             {
-                var lemonGo = new GameObject("ActiveLemon", typeof(RectTransform), typeof(RawImage));
+                var lemonGo = new GameObject("FirstPlayerLemon", typeof(RectTransform), typeof(RawImage));
                 lemonGo.transform.SetParent(row.transform, false);
                 var lemonRect = (RectTransform)lemonGo.transform;
                 lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
@@ -1977,7 +1978,8 @@ namespace LemonadeWars.Unity
             string botLevel = BotLevelLookup?.Invoke(playerId);
             if (!string.IsNullOrEmpty(botLevel))
             {
-                string levelColor = botLevel == "hard" ? "#FF9E73"
+                string levelColor = botLevel == "wambulence" ? "#8CC7FF"
+                    : botLevel == "hard" ? "#FF9E73"
                     : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
                 nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";
             }

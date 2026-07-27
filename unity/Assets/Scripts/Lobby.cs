@@ -425,9 +425,12 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>The difficulty chip cycles easy -> medium -> hard -> easy.</summary>
+        /// <summary>The difficulty chip cycles easy -> medium -> hard -> wambulence -> easy.</summary>
         public static string NextLevel(string level) =>
-            level == "easy" ? "medium" : level == "medium" ? "hard" : "easy";
+            level == "easy" ? "medium"
+            : level == "medium" ? "hard"
+            : level == "hard" ? "wambulence"
+            : "easy";
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
         {
@@ -500,7 +503,7 @@ namespace LemonadeWars.Unity
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(16, 2), new Vector2(botLevel != null ? -152 : -56, -2));
+                new Vector2(16, 2), new Vector2(botLevel != null ? -182 : -56, -2));
 
             if (botLevel != null)
             {
@@ -509,7 +512,7 @@ namespace LemonadeWars.Unity
                 var chipRect = (RectTransform)chipGo.transform;
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
-                chipRect.sizeDelta = new Vector2(88f, 34f);
+                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULENCE
                 chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;
@@ -518,7 +521,8 @@ namespace LemonadeWars.Unity
                 chipImage.color = chipIdle;
                 var levelText = UiKit.CreateText(chipGo.transform,
                     botLevel.ToUpperInvariant(), 15, TextAnchor.MiddleCenter,
-                    botLevel == "hard" ? new Color(1f, 0.62f, 0.45f)
+                    botLevel == "wambulence" ? new Color(0.55f, 0.78f, 1f)
+                    : botLevel == "hard" ? new Color(1f, 0.62f, 0.45f)
                     : botLevel == "easy" ? new Color(0.62f, 0.90f, 0.62f)
                     : new Color(0.85f, 0.88f, 0.92f), body: true);
                 levelText.raycastTarget = false;

@@ -162,7 +162,7 @@ namespace LemonadeWars.Unity
                 }
                 _nextBotStep = UnityEngine.Time.time + BotStepSeconds;
                 IBot bot = actor == Seat ? _autopilot : _bots[actor];
-                if (bot is SearchBot)
+                if (bot is IHeavyBot)
                 {
                     // The background thread must NEVER touch the live game: a human
                     // Apply (response window) racing a Dictionary read can spin the
