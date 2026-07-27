@@ -162,9 +162,18 @@ static void Fuzz(int seeds, int players)
 static IBot MakeBot(string level, ulong seed, int budgetMs) =>
     level == "random"
         ? new RandomBot(seed)
-        : level == "hard"
-            ? new SearchBot(seed, budgetMs)
-            : BotFactory.Create(level, seed);
+        : level == "ismcts"
+            ? new IsmctsBot(seed, budgetMs)
+            : level == "wam"
+                ? new IsmctsBot(seed, budgetMs, rolloutDepth: 80)
+                : level == "pimc+"
+                    ? new SearchBot(seed, budgetMs, maxCandidates: 18, maxWorlds: 30)
+                    : level == "pimc++"
+                        ? new SearchBot(seed, budgetMs, maxCandidates: 24, maxWorlds: 50)
+                        : level == "pimc"
+                            ? new SearchBot(seed, budgetMs)
+                            // "hard"/"wambulence" etc: exactly as shipped, own budgets.
+                            : (IBot)BotFactory.Create(level, seed);
 
 static CardDatabase LoadDatabase()
 {

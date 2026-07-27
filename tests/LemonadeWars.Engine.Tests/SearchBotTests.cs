@@ -130,11 +130,28 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void IsmctsBotFinishesAFullGameAgainstGreedy()
+        {
+            var game = Game.Create(TestData.Db, new[] { "Tree", "G1", "G2" }, 8888);
+            var bots = new Dictionary<int, IBot>
+            {
+                [0] = new IsmctsBot(seed: 1, budgetMs: 10_000, maxIterations: 25),
+                [1] = new GreedyBot(),
+                [2] = new GreedyBot(),
+            };
+            GameRunner.PlayOut(game, bots);
+            Assert.Equal(GameStage.Finished, game.State.Stage);
+            Assert.NotEmpty(game.State.Winners);
+        }
+
+        [Fact]
         public void BotFactoryMapsLevels()
         {
             Assert.IsType<EasyBot>(BotFactory.Create("easy", 1));
             Assert.IsType<GreedyBot>(BotFactory.Create("medium", 1));
             Assert.IsType<SearchBot>(BotFactory.Create("hard", 1));
+            Assert.IsType<SearchBot>(BotFactory.Create("wambulence", 1));
+            Assert.Equal("wambulence", BotFactory.Normalize(" WAMBULENCE "));
             Assert.IsType<GreedyBot>(BotFactory.Create(null, 1));
             Assert.IsType<GreedyBot>(BotFactory.Create("HARD??", 1));
             Assert.Equal("hard", BotFactory.Normalize(" Hard "));
