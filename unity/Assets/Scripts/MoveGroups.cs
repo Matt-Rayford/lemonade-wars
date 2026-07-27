@@ -38,6 +38,19 @@ namespace LemonadeWars.Unity
             if (groups.IsModal)
             {
                 groups.ModalMoves.AddRange(moves);
+                // Window responses ALSO map onto their hand cards: with the live-table
+                // reaction panel, clicking the Tantrum in your hand plays it (equipped
+                // responses like Inflatable Decoy stay panel-only).
+                if (view.AwaitingResponse.Contains(view.ViewerId))
+                {
+                    foreach (var move in moves)
+                    {
+                        if (move is RespondToWindow respond && respond.EquippedInstanceId == null)
+                        {
+                            Add(groups.HandMoves, respond.CardInstanceId, move);
+                        }
+                    }
+                }
                 return groups;
             }
 

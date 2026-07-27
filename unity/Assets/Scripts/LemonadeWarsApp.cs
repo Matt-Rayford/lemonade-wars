@@ -137,6 +137,7 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview, this);
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
+            _table.AimIsReaction = () => ReactionWindowDue(CurrentGroups());
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
             _table.OnAttackPick = ResolveAttackOnPlayer;
@@ -242,6 +243,10 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)_speedLabel.transform, Vector2.zero, Vector2.one);
             _speedButton.gameObject.SetActive(false);
 
+            // Response windows use the non-modal reaction panel: card in the market
+            // band, buttons in the log column, the table left live for scouting.
+            _reaction = new ReactionPanel(root, _preview);
+
             // Built last: the pause menu and rulebook draw above every screen.
             PauseMenu.ApplySavedVolume();
             _pause = new PauseMenu(root);
@@ -253,6 +258,13 @@ namespace LemonadeWars.Unity
 
         private PauseMenu _pause;
         private RulebookViewer _rulebook;
+        private ReactionPanel _reaction;
+
+        /// <summary>True while a response window awaits the viewer with a stack top to react to.</summary>
+        private bool ReactionWindowDue(MoveGroups groups) =>
+            groups != null && groups.IsModal && groups.ModalMoves.Count > 0 &&
+            View.MyDecisions.Count == 0 && View.StackTop != null &&
+            View.AwaitingResponse.Contains(View.ViewerId);
 
         // ------------------------------------------------------- game speed
 
@@ -441,6 +453,7 @@ namespace LemonadeWars.Unity
             _table.SetVisible(true);
             _prompt.Hide();
             _picker.Hide();
+            _reaction.Hide();
             _turnBanner.Hide();
             _dice.Clear();
             _fx.Clear();
@@ -471,7 +484,8 @@ namespace LemonadeWars.Unity
             }
             if (gameEvent is SaleRolled roll)
             {
-                _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat);
+                _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
+                    roll.Purpose);
                 // Start collecting this roll's earnings for the "you earned" recap.
                 _saleEarnings = new List<string>();
                 _saleTotal = 0;
@@ -708,6 +722,7 @@ namespace LemonadeWars.Unity
                 _session.HumanAutoplay = !_session.HumanAutoplay;
                 _prompt.Hide();
                 _picker.Hide();
+                _reaction.Hide();
                 _turnBanner.Hide();
                 _dice.Clear();
                 _fx.Clear();
@@ -825,6 +840,27 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
+        /// What a die is being thrown for, in plain words — null for the ordinary end-of-turn
+        /// sale, which needs no label. Callers append it only when there is something to say.
+        /// </summary>
+        private static string RollPurposeName(RollPurpose? purpose)
+        {
+            switch (purpose)
+            {
+                case RollPurpose.NightShifts:
+                    return "Night Shifts";
+                case RollPurpose.SpoiledRotten:
+                    return "Spoiled Rotten";
+                case RollPurpose.ExtraSale:
+                    return "Extra sale";
+                case RollPurpose.TradeWinds:
+                    return "Trade Winds";
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log
         /// (draws, individual money ticks, window bookkeeping).
         /// </summary>
@@ -853,7 +889,8 @@ namespace LemonadeWars.Unity
                 case TitleClaimed title:
                     return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
                 case SaleRolled rolled:
-                    return $"{NameOf(rolled.PlayerId)} rolls a {rolled.Value}";
+                    return $"{NameOf(rolled.PlayerId)} rolls a {rolled.Value}" +
+                           (RollPurposeName(rolled.Purpose) is string why ? $" ({why})" : "");
                 case DieRerolled reroll:
                     return $"{NameOf(reroll.ByPlayerId)} plays Out of Stock — reroll: {reroll.NewValue}";
                 case RollModified modified:
@@ -916,7 +953,8 @@ namespace LemonadeWars.Unity
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
             bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
                                 (_picker.IsOpen && _picker.RootVisible) ||
-                                _table.PlayerPickActive;
+                                _table.PlayerPickActive ||
+                                _reaction.IsOpen;
             bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
             bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
                                 (_picker.IsOpen && !_picker.RootVisible);
@@ -1068,6 +1106,14 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            // Reaction window: clicking the card in hand IS the response — the live
+            // reaction panel already shows what it answers. (Tag routes through
+            // bar-aiming via AttackTargets and never reaches this menu.)
+            if (moves.Count == 1 && moves[0] is RespondToWindow)
+            {
+                Submit(moves[0]);
+                return;
+            }
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
             string cardName = _db.Lemon(card?.DefId ?? "").Name;
             var cardArt = _art.Lemon(card?.DefId ?? "");
@@ -1181,6 +1227,22 @@ namespace LemonadeWars.Unity
         /// <summary>The opponent a play ultimately hits, or -1 when it isn't aimed at one.</summary>
         private int VictimOf(GameAction move)
         {
+            // Reactions from the hand aim at bars too: Tag's "victim" is the redirect
+            // target; Rubber Glue's is the attacker the play bounces back onto.
+            if (move is RespondToWindow respond)
+            {
+                if (respond.RedirectTargetId is int redirect && redirect != View.ViewerId)
+                {
+                    return redirect;
+                }
+                var reactionCard = View.Hand.FirstOrDefault(c => c.InstanceId == respond.CardInstanceId);
+                if (reactionCard?.DefId == "im-rubber-youre-glue" && View.StackTop != null &&
+                    View.StackTop.OwnerId != View.ViewerId)
+                {
+                    return View.StackTop.OwnerId;
+                }
+                return -1;
+            }
             if (!(move is PlayLemonCard play))
             {
                 return -1;
@@ -1217,6 +1279,14 @@ namespace LemonadeWars.Unity
 
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
             string cardName = _db.Lemon(card?.DefId ?? "").Name;
+            if (onVictim.Count == 1 && onVictim[0] is RespondToWindow)
+            {
+                // A window response aimed at a bar (Tag redirect): the deliberate
+                // aim-and-click is the confirmation — a blur prompt here would sit on
+                // top of the live reaction panel and could be eaten by online updates.
+                Submit(onVictim[0]);
+                return;
+            }
             if (onVictim.Count == 1)
             {
                 // Point of no return: confirm before the attack actually fires.
@@ -1541,6 +1611,12 @@ namespace LemonadeWars.Unity
                     _table.EndPlayerPick();
                 }
             }
+            // Same for a resolved response window: the reaction panel must not
+            // outlive the stack item it was answering.
+            if (_reaction.IsOpen && !ReactionWindowDue(groups))
+            {
+                _reaction.Hide();
+            }
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
                 return; // decisions wait behind the ONWARD! button / the die / effects
@@ -1568,6 +1644,7 @@ namespace LemonadeWars.Unity
             // forced re-render on dismiss re-opens whatever is still relevant.
             _prompt.Hide();
             _picker.Hide();
+            _reaction.Hide();
             _turnBanner.Show(TurnSubtitle());
         }
 
@@ -1632,7 +1709,8 @@ namespace LemonadeWars.Unity
             }
             else if (View.PendingRollValue is int roll)
             {
-                banner = $"SALE ROLL: {roll}";
+                string what = RollPurposeName(View.PendingRollPurpose) ?? "Sale";
+                banner = $"{what.ToUpperInvariant()} ROLL: {roll}";
             }
             else if (View.Stage == GameStage.ChoosingLemonLords)
             {
@@ -1692,12 +1770,12 @@ namespace LemonadeWars.Unity
             // screen, leave it alone.
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
-            if ((_prompt.IsOpen || _picker.IsOpen) && signature == _modalSignature)
+            if ((_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen) && signature == _modalSignature)
             {
                 _modalRevision = revision;
                 return;
             }
-            if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen))
+            if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen))
             {
                 return;
             }
@@ -1717,6 +1795,14 @@ namespace LemonadeWars.Unity
             var orderedMoves = groups.ModalMoves
                 .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
                 .ToList();
+            if (ReactionWindowDue(groups))
+            {
+                // A stack-top window: react from the log column with the table live.
+                _prompt.Hide();
+                _reaction.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves));
+                return;
+            }
+            _reaction.Hide();
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
         }
 
@@ -1935,7 +2021,11 @@ namespace LemonadeWars.Unity
             }
             if (View.PendingRollValue is int roll)
             {
-                return $"The die shows {roll} — respond?";
+                // Name the roll unless it is the ordinary turn sale — the common case
+                // stays short, the surprising ones say what they are.
+                return RollPurposeName(View.PendingRollPurpose) is string why
+                    ? $"{why} roll: the die shows {roll} — respond?"
+                    : $"The die shows {roll} — respond?";
             }
             if (View.TheftOnMe)
             {
