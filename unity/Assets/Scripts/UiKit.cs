@@ -158,6 +158,9 @@ namespace LemonadeWars.Unity
             go.GetComponent<LayoutElement>().minHeight = 34;
             var button = go.GetComponent<Button>();
             button.transition = Selectable.Transition.None;
+            // The click sound belongs to the chrome, not to any one screen: every menu,
+            // lobby, pause, and rulebook button is built here.
+            button.onClick.AddListener(() => Sfx.Play(Sfx.ButtonClick));
             button.onClick.AddListener(onClick);
 
             // Subtle translucent grey at rest (light text); lemonade-yellow with dark
@@ -183,6 +186,63 @@ namespace LemonadeWars.Unity
                     text.color = idleText;
                 });
             return button;
+        }
+
+        /// <summary>
+        /// Code-built slider with whole-number steps: the value IS the step index, so
+        /// dragging can only ever land on a legal stop (no rounding feedback loops).
+        /// Returns the Slider — subscribe to onValueChanged for the step index.
+        /// </summary>
+        public static Slider CreateSlider(Transform parent, int steps, int initialStep)
+        {
+            var go = new GameObject("Slider", typeof(RectTransform), typeof(Slider),
+                typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            go.GetComponent<LayoutElement>().minHeight = 40;
+            var slider = go.GetComponent<Slider>();
+            slider.transition = Selectable.Transition.None;
+
+            const float handleWidth = 26f;
+            var track = CreatePanel(go.transform, "Track", new Color(0.09f, 0.11f, 0.15f, 0.95f));
+            track.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            track.GetComponent<Image>().type = Image.Type.Sliced;
+            Anchor(track, new Vector2(0, 0.34f), new Vector2(1, 0.66f),
+                new Vector2(handleWidth / 2f, 0), new Vector2(-handleWidth / 2f, 0));
+
+            // Fill area is inset by the handle radius so the fill lines up with it.
+            var fillArea = CreatePanel(go.transform, "FillArea", new Color(0, 0, 0, 0));
+            fillArea.GetComponent<Image>().raycastTarget = false;
+            Anchor(fillArea, new Vector2(0, 0.34f), new Vector2(1, 0.66f),
+                new Vector2(handleWidth / 2f, 0), new Vector2(-handleWidth / 2f, 0));
+            var fill = CreatePanel(fillArea, "Fill", ButtonColor);
+            fill.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            fill.GetComponent<Image>().type = Image.Type.Sliced;
+            fill.GetComponent<Image>().raycastTarget = false;
+            fill.anchorMin = new Vector2(0, 0);
+            fill.anchorMax = new Vector2(0, 1);
+            fill.offsetMin = fill.offsetMax = Vector2.zero;
+
+            var handleArea = CreatePanel(go.transform, "HandleArea", new Color(0, 0, 0, 0));
+            handleArea.GetComponent<Image>().raycastTarget = false;
+            Anchor(handleArea, Vector2.zero, Vector2.one,
+                new Vector2(handleWidth / 2f, 0), new Vector2(-handleWidth / 2f, 0));
+            var handle = CreatePanel(handleArea, "Handle", new Color(0.98f, 0.90f, 0.55f));
+            handle.GetComponent<Image>().sprite = UiSprites.Circle;
+            handle.GetComponent<Image>().preserveAspect = true;
+            handle.anchorMin = new Vector2(0, 0.5f);
+            handle.anchorMax = new Vector2(0, 0.5f);
+            handle.pivot = new Vector2(0.5f, 0.5f);
+            handle.sizeDelta = new Vector2(handleWidth, handleWidth);
+
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.targetGraphic = handle.GetComponent<Image>();
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.wholeNumbers = true;
+            slider.minValue = 0;
+            slider.maxValue = steps;
+            slider.value = Mathf.Clamp(initialStep, 0, steps);
+            return slider;
         }
 
         /// <summary>

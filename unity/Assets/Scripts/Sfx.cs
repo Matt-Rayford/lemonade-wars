@@ -13,10 +13,42 @@ namespace LemonadeWars.Unity
         public const string CardDraw = "card-draw";
         public const string TitleClaim = "title-claim";
         public const string AttackCard = "attack-card";
+        public const string ButtonClick = "button-click";
+        public const string CashRegister = "cash-register";
+
+        /// <summary>Slider step, in percent — the whole volume model moves in fives.</summary>
+        public const int VolumeStep = 5;
+
+        private const string VolumePref = "lw_sfx_volume";
+        private const string LegacyMutePref = "lw_sound"; // pre-slider on/off toggle
 
         private static AudioSource _source;
         private static readonly Dictionary<string, AudioClip> Clips =
             new Dictionary<string, AudioClip>();
+
+        /// <summary>Effects volume, 0-100 in steps of 5. Persisted and applied globally.</summary>
+        public static int Volume
+        {
+            get
+            {
+                int stored = PlayerPrefs.GetInt(VolumePref,
+                    PlayerPrefs.GetInt(LegacyMutePref, 1) == 0 ? 0 : 100);
+                return Mathf.Clamp(Mathf.RoundToInt(stored / (float)VolumeStep) * VolumeStep, 0, 100);
+            }
+            set
+            {
+                int level = Mathf.Clamp(Mathf.RoundToInt(value / (float)VolumeStep) * VolumeStep, 0, 100);
+                PlayerPrefs.SetInt(VolumePref, level);
+                PlayerPrefs.Save();
+                Apply();
+            }
+        }
+
+        /// <summary>Push the saved level onto the listener; call once at boot.</summary>
+        public static void Apply()
+        {
+            AudioListener.volume = Volume / 100f;
+        }
 
         public static void Play(string name, float volume = 1f)
         {

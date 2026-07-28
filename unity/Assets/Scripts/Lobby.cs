@@ -135,6 +135,23 @@ namespace LemonadeWars.Unity
             serverLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
             _serverInput = UiKit.CreateInput(settingsColumn.transform, "Server", defaultServerUrl);
 
+            var volumeLabel = UiKit.CreateText(settingsColumn.transform, "", 16,
+                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
+            volumeLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
+            void ShowVolume() =>
+                volumeLabel.text = Sfx.Volume == 0
+                    ? "Sound Effects — muted"
+                    : $"Sound Effects — {Sfx.Volume}%";
+            ShowVolume();
+            var volumeSlider = UiKit.CreateSlider(settingsColumn.transform,
+                steps: 100 / Sfx.VolumeStep, initialStep: Sfx.Volume / Sfx.VolumeStep);
+            volumeSlider.onValueChanged.AddListener(step =>
+            {
+                Sfx.Volume = (int)step * Sfx.VolumeStep;
+                ShowVolume();
+                Sfx.Play(Sfx.ButtonClick); // audition the new level on every stop
+            });
+
             UiKit.CreateButton(settingsColumn.transform, "Save & back", 20, () =>
             {
                 OnSaveSettings?.Invoke(DisplayName);

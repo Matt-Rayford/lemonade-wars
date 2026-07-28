@@ -533,7 +533,16 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is BraggingRightsPurchased brag && brag.PlayerId == _session.Seat)
             {
-                Sfx.Play(Sfx.TitleClaim);
+                Sfx.Play(Sfx.TitleClaim); // a title claim first, a purchase second
+            }
+            else if (gameEvent is BlackMarketPurchased bought && bought.PlayerId == _session.Seat)
+            {
+                // Queued, so the register rings alongside the "-$X" floater.
+                _fx.QueueSound(Sfx.CashRegister);
+            }
+            else if (gameEvent is StandPurchased standBought && standBought.PlayerId == _session.Seat)
+            {
+                _fx.QueueSound(Sfx.CashRegister);
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -1790,18 +1799,24 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            // Skip/Pass lead the list: with dozens of play variants below, the "do
-            // nothing" escape hatch must never scroll off-screen.
-            var orderedMoves = groups.ModalMoves
-                .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
-                .ToList();
+            bool passFirst(GameAction m) => m is SkipFreePlay || m is PassWindow;
             if (ReactionWindowDue(groups))
             {
                 // A stack-top window: react from the log column with the table live.
+                // The list is short here, so Pass sits at the BOTTOM — reactions read
+                // first, "do nothing" is the fallback under them.
+                var reactionMoves = groups.ModalMoves
+                    .OrderBy(m => passFirst(m) ? 1 : 0)
+                    .ToList();
                 _prompt.Hide();
-                _reaction.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves));
+                _reaction.Show(ModalTitle(), ModalCards(), ToOptions(reactionMoves));
                 return;
             }
+            // Blur modals can list dozens of play variants (Smear Campaign's free
+            // play): there the escape hatch leads, so it never scrolls off-screen.
+            var orderedMoves = groups.ModalMoves
+                .OrderBy(m => passFirst(m) ? 0 : 1)
+                .ToList();
             _reaction.Hide();
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
         }

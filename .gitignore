@@ -6,14 +6,7 @@ obj/
 .idea/
 
 .DS_Store
-game-assets/.DS_Store
-game-assets/Black Market Cards.pdf
-game-assets/Lemon Cards.pdf
-game-assets/Lemonade Wars Rulebook.pdf
-game-assets/Supporting Cards.pdf
-game-assets/Title Cards.pdf
-game-assets/csv/
-game-assets/Money_2.5x3.5.pdf
+game-assets
 
 # Unity (project lives in unity/)
 unity/Library/

@@ -399,8 +399,6 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed class PauseMenu
     {
-        private const string SoundPref = "lw_sound";
-
         private readonly RectTransform _root;
         private readonly TMP_Text _soundLabel;
 
@@ -454,6 +452,7 @@ namespace LemonadeWars.Unity
 
         public void Open()
         {
+            RefreshSoundLabel(); // the Settings slider may have moved since last time
             _root.gameObject.SetActive(true);
             _root.SetAsLastSibling();
         }
@@ -463,24 +462,32 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        /// <summary>Restore the persisted mute state; call once at boot.</summary>
-        public static void ApplySavedVolume()
-        {
-            AudioListener.volume = PlayerPrefs.GetInt(SoundPref, 1);
-        }
+        /// <summary>Restore the persisted volume; call once at boot.</summary>
+        public static void ApplySavedVolume() => Sfx.Apply();
 
+        /// <summary>
+        /// Mute toggle over the Settings volume: muting remembers the level so
+        /// unmuting comes back where the player left the slider.
+        /// </summary>
         private void ToggleSound()
         {
-            int on = PlayerPrefs.GetInt(SoundPref, 1) == 1 ? 0 : 1;
-            PlayerPrefs.SetInt(SoundPref, on);
-            PlayerPrefs.Save();
-            AudioListener.volume = on;
+            if (Sfx.Volume > 0)
+            {
+                _mutedFrom = Sfx.Volume;
+                Sfx.Volume = 0;
+            }
+            else
+            {
+                Sfx.Volume = _mutedFrom > 0 ? _mutedFrom : 100;
+            }
             RefreshSoundLabel();
         }
 
+        private int _mutedFrom;
+
         private void RefreshSoundLabel()
         {
-            _soundLabel.text = PlayerPrefs.GetInt(SoundPref, 1) == 1 ? "Sound: ON" : "Sound: OFF";
+            _soundLabel.text = Sfx.Volume == 0 ? "Sound: OFF" : $"Sound: {Sfx.Volume}%";
         }
     }
 }
