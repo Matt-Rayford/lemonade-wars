@@ -182,6 +182,11 @@ namespace LemonadeWars.Unity
             var hoverBackground = dark ? new Color(0.18f, 0.21f, 0.28f, 1f) : ButtonColor;
             var hoverText = dark ? ButtonColor : ButtonTextColor;
             var image = go.GetComponent<Image>();
+            // Same rounded corners as the prompt options and the shelf's refresh slab —
+            // every button in the game shares one silhouette.
+            image.sprite = UiSprites.RoundedRect;
+            image.type = Image.Type.Sliced;
+            image.pixelsPerUnitMultiplier = 14f / 10f; // ~10px corner radius
             image.color = idleBackground;
 
             var text = CreateText(go.transform, label, fontSize, TextAnchor.MiddleLeft, idleText);

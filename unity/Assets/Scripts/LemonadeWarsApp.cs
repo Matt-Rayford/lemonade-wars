@@ -253,20 +253,25 @@ namespace LemonadeWars.Unity
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
 
-            // Bot pacing chip, top-right: only shows in games that have bots.
-            // Silent button: CycleSpeed announces the new pace in its own voice.
-            _speedButton = UiKit.CreateButton(root, "", 16, CycleSpeed, dark: true, clickSound: null);
-            var speedRect = (RectTransform)_speedButton.transform;
-            // Anchored to the status bar's midline (it spans 0.95-1.0), so the chip
-            // stays centered in the bar at any window height.
-            UiKit.Anchor(speedRect, new Vector2(1f, 0.975f), new Vector2(1f, 0.975f));
-            speedRect.pivot = new Vector2(1f, 0.5f);
-            speedRect.sizeDelta = new Vector2(170f, 36f);
-            speedRect.anchoredPosition = new Vector2(-16f, 0f);
-            _speedLabel = _speedButton.GetComponentInChildren<TMPro.TMP_Text>();
-            _speedLabel.alignment = TMPro.TextAlignmentOptions.Center;
-            UiKit.Anchor((RectTransform)_speedLabel.transform, Vector2.zero, Vector2.one);
-            _speedButton.gameObject.SetActive(false);
+            // Turn actions live top-right, in the bar: ending your turn is the button
+            // you reach for every single turn. (Bot speed moved to the pause menu.)
+            var turnActionsGo = new GameObject("TurnActions", typeof(RectTransform),
+                typeof(HorizontalLayoutGroup));
+            turnActionsGo.transform.SetParent(root, false);
+            _turnActionRow = (RectTransform)turnActionsGo.transform;
+            // Anchored to the status bar's midline (it spans 0.95-1.0) so the row stays
+            // centered in the bar at any window height.
+            UiKit.Anchor(_turnActionRow, new Vector2(1f, 0.975f), new Vector2(1f, 0.975f));
+            _turnActionRow.pivot = new Vector2(1f, 0.5f);
+            _turnActionRow.sizeDelta = new Vector2(430f, 40f);
+            _turnActionRow.anchoredPosition = new Vector2(-16f, 0f);
+            var turnActionsLayout = turnActionsGo.GetComponent<HorizontalLayoutGroup>();
+            turnActionsLayout.spacing = 8;
+            turnActionsLayout.childAlignment = TextAnchor.MiddleRight;
+            turnActionsLayout.childForceExpandWidth = false;
+            turnActionsLayout.childForceExpandHeight = true;
+            turnActionsLayout.childControlWidth = true;
+            turnActionsLayout.childControlHeight = true;
 
             // Response windows use the non-modal reaction panel: card in the market
             // band, buttons in the log column, the table left live for scouting.
@@ -278,6 +283,11 @@ namespace LemonadeWars.Unity
             _rulebook = new RulebookViewer(root, Application.streamingAssetsPath);
             _pause.OnRulebook = () => _rulebook.Open();
             _pause.OnQuit = () => BackToMenu("");
+            _pause.OnCycleSpeed = CycleSpeed;
+            _pause.SpeedLabel = CurrentSpeed;
+            _pause.HasBots = () => _screen == Screen.Game &&
+                (_session is LocalGameSession ||
+                 (_remote != null && _remote.Room.Seats.Any(s => s.IsBot)));
             _lobby.OnRulebook = () => _rulebook.Open();
         }
 
@@ -316,8 +326,7 @@ namespace LemonadeWars.Unity
 
         private const string SpeedPref = "lw_game_speed";
         private static readonly string[] SpeedOrder = { "slow", "medium", "fast" };
-        private UnityEngine.UI.Button _speedButton;
-        private TMPro.TMP_Text _speedLabel;
+        private RectTransform _turnActionRow;
 
         private static float LocalStepSeconds(string speed) =>
             speed == "slow" ? 2.0f : speed == "fast" ? 0.45f : 1.0f;
@@ -342,19 +351,6 @@ namespace LemonadeWars.Unity
             else
             {
                 _remote?.SetSpeed(next); // the room broadcast confirms + syncs everyone
-            }
-            RefreshSpeedChip();
-        }
-
-        private void RefreshSpeedChip()
-        {
-            bool hasBots = _screen == Screen.Game &&
-                (_session is LocalGameSession ||
-                 (_remote != null && _remote.Room.Seats.Any(s => s.IsBot)));
-            _speedButton.gameObject.SetActive(hasBots);
-            if (hasBots)
-            {
-                _speedLabel.text = $"SPEED: {CurrentSpeed().ToUpperInvariant()}";
             }
         }
 
@@ -1125,7 +1121,7 @@ namespace LemonadeWars.Unity
             _session = null;
             _remote = null;
             _screen = Screen.Menu;
-            _speedButton.gameObject.SetActive(false);
+            UiKit.Clear(_turnActionRow);
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();
@@ -1755,6 +1751,7 @@ namespace LemonadeWars.Unity
                 _table.Render(View, _db, groups);
                 _table.SetLog(_actionLog);
                 RenderActionBar(groups);
+                RenderTurnActions(groups);
             }
             catch (System.Exception e)
             {
@@ -1855,7 +1852,6 @@ namespace LemonadeWars.Unity
                          (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
-                RefreshSpeedChip();
                 // The table is stalled on someone else: say who, so a quiet moment
                 // (their response window, their discard) never reads as a hang.
                 if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
@@ -1905,6 +1901,40 @@ namespace LemonadeWars.Unity
             _topBanner.text = banner;
         }
 
+        /// <summary>
+        /// The two "advance the game" buttons, pinned top-right in the status bar:
+        /// short labels, dark chips against the yellow.
+        /// </summary>
+        private void RenderTurnActions(MoveGroups groups)
+        {
+            UiKit.Clear(_turnActionRow);
+            if (groups == null || groups.IsModal)
+            {
+                return;
+            }
+            foreach (var move in groups.BarMoves)
+            {
+                string label = move is EndTurn ? "END TURN (SELL)"
+                    : move is InitialBuyEnd ? "FINISH DRAFT"
+                    : null;
+                if (label == null)
+                {
+                    continue;
+                }
+                var captured = move;
+                // End Turn stays silent: the die's own roll sound covers it.
+                var button = UiKit.CreateButton(_turnActionRow, label, 16,
+                    () => Submit(captured), dark: true,
+                    clickSound: captured is EndTurn ? null : Sfx.ButtonClick);
+                var element = button.GetComponent<LayoutElement>();
+                element.minWidth = 190;
+                element.minHeight = 36;
+                var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+                text.alignment = TMPro.TextAlignmentOptions.Center;
+                UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
+            }
+        }
+
         private void RenderActionBar(MoveGroups groups)
         {
             UiKit.Clear(_table.ActionBar);
@@ -1914,9 +1944,10 @@ namespace LemonadeWars.Unity
             }
             foreach (var move in groups.BarMoves)
             {
-                if (move is RefreshMarket || move is DrawLemonCard)
+                if (move is RefreshMarket || move is DrawLemonCard ||
+                    move is EndTurn || move is InitialBuyEnd)
                 {
-                    continue; // both live on the table now: the shelf and the hand
+                    continue; // these live on the table / in the top bar now
                 }
                 var captured = move;
                 // Buttons whose ACTION has a sound stay silent, rather than clicking

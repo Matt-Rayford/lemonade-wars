@@ -401,9 +401,15 @@ namespace LemonadeWars.Unity
     {
         private readonly RectTransform _root;
         private readonly TMP_Text _soundLabel;
+        private readonly Button _speedButton;
+        private readonly TMP_Text _speedLabel;
 
         public System.Action OnRulebook;
         public System.Action OnQuit;
+        /// <summary>Bot pacing, shown only in games that have bots.</summary>
+        public System.Action OnCycleSpeed;
+        public System.Func<string> SpeedLabel;
+        public System.Func<bool> HasBots;
 
         public bool IsOpen => _root.gameObject.activeSelf;
 
@@ -430,9 +436,11 @@ namespace LemonadeWars.Unity
             layout.childControlHeight = true;
             layout.childControlWidth = true;
 
-            Button Add(string label, UnityEngine.Events.UnityAction onClick)
+            Button Add(string label, UnityEngine.Events.UnityAction onClick,
+                string clickSound = Sfx.ButtonClick)
             {
-                var button = UiKit.CreateButton(column.transform, label, 22, onClick);
+                var button = UiKit.CreateButton(column.transform, label, 22, onClick,
+                    clickSound: clickSound);
                 button.gameObject.AddComponent<LayoutElement>().minHeight = 56;
                 return button;
             }
@@ -440,6 +448,13 @@ namespace LemonadeWars.Unity
             Add("Resume", Close);
             Add("Rulebook", () => OnRulebook?.Invoke());
             _soundLabel = Add("", ToggleSound).GetComponentInChildren<TMP_Text>();
+            // Silent: cycling the pace announces itself in its own voice.
+            _speedButton = Add("", () =>
+            {
+                OnCycleSpeed?.Invoke();
+                RefreshSpeedLabel();
+            }, clickSound: null);
+            _speedLabel = _speedButton.GetComponentInChildren<TMP_Text>();
             Add("Quit to main menu", () =>
             {
                 Close();
@@ -453,8 +468,19 @@ namespace LemonadeWars.Unity
         public void Open()
         {
             RefreshSoundLabel(); // the Settings slider may have moved since last time
+            RefreshSpeedLabel();
             _root.gameObject.SetActive(true);
             _root.SetAsLastSibling();
+        }
+
+        private void RefreshSpeedLabel()
+        {
+            bool bots = HasBots?.Invoke() == true;
+            _speedButton.gameObject.SetActive(bots);
+            if (bots)
+            {
+                _speedLabel.text = $"Bot speed: {(SpeedLabel?.Invoke() ?? "medium").ToUpperInvariant()}";
+            }
         }
 
         public void Close()
