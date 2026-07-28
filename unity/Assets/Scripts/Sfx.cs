@@ -19,6 +19,7 @@ namespace LemonadeWars.Unity
         public const string WhinyBaby = "whiny-baby";
         public const string YourTurn = "your-turn-notification";
         public const string SaleRoll = "sale-roll";
+        public const string RefreshMarket = "refresh-black-market";
 
         /// <summary>The spoken pace for a bot-speed setting ("slow"/"medium"/"fast").</summary>
         public static string BotSpeed(string speed) => "bot-speeds/bot-speed-" + speed;

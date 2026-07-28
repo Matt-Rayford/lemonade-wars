@@ -29,6 +29,8 @@ namespace LemonadeWars.Unity
             Tumble,
             Settle,
             Hold,
+            /// <summary>Settled and waiting on a response window — visible but NOT busy.</summary>
+            Parked,
             FadeOut,
         }
 
@@ -50,8 +52,15 @@ namespace LemonadeWars.Unity
 
         public System.Action OnFinished;
 
-        /// <summary>True while an animation plays or rolls are queued; modals wait on this.</summary>
-        public bool IsBusy => _phase != Phase.Idle || _queue.Count > 0;
+        /// <summary>
+        /// True while an animation plays or rolls are queued; modals wait on this.
+        /// A PARKED die is deliberately not busy — the response panel must be able to
+        /// open beside it.
+        /// </summary>
+        public bool IsBusy => (_phase != Phase.Idle && _phase != Phase.Parked) || _queue.Count > 0;
+
+        /// <summary>Set while a roll is still open for responses: the die stays put.</summary>
+        public bool Linger;
 
         private readonly Queue<Roll> _queue = new Queue<Roll>();
         private readonly RectTransform _root;
@@ -255,6 +264,25 @@ namespace LemonadeWars.Unity
                     float punch = Mathf.Clamp01(_t / 0.18f);
                     _die.localScale = Vector3.one * (DieScale * (1f + 0.12f * Mathf.Sin(punch * Mathf.PI)));
                     if (_t >= HoldSeconds)
+                    {
+                        // A roll still open for responses parks on screen instead of
+                        // fading: the number is the whole basis of the decision.
+                        if (Linger && _queue.Count == 0)
+                        {
+                            SetPhase(Phase.Parked);
+                            // Parking ends the BUSY period, so it must wake the
+                            // renderer exactly like a fade-out does — renders are
+                            // revision-gated and would otherwise never re-run.
+                            OnFinished?.Invoke();
+                        }
+                        else
+                        {
+                            SetPhase(Phase.FadeOut);
+                        }
+                    }
+                    break;
+                case Phase.Parked:
+                    if (!Linger || _queue.Count > 0)
                     {
                         SetPhase(Phase.FadeOut);
                     }

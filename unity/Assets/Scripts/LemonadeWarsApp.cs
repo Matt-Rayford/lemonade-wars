@@ -146,6 +146,15 @@ namespace LemonadeWars.Unity
             _table.MarketTargetsFor = MarketTargets;
             _table.OnMarketPick = ResolveMarketTake;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
+            _table.CanRefreshMarket = () => RefreshMove() != null;
+            _table.OnRefreshMarket = () =>
+            {
+                var refresh = RefreshMove();
+                if (refresh != null)
+                {
+                    Submit(refresh);
+                }
+            };
             _table.OnMarketDragStart = OnMarketDragStart;
             _table.OnMarketDragEnd = () =>
             {
@@ -266,6 +275,8 @@ namespace LemonadeWars.Unity
         private PauseMenu _pause;
         private RulebookViewer _rulebook;
         private ReactionPanel _reaction;
+        /// <summary>The open reaction's headline, shown in the yellow bar.</summary>
+        private string _reactionBanner = "";
 
         /// <summary>
         /// True while a stack moment needs the viewer AND the table should stay live:
@@ -840,6 +851,8 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
+            // A roll that is still open for responses keeps its die on the table.
+            _dice.Linger = View != null && View.PendingRollValue != null;
             _dice.Tick();
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
@@ -1312,6 +1325,9 @@ namespace LemonadeWars.Unity
             return targets;
         }
 
+        private GameAction RefreshMove() =>
+            CurrentGroups()?.BarMoves.FirstOrDefault(m => m is RefreshMarket);
+
         /// <summary>
         /// Market slots a hand card can take from (Connections), or null when the card
         /// doesn't reach the shelf — the aiming layer treats null as "not mine".
@@ -1439,8 +1455,10 @@ namespace LemonadeWars.Unity
                     .GroupBy(m => m.TargetEquippedInstanceId.Value)
                     .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
                 var cards = EquippedCardInfos(victimId, onVictim);
+                // That's Not Fair! trashes what it points at; Finders Keepers takes it.
+                string verb = TargetsForDiscardOnly(onVictim) ? "DISCARD" : "TAKE";
                 _table.OpenDiscardPicker(
-                    $"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victimId).ToUpperInvariant()}",
+                    $"{cardName.ToUpperInvariant()}: {verb} FROM {NameOf(victimId).ToUpperInvariant()}",
                     cards, blackMarket: true,
                     c => _db.BlackMarket(c.DefId).Name,
                     equippedId =>
@@ -1449,7 +1467,7 @@ namespace LemonadeWars.Unity
                         ResolveEquipDestination(byEquipped[equippedId],
                             _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
                     },
-                    onBack: () => _table.RestartAttackTargeting(cardInstanceId));
+                    onBack: () => _table.RestartAttackTargeting(cardInstanceId), verb: verb);
                 return;
             }
             _prompt.Show($"{cardName} → {NameOf(victimId)}",
@@ -1884,6 +1902,10 @@ namespace LemonadeWars.Unity
             }
             foreach (var move in groups.BarMoves)
             {
+                if (move is RefreshMarket)
+                {
+                    continue; // it lives on the shelf now
+                }
                 var captured = move;
                 // Buttons whose ACTION has a sound stay silent, rather than clicking
                 // over their own tumble/shuffle a frame later.

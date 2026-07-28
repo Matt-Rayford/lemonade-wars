@@ -21,6 +21,8 @@ namespace LemonadeWars.Unity
 
         // Market drag & drop.
         public System.Func<int, bool> CanBuyMarket;         // market index -> any legal buy?
+        public System.Func<bool> CanRefreshMarket;
+        public System.Action OnRefreshMarket;
         public System.Action<int> OnMarketDragStart;        // market index
         public System.Action OnMarketDragEnd;
         public System.Action<int, int?> OnMarketDrop;       // market index, stand id (null = turf)
@@ -1234,12 +1236,73 @@ namespace LemonadeWars.Unity
             BuildDiscardPile(view, blackMarket: false);
             BuildDiscardPile(view, blackMarket: true);
             AddRowGap();
+            // The refresh belongs to the shelf it refreshes, not to the action bar.
+            // Always present so the row never reflows; it just goes dark when it
+            // isn't yours to press.
+            BuildRefreshCell(db.Config.BlackMarketRefreshCost, CanRefreshMarket?.Invoke() == true);
             for (int i = 0; i < view.Market.Count; i++)
             {
                 var card = view.Market[i];
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
                 BuildMarketCell(i, texture);
             }
+        }
+
+        /// <summary>
+        /// Solid lemonade-yellow slab at the head of the shelf: buy a whole new row.
+        /// Card-height so it reads as part of the market, not as chrome laid over it.
+        /// </summary>
+        private void BuildRefreshCell(int price, bool enabled)
+        {
+            const float width = 64f;
+            const float height = 216f;
+
+            var cell = new GameObject("RefreshCell", typeof(RectTransform), typeof(LayoutElement));
+            cell.transform.SetParent(_marketRow, false);
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + 4;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            var idle = enabled ? UiKit.ButtonColor : new Color(0.42f, 0.36f, 0.12f, 0.85f);
+            var button = UiKit.CreatePanel(cell.transform, "Refresh", idle);
+            button.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            button.GetComponent<Image>().type = Image.Type.Sliced;
+            var buttonRect = button;
+            buttonRect.anchorMin = new Vector2(0.5f, 1f);
+            buttonRect.anchorMax = new Vector2(0.5f, 1f);
+            buttonRect.pivot = new Vector2(0.5f, 1f);
+            buttonRect.sizeDelta = new Vector2(width, height);
+            buttonRect.anchoredPosition = Vector2.zero;
+
+            // Turned on its side to run up the thin slab: the label's own rect is laid
+            // out along the button's HEIGHT, then rotated a quarter turn.
+            var label = UiKit.CreateText(button, $"REFRESH (${price})", 18,
+                TextAnchor.MiddleCenter,
+                enabled ? UiKit.ButtonTextColor : new Color(0.20f, 0.18f, 0.10f, 0.75f));
+            label.raycastTarget = false;
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+            var labelRect = (RectTransform)label.transform;
+            labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRect.pivot = new Vector2(0.5f, 0.5f);
+            labelRect.sizeDelta = new Vector2(height - 16f, width - 8f);
+            labelRect.anchoredPosition = Vector2.zero;
+            labelRect.localRotation = Quaternion.Euler(0, 0, 90f); // reads bottom-to-top
+
+            if (!enabled)
+            {
+                return; // dark and inert: no hover, nothing to submit
+            }
+            var image = button.GetComponent<Image>();
+            UiKit.AddHover(button.gameObject,
+                () => image.color = new Color(1f, 0.92f, 0.45f),
+                () => image.color = idle);
+            UiKit.AddClick(button.gameObject, () =>
+            {
+                Sfx.Play(Sfx.RefreshMarket); // the shelf being swept, not a UI click
+                OnRefreshMarket?.Invoke();
+            });
         }
 
         /// <summary>A market card: hover glows it; drag it onto your turf/stands to buy.</summary>
