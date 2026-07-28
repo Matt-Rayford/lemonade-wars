@@ -146,6 +146,15 @@ namespace LemonadeWars.Unity
             _table.MarketTargetsFor = MarketTargets;
             _table.OnMarketPick = ResolveMarketTake;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
+            _table.CanDrawLemon = () => DrawMove() != null;
+            _table.OnDrawCard = () =>
+            {
+                var draw = DrawMove();
+                if (draw != null)
+                {
+                    Submit(draw); // the card-draw sound covers it; no UI click
+                }
+            };
             _table.CanRefreshMarket = () => RefreshMove() != null;
             _table.OnRefreshMarket = () =>
             {
@@ -1328,6 +1337,9 @@ namespace LemonadeWars.Unity
         private GameAction RefreshMove() =>
             CurrentGroups()?.BarMoves.FirstOrDefault(m => m is RefreshMarket);
 
+        private GameAction DrawMove() =>
+            CurrentGroups()?.BarMoves.FirstOrDefault(m => m is DrawLemonCard);
+
         /// <summary>
         /// Market slots a hand card can take from (Connections), or null when the card
         /// doesn't reach the shelf — the aiming layer treats null as "not mine".
@@ -1902,14 +1914,14 @@ namespace LemonadeWars.Unity
             }
             foreach (var move in groups.BarMoves)
             {
-                if (move is RefreshMarket)
+                if (move is RefreshMarket || move is DrawLemonCard)
                 {
-                    continue; // it lives on the shelf now
+                    continue; // both live on the table now: the shelf and the hand
                 }
                 var captured = move;
                 // Buttons whose ACTION has a sound stay silent, rather than clicking
-                // over their own tumble/shuffle a frame later.
-                bool ownsItsSound = captured is EndTurn || captured is DrawLemonCard;
+                // over their own tumble a frame later.
+                bool ownsItsSound = captured is EndTurn;
                 var button = UiKit.CreateButton(_table.ActionBar,
                     _session.LabelFor(captured), 15, () => Submit(captured),
                     clickSound: ownsItsSound ? null : Sfx.ButtonClick);

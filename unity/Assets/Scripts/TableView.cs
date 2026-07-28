@@ -23,6 +23,10 @@ namespace LemonadeWars.Unity
         public System.Func<int, bool> CanBuyMarket;         // market index -> any legal buy?
         public System.Func<bool> CanRefreshMarket;
         public System.Action OnRefreshMarket;
+        public System.Func<bool> CanDrawLemon;
+        public System.Action OnDrawCard;
+        /// <summary>Sentinel hand-frame id for the draw slot — never a real instance.</summary>
+        private const int DrawSlotId = int.MinValue;
         public System.Action<int> OnMarketDragStart;        // market index
         public System.Action OnMarketDragEnd;
         public System.Action<int, int?> OnMarketDrop;       // market index, stand id (null = turf)
@@ -142,11 +146,12 @@ namespace LemonadeWars.Unity
         private bool _handGestureArmed;
 
         /// <summary>
-        /// Sideways travel that turns a press into a reorder: ~15% of the hand band,
-        /// which is about one card slot. Anything less stays a click on the card.
+        /// Sideways travel that turns a press into a reorder: 5% of the hand band —
+        /// enough to be deliberate, short enough to feel immediate. Anything less
+        /// stays a click on the card.
         /// </summary>
         private float ReorderThreshold() =>
-            Mathf.Max(40f, _handHost.rect.width * 0.15f);
+            Mathf.Max(20f, _handHost.rect.width * 0.05f);
         private Vector2 _handDragStart;
         private float _handStartX;
         private float _handSpacing;
@@ -1460,7 +1465,10 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_handHost);
             _handFrames.Clear();
             int count = view.Hand.Count;
-            if (count == 0)
+            // The deck sits at the right end of the fan as a card-shaped slot, so
+            // drawing reads as taking a card rather than pressing a bar button.
+            bool canDraw = CanDrawLemon?.Invoke() == true;
+            if (count == 0 && !canDraw)
             {
                 _handOrder.Clear();
                 return;
@@ -1495,7 +1503,9 @@ namespace LemonadeWars.Unity
             const float edgeFade = 130f;
             float usable = hostWidth - edgeFade * 2f;
             float spacing = width * 0.72f;
-            float span = width + spacing * (count - 1);
+            // The draw slot takes a place in the fan, so a full hand scrolls to reach it.
+            int slots = count + (canDraw ? 1 : 0);
+            float span = width + spacing * (slots - 1);
             _handMaxScroll = Mathf.Max(0f, span - usable);
             _handScroll = Mathf.Clamp(_handScroll, 0f, _handMaxScroll);
             float startX = _handMaxScroll > 0f
@@ -1679,6 +1689,86 @@ namespace LemonadeWars.Unity
                     });
                 _preview.Attach(image.gameObject, texture);
             }
+
+            if (canDraw)
+            {
+                BuildDrawSlot(startX + count * spacing, width, height, peek, raisedY, count);
+            }
+        }
+
+        /// <summary>
+        /// The deck as a hand slot: a dashed card-shaped outline holding a "+" and the
+        /// prompt. Lifts on hover like a real card, but nothing here is draggable — it
+        /// is a place to click, not a card to arrange.
+        /// </summary>
+        private void BuildDrawSlot(float baseX, float width, float height, float peek,
+            float raisedY, int sibling)
+        {
+            var frameGo = new GameObject("DrawSlot", typeof(RectTransform), typeof(Image));
+            frameGo.transform.SetParent(_handHost, false);
+            var frame = (RectTransform)frameGo.transform;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+            frame.pivot = new Vector2(0.5f, 0f);
+            frame.sizeDelta = new Vector2(width, height);
+            float restY = peek - height;
+            frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
+            // The frame itself is invisible but raycastable: the whole card area clicks.
+            frameGo.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+
+            // Opaque fill running out to the dash ring itself (same rect, same corner
+            // radius), so the dashes sit ON its edge rather than around a smaller slab.
+            const float fillInset = 3f;
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(frame, false);
+            UiKit.Anchor((RectTransform)fillGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(fillInset, fillInset), new Vector2(-fillInset, -fillInset));
+            var fill = fillGo.GetComponent<Image>();
+            fill.sprite = UiSprites.RoundedRect;
+            fill.type = Image.Type.Sliced;
+            fill.pixelsPerUnitMultiplier =
+                14f / Mathf.Max(4f, UiKit.CardCornerRadius(width) - fillInset);
+            fill.color = new Color(0.30f, 0.35f, 0.46f, 0.55f);
+            fill.raycastTarget = false;
+
+            var motion = frameGo.AddComponent<HandCardMotion>();
+            motion.TargetY = restY;
+            _handFrames.Add((DrawSlotId, frame, baseX, motion, restY));
+
+            var outline = UiKit.ButtonColor;
+            AddDashedRoundedOutline(frame, width - 6f, height - 6f,
+                UiKit.CardCornerRadius(width), outline);
+
+            // Stacked as one centered group, sitting in the part of the card that
+            // shows while the hand is at rest (the lower third peeks off-screen).
+            // Each band must clear its own line height: these texts truncate, and a
+            // glyph that cannot fit vertically renders as nothing at all.
+            var plus = UiKit.CreateText(frame, "+", 48, TextAnchor.MiddleCenter, outline);
+            plus.raycastTarget = false;
+            plus.overflowMode = TMPro.TextOverflowModes.Overflow;
+            UiKit.Anchor((RectTransform)plus.transform, new Vector2(0, 0.62f), new Vector2(1, 0.88f));
+
+            var label = UiKit.CreateText(frame, "DRAW A\nLEMON CARD", 18,
+                TextAnchor.MiddleCenter, outline);
+            label.raycastTarget = false;
+            label.overflowMode = TMPro.TextOverflowModes.Overflow;
+            UiKit.Anchor((RectTransform)label.transform, new Vector2(0, 0.40f), new Vector2(1, 0.62f));
+
+            UiKit.AddHover(frameGo,
+                () =>
+                {
+                    if (_attackCardId >= 0)
+                    {
+                        return; // the armed card owns the top slot while aiming
+                    }
+                    frame.SetAsLastSibling();
+                    motion.TargetY = raisedY;
+                },
+                () =>
+                {
+                    frame.SetSiblingIndex(sibling);
+                    motion.TargetY = restY;
+                });
+            UiKit.AddClick(frameGo, () => OnDrawCard?.Invoke());
         }
 
         private float _boardScroll;
