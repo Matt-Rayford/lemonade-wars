@@ -382,6 +382,29 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void PeddlinPeteDiscountsDuringTheSetupDraft()
+        {
+            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal" }, 4242);
+            foreach (var p in game.State.Players)
+            {
+                game.Apply(new ChooseLemonLords
+                {
+                    PlayerId = p.PlayerId,
+                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
+                });
+            }
+            Assert.Equal(GameStage.InitialBuys, game.State.Stage);
+
+            int buyer = game.State.InitialBuyQueue[0];
+            var def = TestData.Db.BlackMarket("early-worm");
+            Assert.Equal(def.Cost, game.BlackMarketPrice(buyer, def));
+
+            // Pete on the Turf discounts the very next draft purchase (designer ruling).
+            RigEquip(game, buyer, "peddlin-pete");
+            Assert.Equal(def.Cost - 1, game.BlackMarketPrice(buyer, def));
+        }
+
+        [Fact]
         public void ShoppingSpreeAndPeddlinPeteDiscountPurchases()
         {
             var game = ReadyToPlay();

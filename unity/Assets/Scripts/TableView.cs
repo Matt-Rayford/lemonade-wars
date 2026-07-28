@@ -135,6 +135,18 @@ namespace LemonadeWars.Unity
         // Hand arrangement: the player's preferred order, kept across renders.
         private readonly List<int> _handOrder = new List<int>();
         private int _reorderCardId = -1;
+        private int _reorderSlot = -1;
+        /// <summary>Card held raised after a drop until the pointer actually leaves it.</summary>
+        private int _stickyRaisedId = -1;
+        /// <summary>This pointer gesture became a real drag (aim or reorder), not a click.</summary>
+        private bool _handGestureArmed;
+
+        /// <summary>
+        /// Sideways travel that turns a press into a reorder: ~15% of the hand band,
+        /// which is about one card slot. Anything less stays a click on the card.
+        /// </summary>
+        private float ReorderThreshold() =>
+            Mathf.Max(40f, _handHost.rect.width * 0.15f);
         private Vector2 _handDragStart;
         private float _handStartX;
         private float _handSpacing;
@@ -1510,103 +1522,140 @@ namespace LemonadeWars.Unity
                 frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
+                if (card.InstanceId == _stickyRaisedId)
+                {
+                    // Just dropped under the cursor: stay lifted through the rebuild,
+                    // or the card visibly falls flat and pops back up on the next move.
+                    motion.TargetY = raisedY;
+                    frame.anchoredPosition = new Vector2(frame.anchoredPosition.x, raisedY);
+                    frame.SetAsLastSibling();
+                }
                 int captured = card.InstanceId;
                 _handFrames.Add((captured, frame, baseX, motion, restY));
 
+                // Playing the card: Connections reaches up to the shelf, attacks reach
+                // across to a player, everything else opens its menu.
+                void Activate()
+                {
+                    if (optionCount == 0)
+                    {
+                        return;
+                    }
+                    var shelf = MarketTargetsFor?.Invoke(captured);
+                    if (shelf != null && shelf.Count > 0)
+                    {
+                        BeginAttackTargeting(captured, shelf, dragMode: false, AimTarget.MarketCards);
+                        return;
+                    }
+                    var targets = AttackTargetsFor?.Invoke(captured);
+                    if (targets != null && targets.Count > 0)
+                    {
+                        BeginAttackTargeting(captured, targets, dragMode: false);
+                    }
+                    else
+                    {
+                        OnHandCard?.Invoke(captured);
+                    }
+                }
+
                 if (optionCount > 0)
                 {
-                    // Attack cards aim at a player bar instead of opening the menu.
-                    UiKit.AddClick(image.gameObject, () =>
+                    UiKit.AddClick(image.gameObject, Activate);
+                }
+
+                // Dragging is always available — arranging your hand is not a move, so
+                // it works on anyone's turn. Only the ARMING inside needs a legal play.
+                var drag = image.gameObject.AddComponent<DragRelay>();
+                drag.Began = position =>
+                {
+                    _attackDragAborted = false;
+                    _handDragStart = position;
+                    _handGestureArmed = false;
+                    _preview.SetDragging(true);
+                };
+                drag.Moved = position =>
+                {
+                    if (optionCount > 0 && _attackCardId < 0 && _reorderCardId < 0 &&
+                        !_attackDragAborted &&
+                        !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                     {
-                        // Connections reaches up to the shelf; attacks reach across
-                        // to a player; everything else opens its menu.
                         var shelf = MarketTargetsFor?.Invoke(captured);
                         if (shelf != null && shelf.Count > 0)
                         {
-                            BeginAttackTargeting(captured, shelf, dragMode: false,
+                            _handGestureArmed = true;
+                            BeginAttackTargeting(captured, shelf, dragMode: true,
                                 AimTarget.MarketCards);
                             return;
                         }
                         var targets = AttackTargetsFor?.Invoke(captured);
                         if (targets != null && targets.Count > 0)
                         {
-                            BeginAttackTargeting(captured, targets, dragMode: false);
+                            _handGestureArmed = true;
+                            BeginAttackTargeting(captured, targets, dragMode: true);
                         }
-                        else
-                        {
-                            OnHandCard?.Invoke(captured);
-                        }
-                    });
-
-                    // Or drag: past the hand band the card arms and the arrow appears;
-                    // release over a glowing bar to fire, anywhere else to abort.
-                    var drag = image.gameObject.AddComponent<DragRelay>();
-                    drag.Began = position =>
+                        return;
+                    }
+                    // Sideways inside the band: rearrange the hand instead. It takes a
+                    // deliberate sideways push (a card-width-ish) to become a drag —
+                    // below that the gesture is still a click on the card.
+                    if (_attackCardId < 0 &&
+                        RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                     {
-                        _attackDragAborted = false;
-                        _handDragStart = position;
-                        _preview.SetDragging(true);
-                    };
-                    drag.Moved = position =>
-                    {
-                        if (_attackCardId < 0 && _reorderCardId < 0 && !_attackDragAborted &&
-                            !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
+                        if (_reorderCardId < 0 &&
+                            Mathf.Abs(position.x - _handDragStart.x) > ReorderThreshold())
                         {
-                            var shelf = MarketTargetsFor?.Invoke(captured);
-                            if (shelf != null && shelf.Count > 0)
-                            {
-                                BeginAttackTargeting(captured, shelf, dragMode: true,
-                                    AimTarget.MarketCards);
-                                return;
-                            }
-                            var targets = AttackTargetsFor?.Invoke(captured);
-                            if (targets != null && targets.Count > 0)
-                            {
-                                BeginAttackTargeting(captured, targets, dragMode: true);
-                            }
-                            return;
+                            _reorderCardId = captured;
+                            _reorderSlot = -1; // force the first preview
+                            _handGestureArmed = true;
+                            frame.SetAsLastSibling();
+                            motion.TargetY = raisedY;
                         }
-                        // Sideways inside the band: rearrange the hand instead.
-                        if (_attackCardId < 0 &&
-                            RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
-                        {
-                            if (_reorderCardId < 0 &&
-                                Mathf.Abs(position.x - _handDragStart.x) > 30f)
-                            {
-                                _reorderCardId = captured;
-                                frame.SetAsLastSibling();
-                                motion.TargetY = raisedY;
-                            }
-                            if (_reorderCardId == captured)
-                            {
-                                RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                                    _handHost, position, null, out var local);
-                                frame.anchoredPosition = new Vector2(
-                                    local.x, frame.anchoredPosition.y);
-                            }
-                        }
-                    };
-                    drag.Ended = position =>
-                    {
                         if (_reorderCardId == captured)
                         {
-                            _reorderCardId = -1;
                             RectTransformUtility.ScreenPointToLocalPointInRectangle(
                                 _handHost, position, null, out var local);
-                            int slot = _handSpacing > 0f
-                                ? Mathf.RoundToInt((local.x + _handScroll - _handStartX) / _handSpacing)
-                                : 0;
-                            _handOrder.Remove(captured);
-                            _handOrder.Insert(Mathf.Clamp(slot, 0, _handOrder.Count), captured);
-                            OnBoardViewChanged?.Invoke(); // force a re-render in the new order
+                            frame.anchoredPosition = new Vector2(
+                                local.x, frame.anchoredPosition.y);
+                            // Live gap: the rest of the fan opens up around the
+                            // slot the card would land in, so the arrangement is
+                            // visible before the drop rather than after it.
+                            int slot = SlotAt(local.x);
+                            if (slot != _reorderSlot)
+                            {
+                                _reorderSlot = slot;
+                                PreviewReorder(captured, slot);
+                            }
                         }
-                        if (_attackCardId == captured && _attackDragMode)
-                        {
-                            FinishAttackTargeting();
-                        }
-                        _preview.SetDragging(false);
-                    };
-                }
+                    }
+                };
+                drag.Ended = position =>
+                {
+                    if (_reorderCardId == captured)
+                    {
+                        _reorderCardId = -1;
+                        _reorderSlot = -1;
+                        ClearReorderPreview();
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                            _handHost, position, null, out var local);
+                        int slot = SlotAt(local.x);
+                        _handOrder.Remove(captured);
+                        _handOrder.Insert(Mathf.Clamp(slot, 0, _handOrder.Count), captured);
+                        _stickyRaisedId = captured; // the cursor is still on it
+                        OnBoardViewChanged?.Invoke(); // force a re-render in the new order
+                    }
+                    else if (_attackCardId == captured && _attackDragMode)
+                    {
+                        FinishAttackTargeting();
+                    }
+                    else if (!_handGestureArmed)
+                    {
+                        // A twitch, not a drag. Unity already suppressed the click for
+                        // this gesture, so play the card the way a click would.
+                        Activate();
+                    }
+                    _handGestureArmed = false;
+                    _preview.SetDragging(false);
+                };
 
                 int sibling = i;
                 UiKit.AddHover(image.gameObject,
@@ -1696,6 +1745,44 @@ namespace LemonadeWars.Unity
             _boardRow.anchoredPosition = position;
         }
 
+        /// <summary>Which slot a local X lands the dragged card in.</summary>
+        private int SlotAt(float localX) => _handSpacing > 0f
+            ? Mathf.RoundToInt((localX + _handScroll - _handStartX) / _handSpacing)
+            : 0;
+
+        /// <summary>Slide every OTHER card to where it would sit if the drop landed now.</summary>
+        private void PreviewReorder(int draggedId, int slot)
+        {
+            var order = new List<int>(_handOrder);
+            order.Remove(draggedId);
+            order.Insert(Mathf.Clamp(slot, 0, order.Count), draggedId);
+            for (int i = 0; i < order.Count; i++)
+            {
+                if (order[i] == draggedId)
+                {
+                    continue; // that one follows the cursor
+                }
+                foreach (var entry in _handFrames)
+                {
+                    if (entry.Id == order[i] && entry.Motion != null)
+                    {
+                        entry.Motion.TargetX = _handStartX + i * _handSpacing - _handScroll;
+                    }
+                }
+            }
+        }
+
+        private void ClearReorderPreview()
+        {
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Motion != null)
+                {
+                    entry.Motion.TargetX = null;
+                }
+            }
+        }
+
         /// <summary>
         /// Hover-based fan scrolling: with the cursor inside the hand zone, the outer
         /// 20% on each side auto-scrolls that direction, faster nearer the edge.
@@ -1703,6 +1790,35 @@ namespace LemonadeWars.Unity
         /// </summary>
         public void TickHandScroll(Vector2 screenPosition)
         {
+            // Drop the post-drop lift once the pointer really leaves the card. Checked
+            // here rather than trusting a pointer-exit: the card the cursor sits on was
+            // destroyed and rebuilt mid-gesture, so those events cannot be relied on.
+            if (_stickyRaisedId >= 0)
+            {
+                for (int i = 0; i < _handFrames.Count; i++)
+                {
+                    var entry = _handFrames[i];
+                    if (entry.Id != _stickyRaisedId)
+                    {
+                        continue;
+                    }
+                    if (entry.Frame == null || !RectTransformUtility.RectangleContainsScreenPoint(
+                            entry.Frame, screenPosition))
+                    {
+                        if (entry.Motion != null)
+                        {
+                            entry.Motion.TargetY = entry.RestY;
+                        }
+                        entry.Frame?.SetSiblingIndex(i);
+                        _stickyRaisedId = -1;
+                    }
+                    break;
+                }
+            }
+            if (_reorderCardId >= 0)
+            {
+                return; // a reorder owns the fan's X positions right now
+            }
             if (_handMaxScroll <= 0f ||
                 !RectTransformUtility.RectangleContainsScreenPoint(_handHost, screenPosition))
             {
@@ -2696,6 +2812,8 @@ namespace LemonadeWars.Unity
     public sealed class HandCardMotion : MonoBehaviour
     {
         public float TargetY;
+        /// <summary>Set while a neighbour is being dragged past; null leaves X alone.</summary>
+        public float? TargetX;
 
         private RectTransform _rect;
 
@@ -2707,7 +2825,12 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             var position = _rect.anchoredPosition;
-            position.y = Mathf.Lerp(position.y, TargetY, 1f - Mathf.Exp(-14f * Time.deltaTime));
+            float ease = 1f - Mathf.Exp(-14f * Time.deltaTime);
+            position.y = Mathf.Lerp(position.y, TargetY, ease);
+            if (TargetX is float targetX)
+            {
+                position.x = Mathf.Lerp(position.x, targetX, ease);
+            }
             _rect.anchoredPosition = position;
         }
     }

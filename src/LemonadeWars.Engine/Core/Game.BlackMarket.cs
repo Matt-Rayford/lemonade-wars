@@ -82,15 +82,13 @@ namespace LemonadeWars.Engine.Core
         private int CountOnTurf(PlayerState player, string defId) =>
             player.Turf.Equipped.Count(id => EquippedDef(id).Id == defId);
 
-        /// <summary>Black Market price after Peddlin' Pete discounts (setup draft pays full price).</summary>
-        public int BlackMarketPrice(int playerId, BlackMarketCardDef def)
-        {
-            if (State.Stage == GameStage.InitialBuys)
-            {
-                return def.Cost;
-            }
-            return Math.Max(0, def.Cost - CountOnTurf(Player(playerId), "peddlin-pete"));
-        }
+        /// <summary>
+        /// Black Market price after Peddlin' Pete discounts. The discount counts during
+        /// the setup draft too (designer ruling): Pete is on your Turf from the moment
+        /// you buy him, and the draft is real buying.
+        /// </summary>
+        public int BlackMarketPrice(int playerId, BlackMarketCardDef def) =>
+            Math.Max(0, def.Cost - CountOnTurf(Player(playerId), "peddlin-pete"));
 
         // ------------------------------------------------------ roll stats
 
