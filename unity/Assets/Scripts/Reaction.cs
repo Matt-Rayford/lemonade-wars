@@ -17,7 +17,8 @@ namespace LemonadeWars.Unity
 
         private readonly CardPreview _preview;
         private readonly RectTransform _root;
-        private readonly TMP_Text _title;
+        private RectTransform _cardZone;
+        private TMP_Text _header;
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
 
@@ -33,18 +34,14 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
 
             // ---- top: the market band, greyed out and hosting the attack ----
-            var cardZone = UiKit.CreatePanel(_root, "ReactionCards", new Color(0.04f, 0.05f, 0.08f, 0.93f));
-            UiKit.Anchor(cardZone, new Vector2(0f, 0.695f), new Vector2(1f, 0.955f));
-
-            _title = UiKit.CreateText(cardZone, "", 26, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
-            _title.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_title.transform, new Vector2(0.02f, 0.74f), new Vector2(0.98f, 1f));
-            UiKit.AddTextShadow(_title);
+            // The band is only claimed when there ARE cards to show; a roll response
+            // leaves it to the die, which lingers there while you decide.
+            _cardZone = UiKit.CreatePanel(_root, "ReactionCards", new Color(0.04f, 0.05f, 0.08f, 0.93f));
+            UiKit.Anchor(_cardZone, new Vector2(0f, 0.695f), new Vector2(1f, 0.95f)); // the shelf's band
 
             var stripGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            stripGo.transform.SetParent(cardZone, false);
-            UiKit.Anchor((RectTransform)stripGo.transform, new Vector2(0.1f, 0.02f), new Vector2(0.9f, 0.72f));
+            stripGo.transform.SetParent(_cardZone, false);
+            UiKit.Anchor((RectTransform)stripGo.transform, new Vector2(0.1f, 0.06f), new Vector2(0.9f, 0.94f));
             var stripLayout = stripGo.GetComponent<HorizontalLayoutGroup>();
             stripLayout.spacing = 14;
             stripLayout.childAlignment = TextAnchor.MiddleCenter;
@@ -59,10 +56,10 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(optionZone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
                 new Vector2(4, 0), new Vector2(-10, -4));
 
-            var header = UiKit.CreateText(optionZone, "YOUR RESPONSE", 16, TextAnchor.MiddleCenter,
+            _header = UiKit.CreateText(optionZone, "YOUR RESPONSE", 16, TextAnchor.MiddleCenter,
                 new Color(0.98f, 0.83f, 0.10f));
-            header.raycastTarget = false;
-            UiKit.Anchor((RectTransform)header.transform, new Vector2(0f, 0.92f), new Vector2(1f, 1f));
+            _header.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_header.transform, new Vector2(0f, 0.92f), new Vector2(1f, 1f));
 
             var listHost = UiKit.CreatePanel(optionZone, "Options", new Color(0, 0, 0, 0));
             listHost.GetComponent<Image>().raycastTarget = false;
@@ -79,12 +76,14 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        public void Show(string title, IReadOnlyList<Texture2D> cards, IReadOnlyList<Prompt.Option> options)
+        public void Show(IReadOnlyList<Texture2D> cards,
+            IReadOnlyList<Prompt.Option> options, string header = "YOUR RESPONSE")
         {
             IsOpen = true;
-            _title.text = title;
+            _header.text = header;
 
             UiKit.Clear(_cardStrip);
+            _cardZone.gameObject.SetActive(cards != null && cards.Count > 0);
             if (cards != null)
             {
                 // Sized to sit inside the band under the title.

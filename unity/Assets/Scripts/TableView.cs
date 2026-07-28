@@ -72,6 +72,23 @@ namespace LemonadeWars.Unity
         // gesture as an attack, visibly NOT one.
         private static readonly Color ReactionGlowColor = new Color(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color ReactionArrowColor = new Color(0.98f, 0.83f, 0.10f);
+        // Connections reaches into the market instead: blue, aimed at the shelf.
+        private static readonly Color MarketGlowColor = new Color(0.36f, 0.72f, 1f, 0.95f);
+        private static readonly Color MarketArrowColor = new Color(0.30f, 0.68f, 1f);
+
+        /// <summary>What an armed hand card is currently aiming at.</summary>
+        private enum AimTarget
+        {
+            PlayerBars,
+            MarketCards,
+        }
+
+        private AimTarget _aimTarget = AimTarget.PlayerBars;
+        /// <summary>hand card id -> market indices it may take (null = not a market card).</summary>
+        public System.Func<int, ISet<int>> MarketTargetsFor;
+        public System.Action<int, int> OnMarketPick; // hand id, market index
+        private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
+            _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
         /// <summary>Set by the app: true while the current aim is a window reaction.</summary>
         public System.Func<bool> AimIsReaction;
         private Color _aimGlowColor = AttackGlowColor;
@@ -144,6 +161,7 @@ namespace LemonadeWars.Unity
         private GameObject _discardBackButton;
         private TMP_Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
+        private string _discardVerb = "TAKE";
         private System.Action _discardOnBack;
         private int? _discardSelectedId;
         private readonly Dictionary<int, GameObject> _discardSelectGlows =
@@ -214,9 +232,11 @@ namespace LemonadeWars.Unity
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
+            // Full-bleed: the shelf runs edge to edge and meets the status bar, so the
+            // chrome reads as one band instead of a floating panel.
             var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
             UiKit.Anchor(market, new Vector2(0f, 0.70f), new Vector2(1f, 0.95f),
-                new Vector2(6, 4), new Vector2(-6, -4));
+                new Vector2(0, 4), new Vector2(0, 0));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
@@ -617,7 +637,8 @@ namespace LemonadeWars.Unity
             onPick?.Invoke(victim);
         }
 
-        private void BeginAttackTargeting(int cardInstanceId, ISet<int> validTargets, bool dragMode)
+        private void BeginAttackTargeting(int cardInstanceId, ISet<int> validTargets, bool dragMode,
+            AimTarget target = AimTarget.PlayerBars)
         {
             if (_attackCardId >= 0)
             {
@@ -627,10 +648,13 @@ namespace LemonadeWars.Unity
             _attackValid = validTargets;
             _attackDragMode = dragMode;
             _attackHover = -1;
+            _aimTarget = target;
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
             bool reaction = AimIsReaction?.Invoke() == true;
-            _aimGlowColor = reaction ? ReactionGlowColor : AttackGlowColor;
-            _aimArrowColor = reaction ? ReactionArrowColor : AttackArrowColor;
+            _aimGlowColor = target == AimTarget.MarketCards ? MarketGlowColor
+                : reaction ? ReactionGlowColor : AttackGlowColor;
+            _aimArrowColor = target == AimTarget.MarketCards ? MarketArrowColor
+                : reaction ? ReactionArrowColor : AttackArrowColor;
             _preview.SetDragging(true); // no magnify pop-ups while aiming
 
             // Hold the armed card raised and on top: the intercept layer eats the hover
@@ -666,24 +690,57 @@ namespace LemonadeWars.Unity
             }
 
             int hover = -1;
-            foreach (var (playerId, row, _) in _playerRows)
+            if (_aimTarget == AimTarget.MarketCards)
             {
-                if (row != null && _attackValid.Contains(playerId) &&
-                    RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
+                foreach (var (index, cell, _, _) in _marketCells)
                 {
-                    hover = playerId;
-                    break;
+                    if (cell != null && _attackValid.Contains(index) &&
+                        RectTransformUtility.RectangleContainsScreenPoint(cell, screenPosition))
+                    {
+                        hover = index;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                foreach (var (playerId, row, _) in _playerRows)
+                {
+                    if (row != null && _attackValid.Contains(playerId) &&
+                        RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
+                    {
+                        hover = playerId;
+                        break;
+                    }
                 }
             }
             if (hover != _attackHover)
             {
                 _attackHover = hover;
-                foreach (var (playerId, _, glow) in _playerRows)
+                if (_aimTarget == AimTarget.MarketCards)
                 {
-                    if (glow != null)
+                    // Reuse each cell's own buy-glow, tinted to the aiming colour.
+                    foreach (var (index, _, outer, inner) in _marketCells)
                     {
-                        glow.GetComponent<Image>().color = _aimGlowColor;
-                        glow.SetActive(playerId == hover);
+                        foreach (var glow in new[] { outer, inner })
+                        {
+                            if (glow != null)
+                            {
+                                glow.GetComponent<Image>().color = _aimGlowColor;
+                                glow.SetActive(index == hover);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var (playerId, _, glow) in _playerRows)
+                    {
+                        if (glow != null)
+                        {
+                            glow.GetComponent<Image>().color = _aimGlowColor;
+                            glow.SetActive(playerId == hover);
+                        }
                     }
                 }
             }
@@ -749,11 +806,20 @@ namespace LemonadeWars.Unity
         private void FinishAttackTargeting()
         {
             int cardId = _attackCardId;
-            int victim = _attackHover;
+            int target = _attackHover;
+            var kind = _aimTarget;
             EndAttackTargeting();
-            if (cardId >= 0 && victim >= 0)
+            if (cardId < 0 || target < 0)
             {
-                OnAttackPick?.Invoke(cardId, victim);
+                return;
+            }
+            if (kind == AimTarget.MarketCards)
+            {
+                OnMarketPick?.Invoke(cardId, target);
+            }
+            else
+            {
+                OnAttackPick?.Invoke(cardId, target);
             }
         }
 
@@ -780,9 +846,15 @@ namespace LemonadeWars.Unity
                     glow.SetActive(false);
                 }
             }
+            foreach (var (_, _, outer, inner) in _marketCells)
+            {
+                outer?.SetActive(false);
+                inner?.SetActive(false);
+            }
             _attackCardId = -1;
             _attackHover = -1;
             _attackValid = null;
+            _aimTarget = AimTarget.PlayerBars;
             UiKit.Clear(_attackArrowHost);
             _attackRoot.gameObject.SetActive(false);
             _preview.SetDragging(false);
@@ -921,15 +993,17 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Pick a card out of a discard pile (Reduce and Reuse, Reverse Engineer...):
-        /// click a card to select it, then confirm with the TAKE button. Clicking off a
-        /// card cancels — nothing has been submitted yet at that point.
+        /// Pick a card out of a pile (Reduce and Reuse, Reverse Engineer, an opponent's
+        /// board...): click a card to select it, then confirm with the action button.
+        /// Clicking off a card cancels — nothing has been submitted yet at that point.
+        /// The verb names what confirming DOES: taking and trashing are not the same.
         /// </summary>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
-            System.Action<int> onTake, System.Action onBack = null)
+            System.Action<int> onTake, System.Action onBack = null, string verb = "TAKE")
         {
             _discardTitle.text = title;
+            _discardVerb = verb;
             _discardOnTake = onTake;
             _discardOnBack = onBack;
             FillDiscardGrid(cards, blackMarket, nameOf);
@@ -980,7 +1054,7 @@ namespace LemonadeWars.Unity
                 pair.Value.SetActive(pair.Key == instanceId);
             }
             _discardSelectedId = instanceId;
-            _discardTakeLabel.text = $"TAKE {name.ToUpperInvariant()}";
+            _discardTakeLabel.text = $"{_discardVerb} {name.ToUpperInvariant()}";
             _discardTakeButton.SetActive(true);
         }
 
@@ -1154,6 +1228,7 @@ namespace LemonadeWars.Unity
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             UiKit.Clear(_marketRow);
+            _marketCells.Clear();
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
             BuildDiscardPile(view, blackMarket: false);
@@ -1216,6 +1291,7 @@ namespace LemonadeWars.Unity
             drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
             drag.DragStarted = () => OnMarketDragStart?.Invoke(marketIndex);
             drag.DragEnded = () => OnMarketDragEnd?.Invoke();
+            _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
         }
 
         private void RenderBoard(PlayerView view)
@@ -1379,6 +1455,15 @@ namespace LemonadeWars.Unity
                     // Attack cards aim at a player bar instead of opening the menu.
                     UiKit.AddClick(image.gameObject, () =>
                     {
+                        // Connections reaches up to the shelf; attacks reach across
+                        // to a player; everything else opens its menu.
+                        var shelf = MarketTargetsFor?.Invoke(captured);
+                        if (shelf != null && shelf.Count > 0)
+                        {
+                            BeginAttackTargeting(captured, shelf, dragMode: false,
+                                AimTarget.MarketCards);
+                            return;
+                        }
                         var targets = AttackTargetsFor?.Invoke(captured);
                         if (targets != null && targets.Count > 0)
                         {
@@ -1404,6 +1489,13 @@ namespace LemonadeWars.Unity
                         if (_attackCardId < 0 && _reorderCardId < 0 && !_attackDragAborted &&
                             !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                         {
+                            var shelf = MarketTargetsFor?.Invoke(captured);
+                            if (shelf != null && shelf.Count > 0)
+                            {
+                                BeginAttackTargeting(captured, shelf, dragMode: true,
+                                    AimTarget.MarketCards);
+                                return;
+                            }
                             var targets = AttackTargetsFor?.Invoke(captured);
                             if (targets != null && targets.Count > 0)
                             {
@@ -2012,6 +2104,9 @@ namespace LemonadeWars.Unity
                 borderImage.type = Image.Type.Sliced;
                 borderImage.color = UiKit.ButtonColor;
                 borderImage.raycastTarget = false;
+                // Behind the contents: the rim crosses the portrait, and a line drawn
+                // through the VP crowns reads as a scratch on them.
+                borderGo.transform.SetAsFirstSibling();
             }
 
             // Red glow around the OUTSIDE while an attack is being aimed at this

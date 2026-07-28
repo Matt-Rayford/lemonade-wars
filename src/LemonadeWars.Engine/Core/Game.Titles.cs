@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Data;
@@ -189,11 +190,25 @@ namespace LemonadeWars.Engine.Core
             }
 
             int best = scores.Values.Max();
-            State.Winners.AddRange(
-                State.Players.Where(p => scores[p.PlayerId] == best).Select(p => p.PlayerId));
+            var contenders = State.Players.Where(p => scores[p.PlayerId] == best).ToList();
+            State.Winners.AddRange(BreakTies(contenders).Select(p => p.PlayerId));
 
             events.Add(new StageChanged { Stage = State.Stage });
             events.Add(new GameEnded { Winners = State.Winners.ToList(), Scores = scores });
+        }
+
+        /// <summary>
+        /// Rulebook p14: on equal victory points the most money wins, then the fewest played
+        /// tantrums. A tie surviving both is settled away from the table with rock paper scissors,
+        /// so the engine reports those players as joint winners rather than inventing a result.
+        /// </summary>
+        private static List<PlayerState> BreakTies(List<PlayerState> contenders) =>
+            KeepBest(KeepBest(contenders, p => p.Money), p => -p.TantrumPile.Count);
+
+        private static List<PlayerState> KeepBest(List<PlayerState> players, Func<PlayerState, int> key)
+        {
+            int best = players.Max(key);
+            return players.Where(p => key(p) == best).ToList();
         }
     }
 }

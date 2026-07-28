@@ -115,28 +115,30 @@ namespace LemonadeWars.Unity
             meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             meshRenderer.receiveShadows = false;
 
-            // ---------------------------------------------------- UI overlay
-            _root = UiKit.CreatePanel(canvasRoot, "DiceOverlay", new Color(0, 0, 0, 0.45f));
-            UiKit.Anchor(_root, Vector2.zero, Vector2.one);
+            // ------------------------------------------------------- UI band
+            // The roll lives in the shelf band, not over the whole screen: a die is
+            // theatre, and the table underneath stays readable while it tumbles.
+            _root = UiKit.CreatePanel(canvasRoot, "DiceBand", new Color(0.04f, 0.05f, 0.08f, 0.93f));
+            UiKit.Anchor(_root, new Vector2(0f, 0.695f), new Vector2(1f, 0.95f));
             _group = _root.gameObject.AddComponent<CanvasGroup>();
 
-            _title = UiKit.CreateText(_root, "", 36, TextAnchor.MiddleCenter, Color.white);
+            _title = UiKit.CreateText(_root, "", 24, TextAnchor.MiddleCenter, Color.white);
             UiKit.Anchor((RectTransform)_title.transform,
-                new Vector2(0.1f, 0.73f), new Vector2(0.9f, 0.81f));
+                new Vector2(0.02f, 0.72f), new Vector2(0.98f, 1f));
             UiKit.AddTextShadow(_title);
 
             var viewGo = new GameObject("DieView", typeof(RectTransform), typeof(RawImage));
             viewGo.transform.SetParent(_root, false);
             var viewRect = (RectTransform)viewGo.transform;
-            viewRect.anchorMin = viewRect.anchorMax = new Vector2(0.5f, 0.5f);
-            viewRect.sizeDelta = new Vector2(320, 320);
+            viewRect.anchorMin = viewRect.anchorMax = new Vector2(0.5f, 0.48f);
+            viewRect.sizeDelta = new Vector2(120, 120);
             var view = viewGo.GetComponent<RawImage>();
             view.texture = renderTexture;
             view.raycastTarget = false;
 
-            _subtitle = UiKit.CreateText(_root, "", 32, TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            _subtitle = UiKit.CreateText(_root, "", 22, TextAnchor.MiddleCenter, UiKit.ButtonColor);
             UiKit.Anchor((RectTransform)_subtitle.transform,
-                new Vector2(0.1f, 0.17f), new Vector2(0.9f, 0.26f));
+                new Vector2(0.02f, 0.02f), new Vector2(0.98f, 0.24f));
             UiKit.AddTextShadow(_subtitle);
 
             UiKit.AddClick(_root.gameObject, Skip);

@@ -15,6 +15,13 @@ namespace LemonadeWars.Unity
         public const string AttackCard = "attack-card";
         public const string ButtonClick = "button-click";
         public const string CashRegister = "cash-register";
+        public const string Coins = "coins";
+        public const string WhinyBaby = "whiny-baby";
+        public const string YourTurn = "your-turn-notification";
+        public const string SaleRoll = "sale-roll";
+
+        /// <summary>The spoken pace for a bot-speed setting ("slow"/"medium"/"fast").</summary>
+        public static string BotSpeed(string speed) => "bot-speeds/bot-speed-" + speed;
 
         /// <summary>Slider step, in percent — the whole volume model moves in fives.</summary>
         public const int VolumeStep = 5;

@@ -149,8 +149,15 @@ namespace LemonadeWars.Unity
             return text;
         }
 
+        /// <param name="dark">
+        /// Inverse chrome for buttons sitting ON a light surface (the yellow status
+        /// bar): the normal hover paint is lemonade-yellow, which would make such a
+        /// button vanish into its background.
+        /// </param>
+        /// <param name="clickSound">Clip name, or null for a button with its own audio.</param>
         public static Button CreateButton(Transform parent, string label, int fontSize,
-            UnityEngine.Events.UnityAction onClick)
+            UnityEngine.Events.UnityAction onClick, bool dark = false,
+            string clickSound = Sfx.ButtonClick)
         {
             var go = new GameObject("Button", typeof(RectTransform), typeof(Image), typeof(Button),
                 typeof(LayoutElement));
@@ -160,13 +167,20 @@ namespace LemonadeWars.Unity
             button.transition = Selectable.Transition.None;
             // The click sound belongs to the chrome, not to any one screen: every menu,
             // lobby, pause, and rulebook button is built here.
-            button.onClick.AddListener(() => Sfx.Play(Sfx.ButtonClick));
+            if (!string.IsNullOrEmpty(clickSound))
+            {
+                button.onClick.AddListener(() => Sfx.Play(clickSound));
+            }
             button.onClick.AddListener(onClick);
 
             // Subtle translucent grey at rest (light text); lemonade-yellow with dark
             // text when the cursor invites it — same language as the prompt options.
-            var idleBackground = new Color(0.58f, 0.61f, 0.67f, 0.32f);
-            var idleText = new Color(0.93f, 0.93f, 0.90f);
+            var idleBackground = dark
+                ? new Color(0.10f, 0.12f, 0.16f, 0.94f)
+                : new Color(0.58f, 0.61f, 0.67f, 0.32f);
+            var idleText = dark ? new Color(0.96f, 0.94f, 0.86f) : new Color(0.93f, 0.93f, 0.90f);
+            var hoverBackground = dark ? new Color(0.18f, 0.21f, 0.28f, 1f) : ButtonColor;
+            var hoverText = dark ? ButtonColor : ButtonTextColor;
             var image = go.GetComponent<Image>();
             image.color = idleBackground;
 
@@ -177,8 +191,8 @@ namespace LemonadeWars.Unity
             AddHover(go,
                 () =>
                 {
-                    image.color = ButtonColor;
-                    text.color = ButtonTextColor;
+                    image.color = hoverBackground;
+                    text.color = hoverText;
                 },
                 () =>
                 {

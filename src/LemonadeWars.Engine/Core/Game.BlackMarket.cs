@@ -580,8 +580,10 @@ namespace LemonadeWars.Engine.Core
                 return;
             }
             var victim = Player(victimId);
-            int bouncers = CountOnTurf(victim, "bouncer");
-            if (bouncers == 0)
+            var bouncers = victim.Turf.Equipped
+                .Where(id => EquippedDef(id).Id == "bouncer")
+                .ToList();
+            if (bouncers.Count == 0)
             {
                 return;
             }
@@ -591,12 +593,15 @@ namespace LemonadeWars.Engine.Core
             {
                 return;
             }
-            for (int i = 0; i < bouncers; i++)
+            foreach (int bouncerId in bouncers)
             {
                 AddDecision(new PendingDecision
                 {
                     PlayerId = victimId,
                     Kind = DecisionKind.BouncerAttack,
+                    // The attack has already popped off the stack, so name the card
+                    // that earned this strike — it is the only context the UI has.
+                    SourceInstanceId = bouncerId,
                 }, events);
             }
         }
