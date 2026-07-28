@@ -13,6 +13,7 @@ namespace LemonadeWars.Unity
         private static Sprite _glow;
         private static Sprite _glowRing;
         private static Sprite _circle;
+        private static Sprite _magnifier;
 
         /// <summary>
         /// Anti-aliased rounded rectangle, 9-sliced so the corner radius stays constant.
@@ -88,6 +89,87 @@ namespace LemonadeWars.Unity
                 }
                 return _glowRing;
             }
+        }
+
+        /// <summary>
+        /// Magnifying glass: a ring with a handle running down-right, drawn white so any
+        /// tint lands exactly. Square — give it a square rect. Use Image.Type.Simple.
+        /// </summary>
+        public static Sprite Magnifier
+        {
+            get
+            {
+                if (_magnifier == null)
+                {
+                    _magnifier = GenerateMagnifier(128);
+                }
+                return _magnifier;
+            }
+        }
+
+        /// <summary>
+        /// Union of two signed-distance shapes: a circle rim and a capsule handle. Both
+        /// are drawn as "distance to the shape's centre line, minus half the stroke",
+        /// which keeps the stroke weight even around the curve and along the handle.
+        /// </summary>
+        /// <remarks>
+        /// This one is drawn LARGE and displayed SMALL (~22px), so a single sample per
+        /// pixel crawls and sparkles under minification. Two defences: supersample the
+        /// distance field, and generate mipmaps so the GPU has a properly filtered
+        /// smaller copy to pick instead of undersampling the big one.
+        /// </remarks>
+        private static Sprite GenerateMagnifier(int size)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                hideFlags = HideFlags.DontSave,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+            };
+
+            float stroke = size * 0.045f;                       // half the line weight
+            var lensCenter = new Vector2(size * 0.42f, size * 0.58f);
+            float lensRadius = size * 0.27f;
+            // Handle runs from the lens rim at 45° down-right, out toward the corner.
+            float diagonal = lensRadius * 0.7071f;
+            var handleFrom = lensCenter + new Vector2(diagonal, -diagonal);
+            var handleTo = new Vector2(size * 0.85f, size * 0.15f);
+            var handleAxis = handleTo - handleFrom;
+            float axisLengthSq = Vector2.Dot(handleAxis, handleAxis);
+
+            const int samples = 4;                              // 4x4 grid per pixel
+            const float step = 1f / samples;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float coverage = 0f;
+                    for (int sy = 0; sy < samples; sy++)
+                    {
+                        for (int sx = 0; sx < samples; sx++)
+                        {
+                            var p = new Vector2(x + (sx + 0.5f) * step, y + (sy + 0.5f) * step);
+
+                            // Ring: distance to the lens circle's centre line.
+                            float ring = Mathf.Abs((p - lensCenter).magnitude - lensRadius) - stroke;
+
+                            // Handle: distance to the segment, i.e. a capsule.
+                            float t = Mathf.Clamp01(Vector2.Dot(p - handleFrom, handleAxis) / axisLengthSq);
+                            float handle = (p - (handleFrom + handleAxis * t)).magnitude - stroke;
+
+                            coverage += Mathf.Clamp01(0.5f - Mathf.Min(ring, handle));
+                        }
+                    }
+                    coverage /= samples * samples;
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(coverage * 255f));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+
+            return Sprite.Create(texture, new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
         }
 
         /// <summary>

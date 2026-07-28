@@ -68,7 +68,7 @@ namespace LemonadeWars.Unity
         public LobbyUi(RectTransform canvasRoot, string defaultServerUrl, string defaultName)
         {
             // ------------------------------------------------------- menu
-            _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", UiKit.TableColor);
             UiKit.Anchor(_menuRoot, Vector2.zero, Vector2.one);
 
             var title = UiKit.CreateText(_menuRoot, "LEMONADE WARS", 64,
@@ -106,7 +106,7 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f), body: true);
 
             // ---------------------------------------------------- settings
-            _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", UiKit.TableColor);
             UiKit.Anchor(_settingsRoot, Vector2.zero, Vector2.one);
 
             var settingsTitle = UiKit.CreateText(_settingsRoot, "SETTINGS", 48,
@@ -160,7 +160,7 @@ namespace LemonadeWars.Unity
             _settingsRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- join room
-            _joinRoot = UiKit.CreatePanel(canvasRoot, "JoinRoom", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _joinRoot = UiKit.CreatePanel(canvasRoot, "JoinRoom", UiKit.TableColor);
             UiKit.Anchor(_joinRoot, Vector2.zero, Vector2.one);
 
             var joinTitle = UiKit.CreateText(_joinRoot, "JOIN ROOM", 48,
@@ -202,7 +202,7 @@ namespace LemonadeWars.Unity
             _joinRoot.gameObject.SetActive(false);
 
             // -------------------------------------------------- solo setup
-            _soloRoot = UiKit.CreatePanel(canvasRoot, "SoloSetup", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _soloRoot = UiKit.CreatePanel(canvasRoot, "SoloSetup", UiKit.TableColor);
             UiKit.Anchor(_soloRoot, Vector2.zero, Vector2.one);
 
             var soloTitle = UiKit.CreateText(_soloRoot, "PLAY VS BOTS", 48,
@@ -228,7 +228,7 @@ namespace LemonadeWars.Unity
             _soloRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- my games
-            _gamesRoot = UiKit.CreatePanel(canvasRoot, "MyGames", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _gamesRoot = UiKit.CreatePanel(canvasRoot, "MyGames", UiKit.TableColor);
             UiKit.Anchor(_gamesRoot, Vector2.zero, Vector2.one);
 
             var gamesTitle = UiKit.CreateText(_gamesRoot, "MY GAMES", 48,
@@ -255,7 +255,7 @@ namespace LemonadeWars.Unity
             _gamesRoot.gameObject.SetActive(false);
 
             // ------------------------------------------------------ lobby
-            _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", UiKit.TableColor);
             UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
 
             _lobbyTitle = UiKit.CreateText(_lobbyRoot, "", 48,
@@ -298,13 +298,23 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
             UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.24f), new Vector2(0.9f, 0.29f));
 
+            // Same plum-and-badges backdrop the table wears, on every pre-game screen —
+            // switching between them shouldn't feel like leaving the game's world.
+            foreach (var root in AllScreens)
+            {
+                UiKit.CreateWallpaper(root, Vector2.one);
+            }
+
             ShowMenu("");
         }
+
+        private RectTransform[] AllScreens =>
+            new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot };
 
         /// <summary>Activate exactly one pre-game screen.</summary>
         private void ActivateOnly(RectTransform target)
         {
-            foreach (var root in new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot })
+            foreach (var root in AllScreens)
             {
                 root.gameObject.SetActive(root == target);
             }

@@ -68,8 +68,9 @@ namespace LemonadeWars.Unity
                 }
             }
 
-            _root = UiKit.CreatePanel(canvasRoot, "Rulebook", new Color(0.05f, 0.07f, 0.10f, 0.985f));
+            _root = UiKit.CreatePanel(canvasRoot, "Rulebook", UiKit.TableColor);
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
+            UiKit.CreateWallpaper(_root, Vector2.one);
 
             var title = UiKit.CreateText(_root, "RULEBOOK", 34, TextAnchor.MiddleCenter,
                 new Color(0.98f, 0.83f, 0.10f));
@@ -100,15 +101,33 @@ namespace LemonadeWars.Unity
             searchPanel.anchoredPosition = new Vector2(-half, 0f);
             searchPanel.sizeDelta = new Vector2(searchWidth, pageHeight);
 
-            var searchLabel = UiKit.CreateText(searchPanel, "Search the rules", 16,
-                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
-            UiKit.Anchor((RectTransform)searchLabel.transform, new Vector2(0f, 0.955f), new Vector2(1f, 1f));
+            // The field wears its own label: a magnifier on the left says "search" without
+            // spending a line of chrome on saying it, and the results take that space back.
             _search = UiKit.CreateInput(searchPanel, "");
-            UiKit.Anchor((RectTransform)_search.transform, new Vector2(0f, 0.895f), new Vector2(1f, 0.95f));
+            UiKit.Anchor((RectTransform)_search.transform, new Vector2(0f, 0.945f), new Vector2(1f, 1f));
             _search.onValueChanged.AddListener(OnQueryChanged);
 
+            const float glyph = 22f;
+            const float glyphInset = 14f;
+            var magnifier = new GameObject("SearchIcon", typeof(RectTransform), typeof(Image));
+            magnifier.transform.SetParent(_search.transform, false);
+            var magnifierRect = (RectTransform)magnifier.transform;
+            magnifierRect.anchorMin = magnifierRect.anchorMax = new Vector2(0f, 0.5f);
+            magnifierRect.pivot = new Vector2(0f, 0.5f);
+            magnifierRect.sizeDelta = new Vector2(glyph, glyph);
+            magnifierRect.anchoredPosition = new Vector2(glyphInset, 0f);
+            var magnifierImage = magnifier.GetComponent<Image>();
+            magnifierImage.sprite = UiSprites.Magnifier;
+            magnifierImage.color = UiKit.ButtonColor;
+            magnifierImage.raycastTarget = false;
+
+            // Text starts to the right of the glyph — caret included, since the caret
+            // rides the viewport rather than the text component.
+            var textArea = (RectTransform)_search.textViewport;
+            textArea.offsetMin = new Vector2(glyphInset + glyph + 10f, textArea.offsetMin.y);
+
             var resultsHost = UiKit.CreatePanel(searchPanel, "Results", new Color(0, 0, 0, 0.35f));
-            UiKit.Anchor(resultsHost, new Vector2(0f, 0f), new Vector2(1f, 0.878f));
+            UiKit.Anchor(resultsHost, new Vector2(0f, 0f), new Vector2(1f, 0.928f));
             _resultList = UiKit.CreateScrollList(resultsHost);
             var resultLayout = _resultList.GetComponent<VerticalLayoutGroup>();
             resultLayout.spacing = 6;
@@ -134,7 +153,7 @@ namespace LemonadeWars.Unity
             float navTop = -pageHeight / 2f - 10f;
             float pageLeft = half - pageWidth;
 
-            var prev = UiKit.CreateButton(_root, "<", 26, () => Step(-1));
+            var prev = UiKit.CreateButton(_root, "<", 26, () => Step(-1), clickSound: null);
             var prevRect = (RectTransform)prev.transform;
             prevRect.anchorMin = prevRect.anchorMax = center;
             prevRect.pivot = new Vector2(0f, 1f);
@@ -142,7 +161,7 @@ namespace LemonadeWars.Unity
             prevRect.sizeDelta = new Vector2(46f, 46f);
             CenterButtonLabel(prev);
 
-            var next = UiKit.CreateButton(_root, ">", 26, () => Step(1));
+            var next = UiKit.CreateButton(_root, ">", 26, () => Step(1), clickSound: null);
             var nextRect = (RectTransform)next.transform;
             nextRect.anchorMin = nextRect.anchorMax = center;
             nextRect.pivot = new Vector2(1f, 1f);
@@ -186,7 +205,20 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        public void Step(int delta) => ShowPage(_current + delta);
+        /// <summary>
+        /// Turn a page, by button or arrow key. The sound lives here rather than on the
+        /// buttons so the keys sound the same — and so it stays silent at the ends,
+        /// where the clamp means nothing actually turned.
+        /// </summary>
+        public void Step(int delta)
+        {
+            int before = _current;
+            ShowPage(_current + delta);
+            if (_current != before)
+            {
+                Sfx.Play(Sfx.PageTurn);
+            }
+        }
 
         private void ShowPage(int index)
         {

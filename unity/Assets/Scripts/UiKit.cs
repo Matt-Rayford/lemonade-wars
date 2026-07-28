@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.TextCore.LowLevel;
@@ -9,9 +10,24 @@ namespace LemonadeWars.Unity
     /// <summary>Small helpers for building the debug HUD entirely from code.</summary>
     public static class UiKit
     {
+        /// <summary>The one background color for the whole table. The play zones
+        /// (shelf, board, hand, log) are transparent and let this show through, so
+        /// changing this single value re-themes the entire screen.</summary>
+        /// #1E0A3D — sampled from the Black Market card back (its dominant color).
+        /// The project renders in Gamma color space, so these map 1:1 to sRGB.
+        public static readonly Color TableColor = new Color(0.118f, 0.039f, 0.239f);
+
         public static readonly Color PanelColor = new Color(0.10f, 0.12f, 0.16f, 0.92f);
         public static readonly Color ButtonColor = new Color(0.98f, 0.83f, 0.10f);
         public static readonly Color ButtonTextColor = new Color(0.12f, 0.10f, 0.05f);
+
+        /// <summary>Wallpaper tint: lemonade yellow, faint enough to stay wallpaper.
+        /// Alpha is the dial — raise it to make the pattern shout.</summary>
+        public static readonly Color WallpaperColor = new Color(0.98f, 0.83f, 0.10f, 0.05f);
+        /// <summary>On-screen width of one wallpaper tile, in reference-res pixels.</summary>
+        public const float WallpaperTile = 1500f;
+
+        private static Texture2D _wallpaper;
 
         private static TMP_FontAsset _titleFont;
         private static TMP_FontAsset _bodyFont;
@@ -112,6 +128,43 @@ namespace LemonadeWars.Unity
                     typeof(UnityEngine.EventSystems.StandaloneInputModule));
             }
             return canvas;
+        }
+
+        /// <summary>
+        /// The repeating badge pattern, tinted and dropped behind everything else in
+        /// <paramref name="parent"/>. The art ships as white-on-alpha
+        /// (tools/make_app_bg.py) precisely so the tint lands exactly: white x yellow
+        /// == yellow, at whatever opacity we pick. Never takes a raycast.
+        /// </summary>
+        /// <param name="anchorMax">Top edge, so the table can stop below its shelf.</param>
+        public static void CreateWallpaper(Transform parent, Vector2 anchorMax)
+        {
+            if (_wallpaper == null)
+            {
+                string path = Path.Combine(Application.streamingAssetsPath, "images", "app-bg-tile.png");
+                if (!File.Exists(path))
+                {
+                    return;
+                }
+                _wallpaper = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                _wallpaper.LoadImage(File.ReadAllBytes(path));
+                _wallpaper.wrapMode = TextureWrapMode.Repeat;
+            }
+
+            var go = new GameObject("Wallpaper", typeof(RectTransform), typeof(RawImage),
+                typeof(TiledBackground));
+            go.transform.SetParent(parent, false);
+            Anchor((RectTransform)go.transform, Vector2.zero, anchorMax);
+
+            var image = go.GetComponent<RawImage>();
+            image.texture = _wallpaper;
+            image.color = WallpaperColor;
+            image.raycastTarget = false;
+
+            var tiler = go.GetComponent<TiledBackground>();
+            tiler.TileWidth = WallpaperTile;
+            tiler.TileHeight = WallpaperTile * _wallpaper.height / _wallpaper.width;
+            go.transform.SetAsFirstSibling();
         }
 
         public static RectTransform CreatePanel(Transform parent, string name, Color color)
@@ -563,6 +616,39 @@ namespace LemonadeWars.Unity
             Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
                 new Vector2(4, 1), new Vector2(-4, -1));
             return text;
+        }
+    }
+
+    /// <summary>
+    /// Repeats a RawImage's texture at a fixed on-screen size, whatever the rect ends
+    /// up being. UGUI has no tiling mode for RawImage, so the repeat count lives in
+    /// uvRect and has to be recomputed whenever the rect resizes (window resize, aspect
+    /// change). Anchored bottom-left so the pattern stays put as the rect grows upward.
+    /// </summary>
+    public sealed class TiledBackground : MonoBehaviour
+    {
+        public float TileWidth = 512f;
+        public float TileHeight = 512f;
+
+        private RawImage _image;
+        private RectTransform _rect;
+        private Vector2 _lastSize = new Vector2(-1, -1);
+
+        private void Awake()
+        {
+            _image = GetComponent<RawImage>();
+            _rect = (RectTransform)transform;
+        }
+
+        private void Update()
+        {
+            var size = _rect.rect.size;
+            if (size == _lastSize || TileWidth <= 0f || TileHeight <= 0f)
+            {
+                return;
+            }
+            _lastSize = size;
+            _image.uvRect = new Rect(0f, 0f, size.x / TileWidth, size.y / TileHeight);
         }
     }
 }

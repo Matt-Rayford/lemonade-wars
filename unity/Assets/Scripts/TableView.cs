@@ -229,6 +229,9 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
 
+            // Repeating badge pattern over the play area — everything below the shelf.
+            UiKit.CreateWallpaper(Root, new Vector2(1f, 0.70f));
+
             // Left: player panels in turn order (you at the bottom), below the shelf.
             var playersGo = new GameObject("Players", typeof(RectTransform), typeof(VerticalLayoutGroup));
             playersGo.transform.SetParent(Root, false);
@@ -253,10 +256,18 @@ namespace LemonadeWars.Unity
             // Rights, and the Black Market discard pile.
             // Full-bleed: the shelf runs edge to edge and meets the status bar, so the
             // chrome reads as one band instead of a floating panel.
-            var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
+            var market = UiKit.CreatePanel(Root, "Market", new Color(0, 0, 0, 0));
             UiKit.Anchor(market, new Vector2(0f, 0.70f), new Vector2(1f, 0.95f),
                 new Vector2(0, 4), new Vector2(0, 0));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
+
+            // Hairline rule under the shelf: with every zone transparent, this is what
+            // separates "the store" from "the table". It fills the 4px gap the shelf
+            // leaves above its own anchor, so it never overlaps the cards.
+            var shelfRule = UiKit.CreatePanel(Root, "ShelfRule", UiKit.ButtonColor);
+            UiKit.Anchor(shelfRule, new Vector2(0f, 0.70f), new Vector2(1f, 0.70f),
+                new Vector2(0, 0), new Vector2(0, 4));
+            shelfRule.GetComponent<Image>().raycastTarget = false;
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
             // Transparent — cards float on the table; the Image still catches drops.
@@ -2153,13 +2164,15 @@ namespace LemonadeWars.Unity
             _preview.Attach(image.gameObject, texture);
 
             // Price chip along the bottom edge; click-transparent like the count chips.
-            var chip = UiKit.CreatePanel(frame, "PriceChip", new Color(0, 0, 0, 0.78f));
+            // Full lemonade yellow with black text — the button palette — so the price
+            // pops off the dark table instead of dissolving into it.
+            var chip = UiKit.CreatePanel(frame, "PriceChip", UiKit.ButtonColor);
             UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0));
             chip.sizeDelta = new Vector2(0, 30);
             chip.pivot = new Vector2(0.5f, 0);
             chip.GetComponent<Image>().raycastTarget = false;
             var chipText = UiKit.CreateText(chip, $"${price}", 16,
-                TextAnchor.MiddleCenter, Color.white, body: true);
+                TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
             chipText.raycastTarget = false;
             UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
 

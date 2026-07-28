@@ -25,10 +25,12 @@ namespace LemonadeWars.Unity
             {
                 var cam = new GameObject("Main Camera", typeof(Camera));
                 cam.tag = "MainCamera";
-                cam.GetComponent<Camera>().clearFlags = CameraClearFlags.SolidColor;
-                // Neutral dark table until a proper game background exists.
-                cam.GetComponent<Camera>().backgroundColor = new Color(0.06f, 0.075f, 0.10f);
             }
+            // The camera's clear color IS the table: every play zone is transparent, so
+            // this one value themes the whole screen. Set unconditionally so the scene
+            // asset can't drift out of sync with UiKit.TableColor.
+            Camera.main.clearFlags = CameraClearFlags.SolidColor;
+            Camera.main.backgroundColor = UiKit.TableColor;
             new GameObject("LemonadeWarsApp", typeof(LemonadeWarsApp));
         }
 
