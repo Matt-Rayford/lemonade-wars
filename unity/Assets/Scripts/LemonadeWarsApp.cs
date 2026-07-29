@@ -504,6 +504,7 @@ namespace LemonadeWars.Unity
             _fx.Clear();
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhinyBaby = false; // a dropped mid-flight claim must not hide it forever
+            _table.SuppressSpoiledRotten = false;
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
@@ -600,6 +601,19 @@ namespace LemonadeWars.Unity
                     {
                         _table.SuppressWhinyBaby = false;
                         _renderedRevision = -1; // surface the landed card now
+                    });
+            }
+            else if (gameEvent is SpoiledRottenMoved spoiled && spoiled.ToPlayerId == _session.Seat)
+            {
+                // Same claim theatre as the baby — reveal, then fly into the lord fan.
+                _table.SuppressSpoiledRotten = true;
+                _fx.QueueSound(Sfx.TitleClaim);
+                _fx.QueueClaim(_art.SpoiledRotten(), "You are Spoiled Rotten!",
+                    () => _table.SpoiledRottenLandingWorld(),
+                    () =>
+                    {
+                        _table.SuppressSpoiledRotten = false;
+                        _renderedRevision = -1;
                     });
             }
             else if (gameEvent is BlackMarketPurchased bought && bought.PlayerId == _session.Seat)

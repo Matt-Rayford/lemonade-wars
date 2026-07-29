@@ -167,6 +167,11 @@ namespace LemonadeWars.Unity
         /// though the view says we hold it — set for the span of the claim reveal's
         /// flight, lifted when the card lands (see LemonadeWarsApp).</summary>
         public bool SuppressWhinyBaby;
+        /// <summary>Spoiled Rotten's twin of SuppressWhinyBaby.</summary>
+        public bool SuppressSpoiledRotten;
+        /// <summary>Whether the rendered fan currently includes the baby card — the
+        /// Spoiled Rotten flight lands one slot further right when it does.</summary>
+        private bool _lordFanHasBaby;
         private RectTransform _marketRow;
 
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
@@ -2112,15 +2117,17 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void RenderLords(PlayerView view)
         {
-            // Suppressed while the claim reveal is mid-flight: the table renders the
+            // Suppressed while a claim reveal is mid-flight: the table renders the
             // instant the state changes, but the card should only exist in the fan
             // once the animation has delivered it (the app lifts this on arrival).
             bool baby = view.WhiniestBabyHolder == view.ViewerId && !SuppressWhinyBaby;
+            bool rotten = view.SpoiledRottenHolder == view.ViewerId && !SuppressSpoiledRotten;
+            _lordFanHasBaby = baby;
 
             // Same skip as the hand: don't tear down a hovered fan over a re-render
             // that changed nothing here.
-            string signature = (baby ? "baby|" : "|") + string.Join(",",
-                view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
+            string signature = (baby ? "baby|" : "|") + (rotten ? "rotten|" : "|") +
+                string.Join(",", view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
             if (signature == _lordSignature)
             {
                 return;
@@ -2128,13 +2135,18 @@ namespace LemonadeWars.Unity
             _lordSignature = signature;
 
             UiKit.Clear(_lordHost);
-            var textures = new List<Texture2D>();
+            // Special titles first (left), the secret lords after: (art, lord-or-null).
+            var cards = new List<(Texture2D Texture, PlayerView.LordStatus Lord)>();
             if (baby)
             {
-                textures.Add(_art.WhiniestBaby());
+                cards.Add((_art.WhiniestBaby(), null));
             }
-            textures.AddRange(view.LemonLordStatus.Select(l => _art.Title(l.TitleId)));
-            int count = textures.Count;
+            if (rotten)
+            {
+                cards.Add((_art.SpoiledRotten(), null));
+            }
+            cards.AddRange(view.LemonLordStatus.Select(l => (_art.Title(l.TitleId), l)));
+            int count = cards.Count;
             if (count == 0)
             {
                 return;
@@ -2149,10 +2161,7 @@ namespace LemonadeWars.Unity
 
             for (int i = 0; i < count; i++)
             {
-                var lord = baby && i == 0
-                    ? null
-                    : view.LemonLordStatus[baby ? i - 1 : i];
-                var texture = textures[i];
+                var (texture, lord) = cards[i];
 
                 var image = UiKit.CreateCardImage(_lordHost, texture, width, height);
                 var frame = (RectTransform)image.transform.parent;
@@ -2211,23 +2220,29 @@ namespace LemonadeWars.Unity
                 : 0f;
         }
 
+        /// <summary>The baby joins the fan LEFT-MOST.</summary>
+        public Vector3 WhinyBabyLandingWorld() => LordLandingWorld(0);
+
+        /// <summary>Spoiled Rotten lands after the baby when the baby is in the fan.</summary>
+        public Vector3 SpoiledRottenLandingWorld() => LordLandingWorld(_lordFanHasBaby ? 1 : 0);
+
         /// <summary>
-        /// World position where the Whiniest Baby card will land when it joins the
-        /// lord fan: the LEFT-MOST slot of the fan as it will be AFTER the card is
-        /// added (the fan hides the card until the flight delivers it, so the current
-        /// children don't include it yet). Mirrors RenderLords' layout math.
+        /// World position of a slot in the lord fan as it will be AFTER the flying
+        /// card is added (the fan hides an in-flight card, so the current children
+        /// don't include it yet). Mirrors RenderLords' layout math.
         /// </summary>
-        public Vector3 WhinyBabyLandingWorld()
+        private Vector3 LordLandingWorld(int slot)
         {
             const float width = 190f;
             const float height = 266f;
             const float peek = 158f;
             int futureCount = _lordHost.childCount + 1;
             float spacing = LordSpacing(futureCount);
-            float x = -(width + spacing * (futureCount - 1)) / 2f + width / 2f;
+            float startX = -(width + spacing * (futureCount - 1)) / 2f + width / 2f;
             // Children hang from the host's bottom-center pivot; card center is half a
             // card above its bottom-anchored rest position.
-            return _lordHost.TransformPoint(new Vector3(x, peek - height + height / 2f, 0));
+            return _lordHost.TransformPoint(
+                new Vector3(startX + slot * spacing, peek - height + height / 2f, 0));
         }
 
         /// <summary>Appends to the market row — call after RenderMarket (which clears it).</summary>

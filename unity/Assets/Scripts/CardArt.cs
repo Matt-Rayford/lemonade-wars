@@ -65,6 +65,9 @@ namespace LemonadeWars.Unity
         public Texture2D WhiniestBaby() =>
             Load((string)_manifest["supporting"]?["whiniestBaby"]);
 
+        public Texture2D SpoiledRotten() =>
+            Load((string)_manifest["supporting"]?["spoiledRotten"]);
+
         public Texture2D Back(string key) =>
             Load((string)_manifest["backs"]?[key]);
 
