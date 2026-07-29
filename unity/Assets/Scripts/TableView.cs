@@ -224,19 +224,9 @@ namespace LemonadeWars.Unity
             Build(canvasRoot);
         }
 
-        private static Texture2D LoadIcon(string fileName)
-        {
-            string path = Path.Combine(Application.streamingAssetsPath, "icons", fileName);
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-            // Mips + trilinear: icons draw at 22-38px from much larger sources.
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-            texture.LoadImage(File.ReadAllBytes(path));
-            texture.filterMode = FilterMode.Trilinear;
-            return texture;
-        }
+        private static Texture2D LoadIcon(string fileName) =>
+            UiKit.LoadTextureSharp(
+                Path.Combine(Application.streamingAssetsPath, "icons", fileName));
 
         public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
 

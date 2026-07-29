@@ -167,6 +167,57 @@ namespace LemonadeWars.Unity
             go.transform.SetAsFirstSibling();
         }
 
+        /// <summary>
+        /// Load an image with SHARP mipmaps. Unity's auto-mips are box-filtered and
+        /// smear minified card text; tools/make_mips.py packs Lanczos downscales into
+        /// a sibling `name.mips.ext` (levels stacked top-to-bottom), and this splits
+        /// them back into the texture's mip levels. Falls back cleanly to the auto
+        /// mips when no packed file exists. Returns null if the image is missing.
+        /// </summary>
+        public static Texture2D LoadTextureSharp(string fullPath)
+        {
+            if (!File.Exists(fullPath))
+            {
+                return null;
+            }
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+            texture.LoadImage(File.ReadAllBytes(fullPath));
+            texture.filterMode = FilterMode.Trilinear;
+            texture.anisoLevel = 4;
+
+            string packedPath = Path.ChangeExtension(fullPath, null) +
+                ".mips" + Path.GetExtension(fullPath);
+            if (!File.Exists(packedPath))
+            {
+                return texture;
+            }
+            var packed = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            packed.LoadImage(File.ReadAllBytes(packedPath));
+
+            // Bands are stacked top-to-bottom by the generator; Unity's origin is
+            // bottom-left, so walk DOWN from the top. Stop conditions mirror the
+            // generator exactly (level dims = size >> L, floor 24px).
+            const int minDim = 24;
+            int y = packed.height;
+            for (int level = 1; ; level++)
+            {
+                int levelWidth = texture.width >> level;
+                int levelHeight = texture.height >> level;
+                if (levelWidth < minDim || levelHeight < minDim ||
+                    levelWidth > packed.width || y - levelHeight < 0)
+                {
+                    break;
+                }
+                y -= levelHeight;
+                texture.SetPixels(packed.GetPixels(0, y, levelWidth, levelHeight), level);
+            }
+            // updateMipmaps: false — keep our sharp levels (deeper, tiny levels stay
+            // auto-generated; nothing on screen ever samples them).
+            texture.Apply(false);
+            Object.Destroy(packed);
+            return texture;
+        }
+
         public static RectTransform CreatePanel(Transform parent, string name, Color color)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image));
