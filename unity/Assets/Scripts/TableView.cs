@@ -1199,9 +1199,17 @@ namespace LemonadeWars.Unity
                 new Vector2(0, 0), new Vector2(0, -24));
             var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
             listHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -4));
+            UiKit.Anchor(listHost, Vector2.zero, Vector2.one);
             _logList = UiKit.CreateScrollList(listHost);
-            _logList.GetComponent<VerticalLayoutGroup>().spacing = 2;
+            // Flat: the expanded panel IS the surface. Strip the scroll list's own
+            // inset box + tint so expanding just makes the box taller, and pad the
+            // lines to line up with the collapsed chip's text.
+            var scrollNode = (RectTransform)_logList.parent.parent;
+            UiKit.Anchor(scrollNode, Vector2.zero, Vector2.one);
+            scrollNode.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            var logLayout = _logList.GetComponent<VerticalLayoutGroup>();
+            logLayout.spacing = 2;
+            logLayout.padding = new RectOffset(8, 8, 5, 5);
             _logExpandedPanel.gameObject.SetActive(false);
         }
 
