@@ -76,6 +76,10 @@ namespace LemonadeWars.Engine.Core
         public List<StandInstance> Stands { get; } = new List<StandInstance>();
         /// <summary>Tantrums gained by this player (kept below their Turf), with gain order.</summary>
         public List<TantrumRecord> TantrumPile { get; } = new List<TantrumRecord>();
+        /// <summary>When this player last PLAYED a tantrum (NextTantrumGainSeq stamp) —
+        /// the Whiniest Baby tie-break (designer ruling). Gifts (Blame Changer) don't
+        /// count, and the stamp survives the played copy leaving the pile.</summary>
+        public int LastTantrumPlaySeq { get; set; }
         /// <summary>Lemon Lord titles dealt during setup (3), before the keep-2 choice.</summary>
         public List<string> LemonLordDealt { get; } = new List<string>();
         /// <summary>The 2 secret Lemon Lord titles kept; scored at game end.</summary>

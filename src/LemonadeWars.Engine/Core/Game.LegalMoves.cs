@@ -576,21 +576,19 @@ namespace LemonadeWars.Engine.Core
                     break;
 
                 case "apologize":
-                    foreach (var record in player.TantrumPile)
+                    // Tantrum copies are interchangeable — one move, engine picks.
+                    if (player.TantrumPile.Count > 0)
                     {
-                        var play = Base();
-                        play.TantrumInstanceId = record.InstanceId;
-                        yield return play;
+                        yield return Base();
                     }
                     break;
 
                 case "blame-changer":
-                    foreach (var record in player.TantrumPile)
+                    if (player.TantrumPile.Count > 0)
                     {
                         foreach (var other in opponents)
                         {
                             var play = Base();
-                            play.TantrumInstanceId = record.InstanceId;
                             play.TargetPlayerId = other.PlayerId;
                             yield return play;
                         }

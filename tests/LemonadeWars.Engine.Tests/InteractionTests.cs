@@ -272,6 +272,74 @@ namespace LemonadeWars.Engine.Tests
             Assert.Contains(pileTantrum, game.State.LemonDiscard);
         }
 
+        [Fact]
+        public void ApologizeAutoPicksAndLapsesTheBabyTitle()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+
+            // Rig: A holds the only tantrum in the game — and the baby title with it.
+            int pileTantrum = GiveCard(game, a, "tantrum");
+            game.State.Players[a].Hand.Remove(pileTantrum);
+            game.State.Players[a].TantrumPile.Add(new TantrumRecord
+            {
+                InstanceId = pileTantrum,
+                GainSeq = game.State.NextTantrumGainSeq++,
+            });
+            game.State.WhiniestBabyHolder = a;
+
+            int apologize = GiveCard(game, a, "apologize");
+            // No TantrumInstanceId: the copies are interchangeable, the engine picks.
+            var events = game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = apologize });
+
+            Assert.Empty(game.State.Players[a].TantrumPile);
+            Assert.Contains(pileTantrum, game.State.LemonDiscard);
+            // Nobody has a tantrum anymore — nobody is the Whiniest Baby.
+            Assert.Null(game.State.WhiniestBabyHolder);
+            var moved = Assert.Single(events.OfType<WhiniestBabyMoved>());
+            Assert.Null(moved.ToPlayerId);
+        }
+
+        [Fact]
+        public void BabyTieGoesToMostRecentTantrumPlayer()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int c = Seat(game, 2);
+
+            // B PLAYS a tantrum (against A's attack): count 1, play-recency stamped.
+            int attack = GiveCard(game, a, "hoa-violation");
+            int tantrum = GiveCard(game, b, "tantrum");
+            game.State.Players[a].Money = 20;
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = tantrum });
+            GameFlowTests.PassAll(game);
+            Assert.Equal(b, game.State.WhiniestBabyHolder);
+            Assert.True(game.State.Players[b].LastTantrumPlaySeq > 0);
+
+            // A (rigged with an unplayed tantrum) blame-changes it onto C: C now has
+            // the LATEST GAIN but has never played one.
+            int rigged = GiveCard(game, a, "tantrum");
+            game.State.Players[a].Hand.Remove(rigged);
+            game.State.Players[a].TantrumPile.Add(new TantrumRecord
+            {
+                InstanceId = rigged,
+                GainSeq = game.State.NextTantrumGainSeq++,
+            });
+            int blame = GiveCard(game, a, "blame-changer");
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = blame, TargetPlayerId = c });
+            GameFlowTests.PassAll(game);
+
+            // Tied 1-1 (B and C): under the old latest-GAIN rule C would take the
+            // title; the ruling says the most recent tantrum PLAYER holds it.
+            Assert.Equal(1, game.State.Players[b].TantrumPile.Count);
+            Assert.Equal(1, game.State.Players[c].TantrumPile.Count);
+            Assert.Equal(b, game.State.WhiniestBabyHolder);
+        }
+
         // -------------------------------------------------- attack reactions
 
         [Fact]
@@ -449,6 +517,52 @@ namespace LemonadeWars.Engine.Tests
             bool onOwnBoard = game.State.Players[a].Turf.Equipped.Contains(equippedB) ||
                 game.State.Players[a].Stands.Any(s => s.Equipped.Contains(equippedB));
             Assert.True(onOwnBoard);
+        }
+
+        [Fact]
+        public void TaggedFindersKeepersDropsTheStaleStolenCard()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int c = Seat(game, 2);
+            int d = Seat(game, 3);
+            int equippedB = RigTurfEquip(game, b);
+            RigTurfEquip(game, d);
+            bool turfCard = TestData.Db
+                .BlackMarket(game.State.BlackMarketInstances[equippedB].DefId).Target
+                == LemonadeWars.Engine.Data.EquipTarget.Turf;
+            int attack = GiveCard(game, a, "finders-keepers");
+            int tag = GiveCard(game, c, "tag-youre-it");
+
+            game.Apply(new PlayLemonCard
+            {
+                PlayerId = a,
+                CardInstanceId = attack,
+                TargetPlayerId = b,
+                TargetEquippedInstanceId = equippedB,
+                EquipStandInstanceId = turfCard ? (int?)null : game.State.Players[a].Stands[0].InstanceId,
+            });
+            // While the attack aims at B, views advertise B's card as the loot.
+            Assert.Equal(game.State.BlackMarketInstances[equippedB].DefId,
+                game.ViewFor(b).StackTop?.StolenDefId);
+
+            game.Apply(new RespondToWindow { PlayerId = c, CardInstanceId = tag, RedirectTargetId = d });
+            PassWindowsOnly(game);
+
+            // Redirected to D and awaiting the attacker's re-pick: the old pick named
+            // B's card, and neither the stack nor any view may keep showing it.
+            var item = game.State.ResponseStack.Single(i => i.LemonDefId == "finders-keepers");
+            Assert.Null(item.TargetEquippedInstanceId);
+            foreach (int seat in new[] { a, b, c, d })
+            {
+                var top = game.ViewFor(seat).StackTop;
+                if (top != null && top.DefId == "finders-keepers")
+                {
+                    Assert.Null(top.StolenDefId);
+                }
+            }
         }
 
         // ------------------------------------------------------- roll windows

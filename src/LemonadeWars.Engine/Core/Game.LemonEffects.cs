@@ -130,7 +130,14 @@ namespace LemonadeWars.Engine.Core
             {
                 case "apologize":
                 case "blame-changer":
-                    if (!(action.TantrumInstanceId is int tid) ||
+                    // Tantrum copies are interchangeable, so the engine picks one
+                    // itself; an explicit id is still honored (older persisted games
+                    // recorded one) but must belong to the player's pile.
+                    if (player.TantrumPile.Count == 0)
+                    {
+                        throw new InvalidActionException($"{def.Name}: you have no tantrums.");
+                    }
+                    if (action.TantrumInstanceId is int tid &&
                         player.TantrumPile.All(t => t.InstanceId != tid))
                     {
                         throw new InvalidActionException($"{def.Name}: choose a tantrum from your own pile.");
@@ -332,11 +339,14 @@ namespace LemonadeWars.Engine.Core
             {
                 case "apologize":
                 {
-                    var record = owner.TantrumPile.FirstOrDefault(t => t.InstanceId == item.TantrumInstanceId);
+                    var record = PickTantrum(owner, item.TantrumInstanceId);
                     if (record != null)
                     {
                         owner.TantrumPile.Remove(record);
                         State.LemonDiscard.Add(record.InstanceId);
+                        // The pile shrank: the pump re-settles the baby title once the
+                        // stack unwinds (it may pass on, or lapse if no one has any).
+                        State.EpisodeHadTantrums = true;
                     }
                     return true;
                 }
@@ -348,7 +358,7 @@ namespace LemonadeWars.Engine.Core
                 case "blame-changer":
                 {
                     var victim = Player(item.AttackTargetId!.Value);
-                    var record = owner.TantrumPile.FirstOrDefault(t => t.InstanceId == item.TantrumInstanceId);
+                    var record = PickTantrum(owner, item.TantrumInstanceId);
                     if (record == null)
                     {
                         return Fizzle(item, events);
@@ -592,6 +602,16 @@ namespace LemonadeWars.Engine.Core
                     throw new InvalidActionException($"No resolution handler for '{item.LemonDefId}'.");
             }
         }
+
+        /// <summary>
+        /// The tantrum Apologize/Blame Changer moves: the recorded pick when one was
+        /// given (older persisted games), else any copy — they're interchangeable now
+        /// that the baby tie-break tracks PLAY recency, not pile contents.
+        /// </summary>
+        private static TantrumRecord? PickTantrum(PlayerState owner, int? instanceId) =>
+            instanceId is int id
+                ? owner.TantrumPile.FirstOrDefault(t => t.InstanceId == id)
+                : owner.TantrumPile.FirstOrDefault();
 
         // ------------------------------------------------ attack retargeting
 
