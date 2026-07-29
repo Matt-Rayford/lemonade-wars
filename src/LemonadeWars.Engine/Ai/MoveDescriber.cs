@@ -48,9 +48,12 @@ namespace LemonadeWars.Engine.Ai
                     string detail = "";
                     if (p.TargetPlayerId is int victim && p.TargetEquippedInstanceId is int loot)
                     {
-                        // Finders Keepers: name the exact card taken, not just the victim —
-                        // otherwise every steal variant reads identically.
-                        detail = $" -> {PlayerName(victim)}: steal {BmName(loot)}";
+                        // Name the exact card, and the RIGHT verb: Finders Keepers takes
+                        // it, That's Not Fair! only trashes it.
+                        string verb = s.LemonInstances[p.CardInstanceId].DefId == "thats-not-fair"
+                            ? "discard"
+                            : "steal";
+                        detail = $" -> {PlayerName(victim)}: {verb} {BmName(loot)}";
                     }
                     else if (p.TargetPlayerId is int victim2)
                     {
@@ -128,7 +131,10 @@ namespace LemonadeWars.Engine.Ai
                                       .First(st => st.InstanceId == id).StandTypeId).Name))) + ")";
                 case SubmitRetarget r:
                 {
-                    string label = $"Steal {BmName(r.TargetEquippedInstanceId ?? 0)}";
+                    var retargeted = s.ResponseStack.FirstOrDefault(i => i.ItemId == r.StackItemId);
+                    string label = retargeted?.LemonDefId == "thats-not-fair"
+                        ? $"Discard {BmName(r.TargetEquippedInstanceId ?? 0)}"
+                        : $"Steal {BmName(r.TargetEquippedInstanceId ?? 0)}";
                     if (r.EquipStandInstanceId is int dest)
                     {
                         int destIdx = s.Players[action.PlayerId].Stands.FindIndex(x => x.InstanceId == dest);

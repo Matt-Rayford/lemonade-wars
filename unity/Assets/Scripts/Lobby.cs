@@ -68,7 +68,7 @@ namespace LemonadeWars.Unity
         public LobbyUi(RectTransform canvasRoot, string defaultServerUrl, string defaultName)
         {
             // ------------------------------------------------------- menu
-            _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", UiKit.TableColor);
             UiKit.Anchor(_menuRoot, Vector2.zero, Vector2.one);
 
             var title = UiKit.CreateText(_menuRoot, "LEMONADE WARS", 64,
@@ -106,7 +106,7 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f), body: true);
 
             // ---------------------------------------------------- settings
-            _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _settingsRoot = UiKit.CreatePanel(canvasRoot, "Settings", UiKit.TableColor);
             UiKit.Anchor(_settingsRoot, Vector2.zero, Vector2.one);
 
             var settingsTitle = UiKit.CreateText(_settingsRoot, "SETTINGS", 48,
@@ -135,6 +135,23 @@ namespace LemonadeWars.Unity
             serverLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
             _serverInput = UiKit.CreateInput(settingsColumn.transform, "Server", defaultServerUrl);
 
+            var volumeLabel = UiKit.CreateText(settingsColumn.transform, "", 16,
+                TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
+            volumeLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
+            void ShowVolume() =>
+                volumeLabel.text = Sfx.Volume == 0
+                    ? "Sound Effects — muted"
+                    : $"Sound Effects — {Sfx.Volume}%";
+            ShowVolume();
+            var volumeSlider = UiKit.CreateSlider(settingsColumn.transform,
+                steps: 100 / Sfx.VolumeStep, initialStep: Sfx.Volume / Sfx.VolumeStep);
+            volumeSlider.onValueChanged.AddListener(step =>
+            {
+                Sfx.Volume = (int)step * Sfx.VolumeStep;
+                ShowVolume();
+                Sfx.Play(Sfx.ButtonClick); // audition the new level on every stop
+            });
+
             UiKit.CreateButton(settingsColumn.transform, "Save & back", 20, () =>
             {
                 OnSaveSettings?.Invoke(DisplayName);
@@ -143,7 +160,7 @@ namespace LemonadeWars.Unity
             _settingsRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- join room
-            _joinRoot = UiKit.CreatePanel(canvasRoot, "JoinRoom", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _joinRoot = UiKit.CreatePanel(canvasRoot, "JoinRoom", UiKit.TableColor);
             UiKit.Anchor(_joinRoot, Vector2.zero, Vector2.one);
 
             var joinTitle = UiKit.CreateText(_joinRoot, "JOIN ROOM", 48,
@@ -185,7 +202,7 @@ namespace LemonadeWars.Unity
             _joinRoot.gameObject.SetActive(false);
 
             // -------------------------------------------------- solo setup
-            _soloRoot = UiKit.CreatePanel(canvasRoot, "SoloSetup", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _soloRoot = UiKit.CreatePanel(canvasRoot, "SoloSetup", UiKit.TableColor);
             UiKit.Anchor(_soloRoot, Vector2.zero, Vector2.one);
 
             var soloTitle = UiKit.CreateText(_soloRoot, "PLAY VS BOTS", 48,
@@ -211,7 +228,7 @@ namespace LemonadeWars.Unity
             _soloRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- my games
-            _gamesRoot = UiKit.CreatePanel(canvasRoot, "MyGames", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _gamesRoot = UiKit.CreatePanel(canvasRoot, "MyGames", UiKit.TableColor);
             UiKit.Anchor(_gamesRoot, Vector2.zero, Vector2.one);
 
             var gamesTitle = UiKit.CreateText(_gamesRoot, "MY GAMES", 48,
@@ -238,7 +255,7 @@ namespace LemonadeWars.Unity
             _gamesRoot.gameObject.SetActive(false);
 
             // ------------------------------------------------------ lobby
-            _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", new Color(0.08f, 0.10f, 0.14f, 0.97f));
+            _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", UiKit.TableColor);
             UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
 
             _lobbyTitle = UiKit.CreateText(_lobbyRoot, "", 48,
@@ -281,13 +298,23 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
             UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.24f), new Vector2(0.9f, 0.29f));
 
+            // Same plum-and-badges backdrop the table wears, on every pre-game screen —
+            // switching between them shouldn't feel like leaving the game's world.
+            foreach (var root in AllScreens)
+            {
+                UiKit.CreateWallpaper(root, Vector2.one);
+            }
+
             ShowMenu("");
         }
+
+        private RectTransform[] AllScreens =>
+            new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot };
 
         /// <summary>Activate exactly one pre-game screen.</summary>
         private void ActivateOnly(RectTransform target)
         {
-            foreach (var root in new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot })
+            foreach (var root in AllScreens)
             {
                 root.gameObject.SetActive(root == target);
             }
@@ -425,11 +452,11 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>The difficulty chip cycles easy -> medium -> hard -> wambulence -> easy.</summary>
+        /// <summary>The difficulty chip cycles easy -> medium -> hard -> wambulance -> easy.</summary>
         public static string NextLevel(string level) =>
             level == "easy" ? "medium"
             : level == "medium" ? "hard"
-            : level == "hard" ? "wambulence"
+            : level == "hard" ? "wambulance"
             : "easy";
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
@@ -512,7 +539,7 @@ namespace LemonadeWars.Unity
                 var chipRect = (RectTransform)chipGo.transform;
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
-                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULENCE
+                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULANCE
                 chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;
@@ -521,7 +548,7 @@ namespace LemonadeWars.Unity
                 chipImage.color = chipIdle;
                 var levelText = UiKit.CreateText(chipGo.transform,
                     botLevel.ToUpperInvariant(), 15, TextAnchor.MiddleCenter,
-                    botLevel == "wambulence" ? new Color(0.55f, 0.78f, 1f)
+                    botLevel == "wambulance" ? new Color(0.55f, 0.78f, 1f)
                     : botLevel == "hard" ? new Color(1f, 0.62f, 0.45f)
                     : botLevel == "easy" ? new Color(0.62f, 0.90f, 0.62f)
                     : new Color(0.85f, 0.88f, 0.92f), body: true);

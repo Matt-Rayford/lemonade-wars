@@ -31,9 +31,16 @@ cp game-assets/fonts/*.ttf "$UNITY_DIR/Assets/Resources/fonts/" 2>/dev/null || t
 echo "== syncing sounds =="
 # Resources (not StreamingAssets): Unity imports them as AudioClips for Resources.Load.
 mkdir -p "$UNITY_DIR/Assets/Resources/sounds"
-cp game-assets/sound-effects/*.wav "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
-cp game-assets/sound-effects/*.mp3 "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
-cp game-assets/sound-effects/*.ogg "$UNITY_DIR/Assets/Resources/sounds/" 2>/dev/null || true
+# Prune clips first: a sound re-delivered in another format (foo.wav -> foo.mp3)
+# would otherwise leave BOTH, and Resources.Load("sounds/foo") picks arbitrarily.
+# .meta files stay, so a returning file keeps its GUID; Unity drops true orphans.
+find "$UNITY_DIR/Assets/Resources/sounds" -type f \
+     \( -name '*.wav' -o -name '*.mp3' -o -name '*.ogg' \) -delete 2>/dev/null || true
+# Subfolders are mirrored, not flattened (game-assets/sound-effects/bot-speeds/x.mp3
+# loads as "sounds/bot-speeds/x") — grouping stays intentional and collision-proof.
+rsync -a --include='*/' \
+      --include='*.wav' --include='*.mp3' --include='*.ogg' --exclude='*' \
+      game-assets/sound-effects/ "$UNITY_DIR/Assets/Resources/sounds/"
 
 echo "== syncing game data =="
 rm -rf "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"

@@ -21,6 +21,12 @@ namespace LemonadeWars.Unity
 
         // Market drag & drop.
         public System.Func<int, bool> CanBuyMarket;         // market index -> any legal buy?
+        public System.Func<bool> CanRefreshMarket;
+        public System.Action OnRefreshMarket;
+        public System.Func<bool> CanDrawLemon;
+        public System.Action OnDrawCard;
+        /// <summary>Sentinel hand-frame id for the draw slot — never a real instance.</summary>
+        private const int DrawSlotId = int.MinValue;
         public System.Action<int> OnMarketDragStart;        // market index
         public System.Action OnMarketDragEnd;
         public System.Action<int, int?> OnMarketDrop;       // market index, stand id (null = turf)
@@ -72,6 +78,23 @@ namespace LemonadeWars.Unity
         // gesture as an attack, visibly NOT one.
         private static readonly Color ReactionGlowColor = new Color(1f, 0.86f, 0.22f, 0.95f);
         private static readonly Color ReactionArrowColor = new Color(0.98f, 0.83f, 0.10f);
+        // Connections reaches into the market instead: blue, aimed at the shelf.
+        private static readonly Color MarketGlowColor = new Color(0.36f, 0.72f, 1f, 0.95f);
+        private static readonly Color MarketArrowColor = new Color(0.30f, 0.68f, 1f);
+
+        /// <summary>What an armed hand card is currently aiming at.</summary>
+        private enum AimTarget
+        {
+            PlayerBars,
+            MarketCards,
+        }
+
+        private AimTarget _aimTarget = AimTarget.PlayerBars;
+        /// <summary>hand card id -> market indices it may take (null = not a market card).</summary>
+        public System.Func<int, ISet<int>> MarketTargetsFor;
+        public System.Action<int, int> OnMarketPick; // hand id, market index
+        private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
+            _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
         /// <summary>Set by the app: true while the current aim is a window reaction.</summary>
         public System.Func<bool> AimIsReaction;
         private Color _aimGlowColor = AttackGlowColor;
@@ -115,12 +138,40 @@ namespace LemonadeWars.Unity
 
         // Hand arrangement: the player's preferred order, kept across renders.
         private readonly List<int> _handOrder = new List<int>();
+        // Last-rendered fingerprints for the zones that skip unchanged rebuilds
+        // (see RenderHand): rebuilding a hovered fan drops the raise and the preview.
+        private string _handSignature;
+        private string _dibsSignature;
+        private string _lordSignature;
         private int _reorderCardId = -1;
+        private int _reorderSlot = -1;
+        /// <summary>Card held raised after a drop until the pointer actually leaves it.</summary>
+        private int _stickyRaisedId = -1;
+        /// <summary>This pointer gesture became a real drag (aim or reorder), not a click.</summary>
+        private bool _handGestureArmed;
+
+        /// <summary>
+        /// Sideways travel that turns a press into a reorder: 5% of the hand band —
+        /// enough to be deliberate, short enough to feel immediate. Anything less
+        /// stays a click on the card.
+        /// </summary>
+        private float ReorderThreshold() =>
+            Mathf.Max(20f, _handHost.rect.width * 0.05f);
         private Vector2 _handDragStart;
         private float _handStartX;
         private float _handSpacing;
         /// <summary>Fired when the player switches whose board is displayed.</summary>
         public System.Action OnBoardViewChanged;
+
+        /// <summary>While true, the Whiniest Baby card stays OUT of the lord fan even
+        /// though the view says we hold it — set for the span of the claim reveal's
+        /// flight, lifted when the card lands (see LemonadeWarsApp).</summary>
+        public bool SuppressWhinyBaby;
+        /// <summary>Spoiled Rotten's twin of SuppressWhinyBaby.</summary>
+        public bool SuppressSpoiledRotten;
+        /// <summary>Whether the rendered fan currently includes the baby card — the
+        /// Spoiled Rotten flight lands one slot further right when it does.</summary>
+        private bool _lordFanHasBaby;
         private RectTransform _marketRow;
 
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
@@ -144,6 +195,7 @@ namespace LemonadeWars.Unity
         private GameObject _discardBackButton;
         private TMP_Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
+        private string _discardVerb = "TAKE";
         private System.Action _discardOnBack;
         private int? _discardSelectedId;
         private readonly Dictionary<int, GameObject> _discardSelectGlows =
@@ -172,17 +224,9 @@ namespace LemonadeWars.Unity
             Build(canvasRoot);
         }
 
-        private static Texture2D LoadIcon(string fileName)
-        {
-            string path = Path.Combine(Application.streamingAssetsPath, "icons", fileName);
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            texture.LoadImage(File.ReadAllBytes(path));
-            return texture;
-        }
+        private static Texture2D LoadIcon(string fileName) =>
+            UiKit.LoadTextureSharp(
+                Path.Combine(Application.streamingAssetsPath, "icons", fileName));
 
         public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
 
@@ -191,6 +235,9 @@ namespace LemonadeWars.Unity
             Root = UiKit.CreatePanel(root, "Table", new Color(0, 0, 0, 0));
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
+
+            // Repeating badge pattern over the play area — everything below the shelf.
+            UiKit.CreateWallpaper(Root, new Vector2(1f, 0.70f));
 
             // Left: player panels in turn order (you at the bottom), below the shelf.
             var playersGo = new GameObject("Players", typeof(RectTransform), typeof(VerticalLayoutGroup));
@@ -214,10 +261,20 @@ namespace LemonadeWars.Unity
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
-            var market = UiKit.CreatePanel(Root, "Market", UiKit.PanelColor);
+            // Full-bleed: the shelf runs edge to edge and meets the status bar, so the
+            // chrome reads as one band instead of a floating panel.
+            var market = UiKit.CreatePanel(Root, "Market", new Color(0, 0, 0, 0));
             UiKit.Anchor(market, new Vector2(0f, 0.70f), new Vector2(1f, 0.95f),
-                new Vector2(6, 4), new Vector2(-6, -4));
+                new Vector2(0, 4), new Vector2(0, 0));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
+
+            // Hairline rule under the shelf: with every zone transparent, this is what
+            // separates "the store" from "the table". It fills the 4px gap the shelf
+            // leaves above its own anchor, so it never overlaps the cards.
+            var shelfRule = UiKit.CreatePanel(Root, "ShelfRule", UiKit.ButtonColor);
+            UiKit.Anchor(shelfRule, new Vector2(0f, 0.70f), new Vector2(1f, 0.70f),
+                new Vector2(0, 0), new Vector2(0, 4));
+            shelfRule.GetComponent<Image>().raycastTarget = false;
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
             // Transparent — cards float on the table; the Image still catches drops.
@@ -617,7 +674,8 @@ namespace LemonadeWars.Unity
             onPick?.Invoke(victim);
         }
 
-        private void BeginAttackTargeting(int cardInstanceId, ISet<int> validTargets, bool dragMode)
+        private void BeginAttackTargeting(int cardInstanceId, ISet<int> validTargets, bool dragMode,
+            AimTarget target = AimTarget.PlayerBars)
         {
             if (_attackCardId >= 0)
             {
@@ -627,10 +685,13 @@ namespace LemonadeWars.Unity
             _attackValid = validTargets;
             _attackDragMode = dragMode;
             _attackHover = -1;
+            _aimTarget = target;
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
             bool reaction = AimIsReaction?.Invoke() == true;
-            _aimGlowColor = reaction ? ReactionGlowColor : AttackGlowColor;
-            _aimArrowColor = reaction ? ReactionArrowColor : AttackArrowColor;
+            _aimGlowColor = target == AimTarget.MarketCards ? MarketGlowColor
+                : reaction ? ReactionGlowColor : AttackGlowColor;
+            _aimArrowColor = target == AimTarget.MarketCards ? MarketArrowColor
+                : reaction ? ReactionArrowColor : AttackArrowColor;
             _preview.SetDragging(true); // no magnify pop-ups while aiming
 
             // Hold the armed card raised and on top: the intercept layer eats the hover
@@ -666,24 +727,57 @@ namespace LemonadeWars.Unity
             }
 
             int hover = -1;
-            foreach (var (playerId, row, _) in _playerRows)
+            if (_aimTarget == AimTarget.MarketCards)
             {
-                if (row != null && _attackValid.Contains(playerId) &&
-                    RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
+                foreach (var (index, cell, _, _) in _marketCells)
                 {
-                    hover = playerId;
-                    break;
+                    if (cell != null && _attackValid.Contains(index) &&
+                        RectTransformUtility.RectangleContainsScreenPoint(cell, screenPosition))
+                    {
+                        hover = index;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                foreach (var (playerId, row, _) in _playerRows)
+                {
+                    if (row != null && _attackValid.Contains(playerId) &&
+                        RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
+                    {
+                        hover = playerId;
+                        break;
+                    }
                 }
             }
             if (hover != _attackHover)
             {
                 _attackHover = hover;
-                foreach (var (playerId, _, glow) in _playerRows)
+                if (_aimTarget == AimTarget.MarketCards)
                 {
-                    if (glow != null)
+                    // Reuse each cell's own buy-glow, tinted to the aiming colour.
+                    foreach (var (index, _, outer, inner) in _marketCells)
                     {
-                        glow.GetComponent<Image>().color = _aimGlowColor;
-                        glow.SetActive(playerId == hover);
+                        foreach (var glow in new[] { outer, inner })
+                        {
+                            if (glow != null)
+                            {
+                                glow.GetComponent<Image>().color = _aimGlowColor;
+                                glow.SetActive(index == hover);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var (playerId, _, glow) in _playerRows)
+                    {
+                        if (glow != null)
+                        {
+                            glow.GetComponent<Image>().color = _aimGlowColor;
+                            glow.SetActive(playerId == hover);
+                        }
                     }
                 }
             }
@@ -749,11 +843,20 @@ namespace LemonadeWars.Unity
         private void FinishAttackTargeting()
         {
             int cardId = _attackCardId;
-            int victim = _attackHover;
+            int target = _attackHover;
+            var kind = _aimTarget;
             EndAttackTargeting();
-            if (cardId >= 0 && victim >= 0)
+            if (cardId < 0 || target < 0)
             {
-                OnAttackPick?.Invoke(cardId, victim);
+                return;
+            }
+            if (kind == AimTarget.MarketCards)
+            {
+                OnMarketPick?.Invoke(cardId, target);
+            }
+            else
+            {
+                OnAttackPick?.Invoke(cardId, target);
             }
         }
 
@@ -780,9 +883,15 @@ namespace LemonadeWars.Unity
                     glow.SetActive(false);
                 }
             }
+            foreach (var (_, _, outer, inner) in _marketCells)
+            {
+                outer?.SetActive(false);
+                inner?.SetActive(false);
+            }
             _attackCardId = -1;
             _attackHover = -1;
             _attackValid = null;
+            _aimTarget = AimTarget.PlayerBars;
             UiKit.Clear(_attackArrowHost);
             _attackRoot.gameObject.SetActive(false);
             _preview.SetDragging(false);
@@ -921,15 +1030,17 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Pick a card out of a discard pile (Reduce and Reuse, Reverse Engineer...):
-        /// click a card to select it, then confirm with the TAKE button. Clicking off a
-        /// card cancels — nothing has been submitted yet at that point.
+        /// Pick a card out of a pile (Reduce and Reuse, Reverse Engineer, an opponent's
+        /// board...): click a card to select it, then confirm with the action button.
+        /// Clicking off a card cancels — nothing has been submitted yet at that point.
+        /// The verb names what confirming DOES: taking and trashing are not the same.
         /// </summary>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
-            System.Action<int> onTake, System.Action onBack = null)
+            System.Action<int> onTake, System.Action onBack = null, string verb = "TAKE")
         {
             _discardTitle.text = title;
+            _discardVerb = verb;
             _discardOnTake = onTake;
             _discardOnBack = onBack;
             FillDiscardGrid(cards, blackMarket, nameOf);
@@ -980,7 +1091,7 @@ namespace LemonadeWars.Unity
                 pair.Value.SetActive(pair.Key == instanceId);
             }
             _discardSelectedId = instanceId;
-            _discardTakeLabel.text = $"TAKE {name.ToUpperInvariant()}";
+            _discardTakeLabel.text = $"{_discardVerb} {name.ToUpperInvariant()}";
             _discardTakeButton.SetActive(true);
         }
 
@@ -1037,6 +1148,7 @@ namespace LemonadeWars.Unity
         private RectTransform _logExpandedPanel;
         private RectTransform _logList;
         private TMP_Text _logLatest;
+        private TMP_Text _logToggleHint;
         private readonly List<string> _logLines = new List<string>();
         private bool _logExpanded;
         private string _logSignature = "";
@@ -1048,27 +1160,9 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(zone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
                 new Vector2(4, 0), new Vector2(-10, -4));
 
-            // Collapsed: the latest line on a slim chip at the zone's bottom.
-            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
-            UiKit.Anchor(_logCollapsed, new Vector2(0, 0), new Vector2(1, 0),
-                new Vector2(0, 0), new Vector2(0, 26));
-            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
-                new Color(0.86f, 0.88f, 0.92f), body: true);
-            _logLatest.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
-                new Vector2(8, 0), new Vector2(-26, 0));
-            var expandHint = UiKit.CreateText(_logCollapsed, "+", 15, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
-            expandHint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)expandHint.transform, new Vector2(1, 0), new Vector2(1, 1),
-                new Vector2(-24, 0), new Vector2(-4, 0));
-            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
-            _logCollapsed.gameObject.SetActive(false);
-
-            // Expanded: the recent history, newest at the top, header click collapses.
-            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
-            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one);
-            var header = UiKit.CreatePanel(_logExpandedPanel, "LogHeader", new Color(0, 0, 0, 0.45f));
+            // Header pinned at the TOP in both states — toggling swaps only the +/–
+            // hint and what hangs beneath, so the control never jumps around the zone.
+            var header = UiKit.CreatePanel(zone, "LogHeader", new Color(0, 0, 0, 0.45f));
             UiKit.Anchor(header, new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -24), new Vector2(0, 0));
             var headerText = UiKit.CreateText(header, "ACTION LOG", 13, TextAnchor.MiddleLeft,
@@ -1076,17 +1170,43 @@ namespace LemonadeWars.Unity
             headerText.raycastTarget = false;
             UiKit.Anchor((RectTransform)headerText.transform, Vector2.zero, Vector2.one,
                 new Vector2(8, 0), new Vector2(0, 0));
-            var collapseHint = UiKit.CreateText(header, "–", 15, TextAnchor.MiddleCenter,
+            _logToggleHint = UiKit.CreateText(header, "+", 15, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f));
-            collapseHint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)collapseHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+            _logToggleHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logToggleHint.transform, new Vector2(1, 0), new Vector2(1, 1),
                 new Vector2(-24, 0), new Vector2(-4, 0));
             UiKit.AddClick(header.gameObject, ToggleLog);
+
+            // Collapsed: the latest line on a slim chip directly beneath the header.
+            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
+            UiKit.Anchor(_logCollapsed, new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -50), new Vector2(0, -24));
+            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
+                new Color(0.86f, 0.88f, 0.92f), body: true);
+            _logLatest.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(-8, 0));
+            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
+            _logCollapsed.gameObject.SetActive(false);
+
+            // Expanded: the recent history below the header, newest at the top — its
+            // first row sits exactly where the collapsed chip was.
+            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
+            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one,
+                new Vector2(0, 0), new Vector2(0, -24));
             var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
             listHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -26));
+            UiKit.Anchor(listHost, Vector2.zero, Vector2.one);
             _logList = UiKit.CreateScrollList(listHost);
-            _logList.GetComponent<VerticalLayoutGroup>().spacing = 2;
+            // Flat: the expanded panel IS the surface. Strip the scroll list's own
+            // inset box + tint so expanding just makes the box taller, and pad the
+            // lines to line up with the collapsed chip's text.
+            var scrollNode = (RectTransform)_logList.parent.parent;
+            UiKit.Anchor(scrollNode, Vector2.zero, Vector2.one);
+            scrollNode.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            var logLayout = _logList.GetComponent<VerticalLayoutGroup>();
+            logLayout.spacing = 2;
+            logLayout.padding = new RectOffset(8, 8, 5, 5);
             _logExpandedPanel.gameObject.SetActive(false);
         }
 
@@ -1094,6 +1214,7 @@ namespace LemonadeWars.Unity
         {
             _logExpanded = !_logExpanded;
             _logExpandedPanel.gameObject.SetActive(_logExpanded);
+            _logToggleHint.text = _logExpanded ? "–" : "+";
             RenderLog();
         }
 
@@ -1154,17 +1275,79 @@ namespace LemonadeWars.Unity
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             UiKit.Clear(_marketRow);
+            _marketCells.Clear();
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
             BuildDiscardPile(view, blackMarket: false);
             BuildDiscardPile(view, blackMarket: true);
             AddRowGap();
+            // The refresh belongs to the shelf it refreshes, not to the action bar.
+            // Always present so the row never reflows; it just goes dark when it
+            // isn't yours to press.
+            BuildRefreshCell(db.Config.BlackMarketRefreshCost, CanRefreshMarket?.Invoke() == true);
             for (int i = 0; i < view.Market.Count; i++)
             {
                 var card = view.Market[i];
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
                 BuildMarketCell(i, texture);
             }
+        }
+
+        /// <summary>
+        /// Solid lemonade-yellow slab at the head of the shelf: buy a whole new row.
+        /// Card-height so it reads as part of the market, not as chrome laid over it.
+        /// </summary>
+        private void BuildRefreshCell(int price, bool enabled)
+        {
+            const float width = 64f;
+            const float height = 216f;
+
+            var cell = new GameObject("RefreshCell", typeof(RectTransform), typeof(LayoutElement));
+            cell.transform.SetParent(_marketRow, false);
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + 4;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            var idle = enabled ? UiKit.ButtonColor : new Color(0.42f, 0.36f, 0.12f, 0.85f);
+            var button = UiKit.CreatePanel(cell.transform, "Refresh", idle);
+            button.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            button.GetComponent<Image>().type = Image.Type.Sliced;
+            var buttonRect = button;
+            buttonRect.anchorMin = new Vector2(0.5f, 1f);
+            buttonRect.anchorMax = new Vector2(0.5f, 1f);
+            buttonRect.pivot = new Vector2(0.5f, 1f);
+            buttonRect.sizeDelta = new Vector2(width, height);
+            buttonRect.anchoredPosition = Vector2.zero;
+
+            // Turned on its side to run up the thin slab: the label's own rect is laid
+            // out along the button's HEIGHT, then rotated a quarter turn.
+            var label = UiKit.CreateText(button, $"REFRESH (${price})", 18,
+                TextAnchor.MiddleCenter,
+                enabled ? UiKit.ButtonTextColor : new Color(0.20f, 0.18f, 0.10f, 0.75f));
+            label.raycastTarget = false;
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+            var labelRect = (RectTransform)label.transform;
+            labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRect.pivot = new Vector2(0.5f, 0.5f);
+            labelRect.sizeDelta = new Vector2(height - 16f, width - 8f);
+            labelRect.anchoredPosition = Vector2.zero;
+            labelRect.localRotation = Quaternion.Euler(0, 0, 90f); // reads bottom-to-top
+
+            if (!enabled)
+            {
+                return; // dark and inert: no hover, nothing to submit
+            }
+            var image = button.GetComponent<Image>();
+            UiKit.AddHover(button.gameObject,
+                () => image.color = new Color(1f, 0.92f, 0.45f),
+                () => image.color = idle);
+            UiKit.AddClick(button.gameObject, () =>
+            {
+                Sfx.Play(Sfx.RefreshMarket); // the shelf being swept, not a UI click
+                OnRefreshMarket?.Invoke();
+            });
         }
 
         /// <summary>A market card: hover glows it; drag it onto your turf/stands to buy.</summary>
@@ -1216,6 +1399,7 @@ namespace LemonadeWars.Unity
             drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
             drag.DragStarted = () => OnMarketDragStart?.Invoke(marketIndex);
             drag.DragEnded = () => OnMarketDragEnd?.Invoke();
+            _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
         }
 
         private void RenderBoard(PlayerView view)
@@ -1256,6 +1440,15 @@ namespace LemonadeWars.Unity
             {
                 vpTextures.Add(_art.BraggingRights(i) ?? _art.Back("braggingRights"));
             }
+            // Game over: everyone's secret Lemon Lords are revealed (FinishedLords is
+            // empty until then), so they join the stack — click a rival's bar and their
+            // lords are right there with the rest of their points. Unmet lords show too
+            // (the reveal is half the fun); the caption sticks to VP actually scored.
+            foreach (var lord in owner.FinishedLords)
+            {
+                vpTextures.Add(_art.Title(lord.TitleId));
+            }
+            int scoredVp = owner.InGameVictoryPoints + owner.FinishedLords.Count(l => l.Met);
             RectTransform vpCell;
             if (vpTextures.Count == 0)
             {
@@ -1264,7 +1457,7 @@ namespace LemonadeWars.Unity
             else
             {
                 vpCell = AddCard(_boardRow, vpTextures[0], 188, 263,
-                    vpTextures.Count == 1 ? "1 VP" : $"{vpTextures.Count} VP", false, null);
+                    scoredVp == 1 ? "1 VP" : $"{scoredVp} VP", false, null);
                 AddTuckedStack(vpCell, vpTextures.Skip(1).ToList());
             }
             _vpGlow = null;
@@ -1306,14 +1499,10 @@ namespace LemonadeWars.Unity
 
         private void RenderHand(PlayerView view, MoveGroups groups)
         {
-            UiKit.Clear(_handHost);
-            _handFrames.Clear();
             int count = view.Hand.Count;
-            if (count == 0)
-            {
-                _handOrder.Clear();
-                return;
-            }
+            // The deck sits at the right end of the fan as a card-shaped slot, so
+            // drawing reads as taking a card rather than pressing a bar button.
+            bool canDraw = CanDrawLemon?.Invoke() == true;
 
             // Respect the player's own arrangement (drag a card sideways to move it);
             // cards we haven't seen yet — fresh draws — join on the right.
@@ -1324,6 +1513,38 @@ namespace LemonadeWars.Unity
                     return index < 0 ? int.MaxValue : index;
                 })
                 .ToList();
+
+            // Skip the rebuild when nothing the hand shows has changed (bot turns
+            // re-render constantly): tearing the fan down mid-hover drops the raised
+            // card and kills an open preview for no reason. The signature covers the
+            // order, each card's move count (bindings bake it in), the draw slot, and
+            // the band width the layout was computed against.
+            var signatureBuilder = new StringBuilder(canDraw ? "draw|" : "|");
+            signatureBuilder.Append(Mathf.RoundToInt(_handHost.rect.width)).Append('|');
+            foreach (var card in hand)
+            {
+                int moveCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
+                    ? moves.Count
+                    : 0;
+                // DefId too: instance ids restart each game, so a fresh game's opening
+                // hand could otherwise collide with the old one's and keep stale cards.
+                signatureBuilder.Append(card.InstanceId).Append(':').Append(card.DefId)
+                    .Append(':').Append(moveCount).Append(',');
+            }
+            string signature = signatureBuilder.ToString();
+            if (signature == _handSignature)
+            {
+                return;
+            }
+            _handSignature = signature;
+
+            UiKit.Clear(_handHost);
+            _handFrames.Clear();
+            if (count == 0 && !canDraw)
+            {
+                _handOrder.Clear();
+                return;
+            }
             _handOrder.Clear();
             _handOrder.AddRange(hand.Select(c => c.InstanceId));
 
@@ -1344,7 +1565,9 @@ namespace LemonadeWars.Unity
             const float edgeFade = 130f;
             float usable = hostWidth - edgeFade * 2f;
             float spacing = width * 0.72f;
-            float span = width + spacing * (count - 1);
+            // The draw slot takes a place in the fan, so a full hand scrolls to reach it.
+            int slots = count + (canDraw ? 1 : 0);
+            float span = width + spacing * (slots - 1);
             _handMaxScroll = Mathf.Max(0f, span - usable);
             _handScroll = Mathf.Clamp(_handScroll, 0f, _handMaxScroll);
             float startX = _handMaxScroll > 0f
@@ -1371,87 +1594,140 @@ namespace LemonadeWars.Unity
                 frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
+                if (card.InstanceId == _stickyRaisedId)
+                {
+                    // Just dropped under the cursor: stay lifted through the rebuild,
+                    // or the card visibly falls flat and pops back up on the next move.
+                    motion.TargetY = raisedY;
+                    frame.anchoredPosition = new Vector2(frame.anchoredPosition.x, raisedY);
+                    frame.SetAsLastSibling();
+                }
                 int captured = card.InstanceId;
                 _handFrames.Add((captured, frame, baseX, motion, restY));
 
+                // Playing the card: Connections reaches up to the shelf, attacks reach
+                // across to a player, everything else opens its menu.
+                void Activate()
+                {
+                    if (optionCount == 0)
+                    {
+                        return;
+                    }
+                    var shelf = MarketTargetsFor?.Invoke(captured);
+                    if (shelf != null && shelf.Count > 0)
+                    {
+                        BeginAttackTargeting(captured, shelf, dragMode: false, AimTarget.MarketCards);
+                        return;
+                    }
+                    var targets = AttackTargetsFor?.Invoke(captured);
+                    if (targets != null && targets.Count > 0)
+                    {
+                        BeginAttackTargeting(captured, targets, dragMode: false);
+                    }
+                    else
+                    {
+                        OnHandCard?.Invoke(captured);
+                    }
+                }
+
                 if (optionCount > 0)
                 {
-                    // Attack cards aim at a player bar instead of opening the menu.
-                    UiKit.AddClick(image.gameObject, () =>
+                    UiKit.AddClick(image.gameObject, Activate);
+                }
+
+                // Dragging is always available — arranging your hand is not a move, so
+                // it works on anyone's turn. Only the ARMING inside needs a legal play.
+                var drag = image.gameObject.AddComponent<DragRelay>();
+                drag.Began = position =>
+                {
+                    _attackDragAborted = false;
+                    _handDragStart = position;
+                    _handGestureArmed = false;
+                    _preview.SetDragging(true);
+                };
+                drag.Moved = position =>
+                {
+                    if (optionCount > 0 && _attackCardId < 0 && _reorderCardId < 0 &&
+                        !_attackDragAborted &&
+                        !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                     {
+                        var shelf = MarketTargetsFor?.Invoke(captured);
+                        if (shelf != null && shelf.Count > 0)
+                        {
+                            _handGestureArmed = true;
+                            BeginAttackTargeting(captured, shelf, dragMode: true,
+                                AimTarget.MarketCards);
+                            return;
+                        }
                         var targets = AttackTargetsFor?.Invoke(captured);
                         if (targets != null && targets.Count > 0)
                         {
-                            BeginAttackTargeting(captured, targets, dragMode: false);
+                            _handGestureArmed = true;
+                            BeginAttackTargeting(captured, targets, dragMode: true);
                         }
-                        else
-                        {
-                            OnHandCard?.Invoke(captured);
-                        }
-                    });
-
-                    // Or drag: past the hand band the card arms and the arrow appears;
-                    // release over a glowing bar to fire, anywhere else to abort.
-                    var drag = image.gameObject.AddComponent<DragRelay>();
-                    drag.Began = position =>
+                        return;
+                    }
+                    // Sideways inside the band: rearrange the hand instead. It takes a
+                    // deliberate sideways push (a card-width-ish) to become a drag —
+                    // below that the gesture is still a click on the card.
+                    if (_attackCardId < 0 &&
+                        RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
                     {
-                        _attackDragAborted = false;
-                        _handDragStart = position;
-                        _preview.SetDragging(true);
-                    };
-                    drag.Moved = position =>
-                    {
-                        if (_attackCardId < 0 && _reorderCardId < 0 && !_attackDragAborted &&
-                            !RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
+                        if (_reorderCardId < 0 &&
+                            Mathf.Abs(position.x - _handDragStart.x) > ReorderThreshold())
                         {
-                            var targets = AttackTargetsFor?.Invoke(captured);
-                            if (targets != null && targets.Count > 0)
-                            {
-                                BeginAttackTargeting(captured, targets, dragMode: true);
-                            }
-                            return;
+                            _reorderCardId = captured;
+                            _reorderSlot = -1; // force the first preview
+                            _handGestureArmed = true;
+                            frame.SetAsLastSibling();
+                            motion.TargetY = raisedY;
                         }
-                        // Sideways inside the band: rearrange the hand instead.
-                        if (_attackCardId < 0 &&
-                            RectTransformUtility.RectangleContainsScreenPoint(_handHost, position))
-                        {
-                            if (_reorderCardId < 0 &&
-                                Mathf.Abs(position.x - _handDragStart.x) > 30f)
-                            {
-                                _reorderCardId = captured;
-                                frame.SetAsLastSibling();
-                                motion.TargetY = raisedY;
-                            }
-                            if (_reorderCardId == captured)
-                            {
-                                RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                                    _handHost, position, null, out var local);
-                                frame.anchoredPosition = new Vector2(
-                                    local.x, frame.anchoredPosition.y);
-                            }
-                        }
-                    };
-                    drag.Ended = position =>
-                    {
                         if (_reorderCardId == captured)
                         {
-                            _reorderCardId = -1;
                             RectTransformUtility.ScreenPointToLocalPointInRectangle(
                                 _handHost, position, null, out var local);
-                            int slot = _handSpacing > 0f
-                                ? Mathf.RoundToInt((local.x + _handScroll - _handStartX) / _handSpacing)
-                                : 0;
-                            _handOrder.Remove(captured);
-                            _handOrder.Insert(Mathf.Clamp(slot, 0, _handOrder.Count), captured);
-                            OnBoardViewChanged?.Invoke(); // force a re-render in the new order
+                            frame.anchoredPosition = new Vector2(
+                                local.x, frame.anchoredPosition.y);
+                            // Live gap: the rest of the fan opens up around the
+                            // slot the card would land in, so the arrangement is
+                            // visible before the drop rather than after it.
+                            int slot = SlotAt(local.x);
+                            if (slot != _reorderSlot)
+                            {
+                                _reorderSlot = slot;
+                                PreviewReorder(captured, slot);
+                            }
                         }
-                        if (_attackCardId == captured && _attackDragMode)
-                        {
-                            FinishAttackTargeting();
-                        }
-                        _preview.SetDragging(false);
-                    };
-                }
+                    }
+                };
+                drag.Ended = position =>
+                {
+                    if (_reorderCardId == captured)
+                    {
+                        _reorderCardId = -1;
+                        _reorderSlot = -1;
+                        ClearReorderPreview();
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                            _handHost, position, null, out var local);
+                        int slot = SlotAt(local.x);
+                        _handOrder.Remove(captured);
+                        _handOrder.Insert(Mathf.Clamp(slot, 0, _handOrder.Count), captured);
+                        _stickyRaisedId = captured; // the cursor is still on it
+                        OnBoardViewChanged?.Invoke(); // force a re-render in the new order
+                    }
+                    else if (_attackCardId == captured && _attackDragMode)
+                    {
+                        FinishAttackTargeting();
+                    }
+                    else if (!_handGestureArmed)
+                    {
+                        // A twitch, not a drag. Unity already suppressed the click for
+                        // this gesture, so play the card the way a click would.
+                        Activate();
+                    }
+                    _handGestureArmed = false;
+                    _preview.SetDragging(false);
+                };
 
                 int sibling = i;
                 UiKit.AddHover(image.gameObject,
@@ -1475,6 +1751,86 @@ namespace LemonadeWars.Unity
                     });
                 _preview.Attach(image.gameObject, texture);
             }
+
+            if (canDraw)
+            {
+                BuildDrawSlot(startX + count * spacing, width, height, peek, raisedY, count);
+            }
+        }
+
+        /// <summary>
+        /// The deck as a hand slot: a dashed card-shaped outline holding a "+" and the
+        /// prompt. Lifts on hover like a real card, but nothing here is draggable — it
+        /// is a place to click, not a card to arrange.
+        /// </summary>
+        private void BuildDrawSlot(float baseX, float width, float height, float peek,
+            float raisedY, int sibling)
+        {
+            var frameGo = new GameObject("DrawSlot", typeof(RectTransform), typeof(Image));
+            frameGo.transform.SetParent(_handHost, false);
+            var frame = (RectTransform)frameGo.transform;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+            frame.pivot = new Vector2(0.5f, 0f);
+            frame.sizeDelta = new Vector2(width, height);
+            float restY = peek - height;
+            frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
+            // The frame itself is invisible but raycastable: the whole card area clicks.
+            frameGo.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+
+            // Opaque fill running out to the dash ring itself (same rect, same corner
+            // radius), so the dashes sit ON its edge rather than around a smaller slab.
+            const float fillInset = 3f;
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(frame, false);
+            UiKit.Anchor((RectTransform)fillGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(fillInset, fillInset), new Vector2(-fillInset, -fillInset));
+            var fill = fillGo.GetComponent<Image>();
+            fill.sprite = UiSprites.RoundedRect;
+            fill.type = Image.Type.Sliced;
+            fill.pixelsPerUnitMultiplier =
+                14f / Mathf.Max(4f, UiKit.CardCornerRadius(width) - fillInset);
+            fill.color = new Color(0.30f, 0.35f, 0.46f, 0.55f);
+            fill.raycastTarget = false;
+
+            var motion = frameGo.AddComponent<HandCardMotion>();
+            motion.TargetY = restY;
+            _handFrames.Add((DrawSlotId, frame, baseX, motion, restY));
+
+            var outline = UiKit.ButtonColor;
+            AddDashedRoundedOutline(frame, width - 6f, height - 6f,
+                UiKit.CardCornerRadius(width), outline);
+
+            // Stacked as one centered group, sitting in the part of the card that
+            // shows while the hand is at rest (the lower third peeks off-screen).
+            // Each band must clear its own line height: these texts truncate, and a
+            // glyph that cannot fit vertically renders as nothing at all.
+            var plus = UiKit.CreateText(frame, "+", 48, TextAnchor.MiddleCenter, outline);
+            plus.raycastTarget = false;
+            plus.overflowMode = TMPro.TextOverflowModes.Overflow;
+            UiKit.Anchor((RectTransform)plus.transform, new Vector2(0, 0.62f), new Vector2(1, 0.88f));
+
+            var label = UiKit.CreateText(frame, "DRAW A\nLEMON CARD", 18,
+                TextAnchor.MiddleCenter, outline);
+            label.raycastTarget = false;
+            label.overflowMode = TMPro.TextOverflowModes.Overflow;
+            UiKit.Anchor((RectTransform)label.transform, new Vector2(0, 0.40f), new Vector2(1, 0.62f));
+
+            UiKit.AddHover(frameGo,
+                () =>
+                {
+                    if (_attackCardId >= 0)
+                    {
+                        return; // the armed card owns the top slot while aiming
+                    }
+                    frame.SetAsLastSibling();
+                    motion.TargetY = raisedY;
+                },
+                () =>
+                {
+                    frame.SetSiblingIndex(sibling);
+                    motion.TargetY = restY;
+                });
+            UiKit.AddClick(frameGo, () => OnDrawCard?.Invoke());
         }
 
         private float _boardScroll;
@@ -1541,6 +1897,44 @@ namespace LemonadeWars.Unity
             _boardRow.anchoredPosition = position;
         }
 
+        /// <summary>Which slot a local X lands the dragged card in.</summary>
+        private int SlotAt(float localX) => _handSpacing > 0f
+            ? Mathf.RoundToInt((localX + _handScroll - _handStartX) / _handSpacing)
+            : 0;
+
+        /// <summary>Slide every OTHER card to where it would sit if the drop landed now.</summary>
+        private void PreviewReorder(int draggedId, int slot)
+        {
+            var order = new List<int>(_handOrder);
+            order.Remove(draggedId);
+            order.Insert(Mathf.Clamp(slot, 0, order.Count), draggedId);
+            for (int i = 0; i < order.Count; i++)
+            {
+                if (order[i] == draggedId)
+                {
+                    continue; // that one follows the cursor
+                }
+                foreach (var entry in _handFrames)
+                {
+                    if (entry.Id == order[i] && entry.Motion != null)
+                    {
+                        entry.Motion.TargetX = _handStartX + i * _handSpacing - _handScroll;
+                    }
+                }
+            }
+        }
+
+        private void ClearReorderPreview()
+        {
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Motion != null)
+                {
+                    entry.Motion.TargetX = null;
+                }
+            }
+        }
+
         /// <summary>
         /// Hover-based fan scrolling: with the cursor inside the hand zone, the outer
         /// 20% on each side auto-scrolls that direction, faster nearer the edge.
@@ -1548,6 +1942,35 @@ namespace LemonadeWars.Unity
         /// </summary>
         public void TickHandScroll(Vector2 screenPosition)
         {
+            // Drop the post-drop lift once the pointer really leaves the card. Checked
+            // here rather than trusting a pointer-exit: the card the cursor sits on was
+            // destroyed and rebuilt mid-gesture, so those events cannot be relied on.
+            if (_stickyRaisedId >= 0)
+            {
+                for (int i = 0; i < _handFrames.Count; i++)
+                {
+                    var entry = _handFrames[i];
+                    if (entry.Id != _stickyRaisedId)
+                    {
+                        continue;
+                    }
+                    if (entry.Frame == null || !RectTransformUtility.RectangleContainsScreenPoint(
+                            entry.Frame, screenPosition))
+                    {
+                        if (entry.Motion != null)
+                        {
+                            entry.Motion.TargetY = entry.RestY;
+                        }
+                        entry.Frame?.SetSiblingIndex(i);
+                        _stickyRaisedId = -1;
+                    }
+                    break;
+                }
+            }
+            if (_reorderCardId >= 0)
+            {
+                return; // a reorder owns the fan's X positions right now
+            }
             if (_handMaxScroll <= 0f ||
                 !RectTransformUtility.RectangleContainsScreenPoint(_handHost, screenPosition))
             {
@@ -1592,7 +2015,6 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void RenderFirstDibs(PlayerView view)
         {
-            UiKit.Clear(_dibsHost);
             var entries = new List<(string TitleId, string ClaimedBy)>();
             foreach (string titleId in view.FirstDibsRow)
             {
@@ -1605,6 +2027,18 @@ namespace LemonadeWars.Unity
                     entries.Add((claimed, player.Name));
                 }
             }
+
+            // Same skip as the hand: don't tear down a hovered fan over a re-render
+            // that changed nothing here.
+            string signature = Mathf.RoundToInt(_dibsHost.rect.width) + "|" +
+                string.Join(",", entries.Select(e => e.TitleId + ":" + e.ClaimedBy));
+            if (signature == _dibsSignature)
+            {
+                return;
+            }
+            _dibsSignature = signature;
+
+            UiKit.Clear(_dibsHost);
             if (entries.Count == 0)
             {
                 return;
@@ -1668,11 +2102,43 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.</summary>
+        /// <summary>
+        /// Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.
+        /// The Whiniest Baby card joins on the LEFT while you hold it — a card in your
+        /// zone beats a line of status text for "you are the baby".
+        /// </summary>
         private void RenderLords(PlayerView view)
         {
+            // Suppressed while a claim reveal is mid-flight: the table renders the
+            // instant the state changes, but the card should only exist in the fan
+            // once the animation has delivered it (the app lifts this on arrival).
+            bool baby = view.WhiniestBabyHolder == view.ViewerId && !SuppressWhinyBaby;
+            bool rotten = view.SpoiledRottenHolder == view.ViewerId && !SuppressSpoiledRotten;
+            _lordFanHasBaby = baby;
+
+            // Same skip as the hand: don't tear down a hovered fan over a re-render
+            // that changed nothing here.
+            string signature = (baby ? "baby|" : "|") + (rotten ? "rotten|" : "|") +
+                string.Join(",", view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
+            if (signature == _lordSignature)
+            {
+                return;
+            }
+            _lordSignature = signature;
+
             UiKit.Clear(_lordHost);
-            int count = view.LemonLordStatus.Count;
+            // Special titles first (left), the secret lords after: (art, lord-or-null).
+            var cards = new List<(Texture2D Texture, PlayerView.LordStatus Lord)>();
+            if (baby)
+            {
+                cards.Add((_art.WhiniestBaby(), null));
+            }
+            if (rotten)
+            {
+                cards.Add((_art.SpoiledRotten(), null));
+            }
+            cards.AddRange(view.LemonLordStatus.Select(l => (_art.Title(l.TitleId), l)));
+            int count = cards.Count;
             if (count == 0)
             {
                 return;
@@ -1682,13 +2148,12 @@ namespace LemonadeWars.Unity
             const float height = 266f;
             const float raisedY = 12f;
             const float peek = 158f;
-            float spacing = width * 0.72f;
+            float spacing = LordSpacing(count);
             float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
 
             for (int i = 0; i < count; i++)
             {
-                var lord = view.LemonLordStatus[i];
-                var texture = _art.Title(lord.TitleId);
+                var (texture, lord) = cards[i];
 
                 var image = UiKit.CreateCardImage(_lordHost, texture, width, height);
                 var frame = (RectTransform)image.transform.parent;
@@ -1700,7 +2165,7 @@ namespace LemonadeWars.Unity
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
 
-                if (lord.Met)
+                if (lord != null && lord.Met)
                 {
                     var chip = UiKit.CreatePanel(frame, "MetChip", UiKit.ButtonColor);
                     UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
@@ -1725,6 +2190,51 @@ namespace LemonadeWars.Unity
                     });
                 _preview.Attach(image.gameObject, texture);
             }
+        }
+
+        /// <summary>
+        /// Card overlap in the lord fan: the usual hand overlap while the zone has
+        /// room, compressing (like First Dibs) once a third card — the Whiniest Baby —
+        /// would spill past the screen edge. The margin keeps a sliver of table
+        /// visible on the right.
+        /// </summary>
+        private float LordSpacing(int count)
+        {
+            const float width = 190f;
+            const float margin = 24f;
+            float available = _lordHost.rect.width - margin;
+            if (available < 10f)
+            {
+                available = 380f; // first-frame fallback before canvas layout settles
+            }
+            return count > 1
+                ? Mathf.Min(width * 0.72f, (available - width) / (count - 1))
+                : 0f;
+        }
+
+        /// <summary>The baby joins the fan LEFT-MOST.</summary>
+        public Vector3 WhinyBabyLandingWorld() => LordLandingWorld(0);
+
+        /// <summary>Spoiled Rotten lands after the baby when the baby is in the fan.</summary>
+        public Vector3 SpoiledRottenLandingWorld() => LordLandingWorld(_lordFanHasBaby ? 1 : 0);
+
+        /// <summary>
+        /// World position of a slot in the lord fan as it will be AFTER the flying
+        /// card is added (the fan hides an in-flight card, so the current children
+        /// don't include it yet). Mirrors RenderLords' layout math.
+        /// </summary>
+        private Vector3 LordLandingWorld(int slot)
+        {
+            const float width = 190f;
+            const float height = 266f;
+            const float peek = 158f;
+            int futureCount = _lordHost.childCount + 1;
+            float spacing = LordSpacing(futureCount);
+            float startX = -(width + spacing * (futureCount - 1)) / 2f + width / 2f;
+            // Children hang from the host's bottom-center pivot; card center is half a
+            // card above its bottom-anchored rest position.
+            return _lordHost.TransformPoint(
+                new Vector3(startX + slot * spacing, peek - height + height / 2f, 0));
         }
 
         /// <summary>Appends to the market row — call after RenderMarket (which clears it).</summary>
@@ -1792,13 +2302,15 @@ namespace LemonadeWars.Unity
             _preview.Attach(image.gameObject, texture);
 
             // Price chip along the bottom edge; click-transparent like the count chips.
-            var chip = UiKit.CreatePanel(frame, "PriceChip", new Color(0, 0, 0, 0.78f));
+            // Full lemonade yellow with black text — the button palette — so the price
+            // pops off the dark table instead of dissolving into it.
+            var chip = UiKit.CreatePanel(frame, "PriceChip", UiKit.ButtonColor);
             UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0));
             chip.sizeDelta = new Vector2(0, 30);
             chip.pivot = new Vector2(0.5f, 0);
             chip.GetComponent<Image>().raycastTarget = false;
             var chipText = UiKit.CreateText(chip, $"${price}", 16,
-                TextAnchor.MiddleCenter, Color.white, body: true);
+                TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
             chipText.raycastTarget = false;
             UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
 
@@ -1952,8 +2464,11 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
             // Victory points: a crown per VP, arcing over the portrait left-to-right —
-            // frees the stat row below for the money/hand/tantrum counts.
-            int crowns = Mathf.Min(player.InGameVictoryPoints, 8);
+            // frees the stat row below for the money/hand/tantrum counts. Met Lemon
+            // Lords count once revealed (FinishedLords is empty until game end), so
+            // the crowns agree with the final standings, not just the in-game score.
+            int crowns = Mathf.Min(
+                player.InGameVictoryPoints + player.FinishedLords.Count(l => l.Met), 8);
             var badgeCenter = new Vector2(12f + 28f, 0f);
             for (int crown = 0; crown < crowns; crown++)
             {
@@ -1978,7 +2493,7 @@ namespace LemonadeWars.Unity
             string botLevel = BotLevelLookup?.Invoke(playerId);
             if (!string.IsNullOrEmpty(botLevel))
             {
-                string levelColor = botLevel == "wambulence" ? "#8CC7FF"
+                string levelColor = botLevel == "wambulance" ? "#8CC7FF"
                     : botLevel == "hard" ? "#FF9E73"
                     : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
                 nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";
@@ -2012,6 +2527,9 @@ namespace LemonadeWars.Unity
                 borderImage.type = Image.Type.Sliced;
                 borderImage.color = UiKit.ButtonColor;
                 borderImage.raycastTarget = false;
+                // Behind the contents: the rim crosses the portrait, and a line drawn
+                // through the VP crowns reads as a scratch on them.
+                borderGo.transform.SetAsFirstSibling();
             }
 
             // Red glow around the OUTSIDE while an attack is being aimed at this
@@ -2538,6 +3056,8 @@ namespace LemonadeWars.Unity
     public sealed class HandCardMotion : MonoBehaviour
     {
         public float TargetY;
+        /// <summary>Set while a neighbour is being dragged past; null leaves X alone.</summary>
+        public float? TargetX;
 
         private RectTransform _rect;
 
@@ -2549,7 +3069,12 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             var position = _rect.anchoredPosition;
-            position.y = Mathf.Lerp(position.y, TargetY, 1f - Mathf.Exp(-14f * Time.deltaTime));
+            float ease = 1f - Mathf.Exp(-14f * Time.deltaTime);
+            position.y = Mathf.Lerp(position.y, TargetY, ease);
+            if (TargetX is float targetX)
+            {
+                position.x = Mathf.Lerp(position.x, targetX, ease);
+            }
             _rect.anchoredPosition = position;
         }
     }

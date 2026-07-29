@@ -172,7 +172,7 @@ static IBot MakeBot(string level, ulong seed, int budgetMs) =>
                         ? new SearchBot(seed, budgetMs, maxCandidates: 24, maxWorlds: 50)
                         : level == "pimc"
                             ? new SearchBot(seed, budgetMs)
-                            // "hard"/"wambulence" etc: exactly as shipped, own budgets.
+                            // "hard"/"wambulance" etc: exactly as shipped, own budgets.
                             : (IBot)BotFactory.Create(level, seed);
 
 static CardDatabase LoadDatabase()

@@ -62,6 +62,12 @@ namespace LemonadeWars.Unity
             return Load((string)list[index]);
         }
 
+        public Texture2D WhiniestBaby() =>
+            Load((string)_manifest["supporting"]?["whiniestBaby"]);
+
+        public Texture2D SpoiledRotten() =>
+            Load((string)_manifest["supporting"]?["spoiledRotten"]);
+
         public Texture2D Back(string key) =>
             Load((string)_manifest["backs"]?[key]);
 
@@ -77,11 +83,12 @@ namespace LemonadeWars.Unity
             }
 
             string fullPath = Path.Combine(_imagesRoot, relativePath);
-            Texture2D texture = null;
-            if (File.Exists(fullPath))
+            // Sharp mips (tools/make_mips.py): the art is far larger than most places
+            // it is drawn, and both mipless minification and Unity's box-filtered
+            // auto-mips turn the card text to mush.
+            var texture = UiKit.LoadTextureSharp(fullPath);
+            if (texture != null)
             {
-                texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                texture.LoadImage(File.ReadAllBytes(fullPath));
                 texture.name = relativePath;
             }
             else

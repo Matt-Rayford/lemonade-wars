@@ -29,6 +29,8 @@ namespace LemonadeWars.Unity
             Tumble,
             Settle,
             Hold,
+            /// <summary>Settled and waiting on a response window — visible but NOT busy.</summary>
+            Parked,
             FadeOut,
         }
 
@@ -50,8 +52,15 @@ namespace LemonadeWars.Unity
 
         public System.Action OnFinished;
 
-        /// <summary>True while an animation plays or rolls are queued; modals wait on this.</summary>
-        public bool IsBusy => _phase != Phase.Idle || _queue.Count > 0;
+        /// <summary>
+        /// True while an animation plays or rolls are queued; modals wait on this.
+        /// A PARKED die is deliberately not busy — the response panel must be able to
+        /// open beside it.
+        /// </summary>
+        public bool IsBusy => (_phase != Phase.Idle && _phase != Phase.Parked) || _queue.Count > 0;
+
+        /// <summary>Set while a roll is still open for responses: the die stays put.</summary>
+        public bool Linger;
 
         private readonly Queue<Roll> _queue = new Queue<Roll>();
         private readonly RectTransform _root;
@@ -115,28 +124,30 @@ namespace LemonadeWars.Unity
             meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             meshRenderer.receiveShadows = false;
 
-            // ---------------------------------------------------- UI overlay
-            _root = UiKit.CreatePanel(canvasRoot, "DiceOverlay", new Color(0, 0, 0, 0.45f));
-            UiKit.Anchor(_root, Vector2.zero, Vector2.one);
+            // ------------------------------------------------------- UI band
+            // The roll lives in the shelf band, not over the whole screen: a die is
+            // theatre, and the table underneath stays readable while it tumbles.
+            _root = UiKit.CreatePanel(canvasRoot, "DiceBand", new Color(0.04f, 0.05f, 0.08f, 0.93f));
+            UiKit.Anchor(_root, new Vector2(0f, 0.695f), new Vector2(1f, 0.95f));
             _group = _root.gameObject.AddComponent<CanvasGroup>();
 
-            _title = UiKit.CreateText(_root, "", 36, TextAnchor.MiddleCenter, Color.white);
+            _title = UiKit.CreateText(_root, "", 24, TextAnchor.MiddleCenter, Color.white);
             UiKit.Anchor((RectTransform)_title.transform,
-                new Vector2(0.1f, 0.73f), new Vector2(0.9f, 0.81f));
+                new Vector2(0.02f, 0.72f), new Vector2(0.98f, 1f));
             UiKit.AddTextShadow(_title);
 
             var viewGo = new GameObject("DieView", typeof(RectTransform), typeof(RawImage));
             viewGo.transform.SetParent(_root, false);
             var viewRect = (RectTransform)viewGo.transform;
-            viewRect.anchorMin = viewRect.anchorMax = new Vector2(0.5f, 0.5f);
-            viewRect.sizeDelta = new Vector2(320, 320);
+            viewRect.anchorMin = viewRect.anchorMax = new Vector2(0.5f, 0.48f);
+            viewRect.sizeDelta = new Vector2(120, 120);
             var view = viewGo.GetComponent<RawImage>();
             view.texture = renderTexture;
             view.raycastTarget = false;
 
-            _subtitle = UiKit.CreateText(_root, "", 32, TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            _subtitle = UiKit.CreateText(_root, "", 22, TextAnchor.MiddleCenter, UiKit.ButtonColor);
             UiKit.Anchor((RectTransform)_subtitle.transform,
-                new Vector2(0.1f, 0.17f), new Vector2(0.9f, 0.26f));
+                new Vector2(0.02f, 0.02f), new Vector2(0.98f, 0.24f));
             UiKit.AddTextShadow(_subtitle);
 
             UiKit.AddClick(_root.gameObject, Skip);
@@ -253,6 +264,25 @@ namespace LemonadeWars.Unity
                     float punch = Mathf.Clamp01(_t / 0.18f);
                     _die.localScale = Vector3.one * (DieScale * (1f + 0.12f * Mathf.Sin(punch * Mathf.PI)));
                     if (_t >= HoldSeconds)
+                    {
+                        // A roll still open for responses parks on screen instead of
+                        // fading: the number is the whole basis of the decision.
+                        if (Linger && _queue.Count == 0)
+                        {
+                            SetPhase(Phase.Parked);
+                            // Parking ends the BUSY period, so it must wake the
+                            // renderer exactly like a fade-out does — renders are
+                            // revision-gated and would otherwise never re-run.
+                            OnFinished?.Invoke();
+                        }
+                        else
+                        {
+                            SetPhase(Phase.FadeOut);
+                        }
+                    }
+                    break;
+                case Phase.Parked:
+                    if (!Linger || _queue.Count > 0)
                     {
                         SetPhase(Phase.FadeOut);
                     }

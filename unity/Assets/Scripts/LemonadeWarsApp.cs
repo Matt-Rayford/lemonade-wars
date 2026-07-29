@@ -25,10 +25,12 @@ namespace LemonadeWars.Unity
             {
                 var cam = new GameObject("Main Camera", typeof(Camera));
                 cam.tag = "MainCamera";
-                cam.GetComponent<Camera>().clearFlags = CameraClearFlags.SolidColor;
-                // Neutral dark table until a proper game background exists.
-                cam.GetComponent<Camera>().backgroundColor = new Color(0.06f, 0.075f, 0.10f);
             }
+            // The camera's clear color IS the table: every play zone is transparent, so
+            // this one value themes the whole screen. Set unconditionally so the scene
+            // asset can't drift out of sync with UiKit.TableColor.
+            Camera.main.clearFlags = CameraClearFlags.SolidColor;
+            Camera.main.backgroundColor = UiKit.TableColor;
             new GameObject("LemonadeWarsApp", typeof(LemonadeWarsApp));
         }
 
@@ -123,14 +125,16 @@ namespace LemonadeWars.Unity
             var canvas = UiKit.CreateCanvas();
             var root = (RectTransform)canvas.transform;
 
-            var statusPanel = UiKit.CreatePanel(root, "Status", UiKit.PanelColor);
+            // Lemonade-yellow chrome across the top, black type on it.
+            var statusPanel = UiKit.CreatePanel(root, "Status", UiKit.ButtonColor);
             UiKit.Anchor(statusPanel, new Vector2(0, 0.95f), new Vector2(1, 1));
-            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft, body: true);
+            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft,
+                UiKit.ButtonTextColor, body: true);
             UiKit.Anchor((RectTransform)_statusText.transform, Vector2.zero, Vector2.one,
                 new Vector2(14, 0), new Vector2(-14, 0));
             // Turn/phase banner, centered in the top bar.
             _topBanner = UiKit.CreateText(statusPanel, "", 22, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
+                UiKit.ButtonTextColor);
             UiKit.Anchor((RectTransform)_topBanner.transform, Vector2.zero, Vector2.one,
                 new Vector2(220, 0), new Vector2(-220, 0));
 
@@ -141,7 +145,27 @@ namespace LemonadeWars.Unity
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
             _table.OnAttackPick = ResolveAttackOnPlayer;
+            _table.MarketTargetsFor = MarketTargets;
+            _table.OnMarketPick = ResolveMarketTake;
             _table.CanBuyMarket = i => CurrentGroups()?.MarketMoves.ContainsKey(i) == true;
+            _table.CanDrawLemon = () => DrawMove() != null;
+            _table.OnDrawCard = () =>
+            {
+                var draw = DrawMove();
+                if (draw != null)
+                {
+                    Submit(draw); // the card-draw sound covers it; no UI click
+                }
+            };
+            _table.CanRefreshMarket = () => RefreshMove() != null;
+            _table.OnRefreshMarket = () =>
+            {
+                var refresh = RefreshMove();
+                if (refresh != null)
+                {
+                    Submit(refresh);
+                }
+            };
             _table.OnMarketDragStart = OnMarketDragStart;
             _table.OnMarketDragEnd = () =>
             {
@@ -231,17 +255,25 @@ namespace LemonadeWars.Unity
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
 
-            // Bot pacing chip, top-right: only shows in games that have bots.
-            _speedButton = UiKit.CreateButton(root, "", 16, CycleSpeed);
-            var speedRect = (RectTransform)_speedButton.transform;
-            UiKit.Anchor(speedRect, new Vector2(1f, 1f), new Vector2(1f, 1f));
-            speedRect.pivot = new Vector2(1f, 1f);
-            speedRect.sizeDelta = new Vector2(170f, 36f);
-            speedRect.anchoredPosition = new Vector2(-16f, -12f);
-            _speedLabel = _speedButton.GetComponentInChildren<TMPro.TMP_Text>();
-            _speedLabel.alignment = TMPro.TextAlignmentOptions.Center;
-            UiKit.Anchor((RectTransform)_speedLabel.transform, Vector2.zero, Vector2.one);
-            _speedButton.gameObject.SetActive(false);
+            // Turn actions live top-right, in the bar: ending your turn is the button
+            // you reach for every single turn. (Bot speed moved to the pause menu.)
+            var turnActionsGo = new GameObject("TurnActions", typeof(RectTransform),
+                typeof(HorizontalLayoutGroup));
+            turnActionsGo.transform.SetParent(root, false);
+            _turnActionRow = (RectTransform)turnActionsGo.transform;
+            // Anchored to the status bar's midline (it spans 0.95-1.0) so the row stays
+            // centered in the bar at any window height.
+            UiKit.Anchor(_turnActionRow, new Vector2(1f, 0.975f), new Vector2(1f, 0.975f));
+            _turnActionRow.pivot = new Vector2(1f, 0.5f);
+            _turnActionRow.sizeDelta = new Vector2(430f, 40f);
+            _turnActionRow.anchoredPosition = new Vector2(-16f, 0f);
+            var turnActionsLayout = turnActionsGo.GetComponent<HorizontalLayoutGroup>();
+            turnActionsLayout.spacing = 8;
+            turnActionsLayout.childAlignment = TextAnchor.MiddleRight;
+            turnActionsLayout.childForceExpandWidth = false;
+            turnActionsLayout.childForceExpandHeight = true;
+            turnActionsLayout.childControlWidth = true;
+            turnActionsLayout.childControlHeight = true;
 
             // Response windows use the non-modal reaction panel: card in the market
             // band, buttons in the log column, the table left live for scouting.
@@ -253,25 +285,50 @@ namespace LemonadeWars.Unity
             _rulebook = new RulebookViewer(root, Application.streamingAssetsPath);
             _pause.OnRulebook = () => _rulebook.Open();
             _pause.OnQuit = () => BackToMenu("");
+            _pause.OnCycleSpeed = CycleSpeed;
+            _pause.SpeedLabel = CurrentSpeed;
+            _pause.HasBots = () => _screen == Screen.Game &&
+                (_session is LocalGameSession ||
+                 (_remote != null && _remote.Room.Seats.Any(s => s.IsBot)));
             _lobby.OnRulebook = () => _rulebook.Open();
         }
 
         private PauseMenu _pause;
         private RulebookViewer _rulebook;
         private ReactionPanel _reaction;
+        /// <summary>The open reaction's headline, shown in the yellow bar.</summary>
+        private string _reactionBanner = "";
 
-        /// <summary>True while a response window awaits the viewer with a stack top to react to.</summary>
-        private bool ReactionWindowDue(MoveGroups groups) =>
-            groups != null && groups.IsModal && groups.ModalMoves.Count > 0 &&
-            View.MyDecisions.Count == 0 && View.StackTop != null &&
-            View.AwaitingResponse.Contains(View.ViewerId);
+        /// <summary>
+        /// True while a stack moment needs the viewer AND the table should stay live:
+        /// a response window, or a retarget of the viewer's own attack (both are
+        /// decided by reading the other players' boards, which a blur modal hides).
+        /// </summary>
+        private bool ReactionWindowDue(MoveGroups groups)
+        {
+            if (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0)
+            {
+                return false;
+            }
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null)
+            {
+                // A stack play to react to, or a settled die you may still tweak
+                // (Out of Stock, Downsell, Sugared Up, Take Two).
+                return (View.StackTop != null || View.PendingRollValue != null) &&
+                       View.AwaitingResponse.Contains(View.ViewerId);
+            }
+            // Bouncer resolves AFTER its attack leaves the stack, so it has no stack
+            // top — but picking who to hit back needs the table just as much.
+            return decision.Kind == DecisionKind.AttackRetarget ||
+                   decision.Kind == DecisionKind.BouncerAttack;
+        }
 
         // ------------------------------------------------------- game speed
 
         private const string SpeedPref = "lw_game_speed";
         private static readonly string[] SpeedOrder = { "slow", "medium", "fast" };
-        private UnityEngine.UI.Button _speedButton;
-        private TMPro.TMP_Text _speedLabel;
+        private RectTransform _turnActionRow;
 
         private static float LocalStepSeconds(string speed) =>
             speed == "slow" ? 2.0f : speed == "fast" ? 0.45f : 1.0f;
@@ -288,6 +345,7 @@ namespace LemonadeWars.Unity
                 (System.Array.IndexOf(SpeedOrder, CurrentSpeed()) + 1) % SpeedOrder.Length];
             PlayerPrefs.SetString(SpeedPref, next);
             PlayerPrefs.Save();
+            Sfx.Play(Sfx.BotSpeed(next));
             if (_session is LocalGameSession local)
             {
                 local.BotStepSeconds = LocalStepSeconds(next);
@@ -295,19 +353,6 @@ namespace LemonadeWars.Unity
             else
             {
                 _remote?.SetSpeed(next); // the room broadcast confirms + syncs everyone
-            }
-            RefreshSpeedChip();
-        }
-
-        private void RefreshSpeedChip()
-        {
-            bool hasBots = _screen == Screen.Game &&
-                (_session is LocalGameSession ||
-                 (_remote != null && _remote.Room.Seats.Any(s => s.IsBot)));
-            _speedButton.gameObject.SetActive(hasBots);
-            if (hasBots)
-            {
-                _speedLabel.text = $"SPEED: {CurrentSpeed().ToUpperInvariant()}";
             }
         }
 
@@ -458,6 +503,8 @@ namespace LemonadeWars.Unity
             _dice.Clear();
             _fx.Clear();
             _table.ViewedBoardPlayer = -1;
+            _table.SuppressWhinyBaby = false; // a dropped mid-flight claim must not hide it forever
+            _table.SuppressSpoiledRotten = false;
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
@@ -484,6 +531,9 @@ namespace LemonadeWars.Unity
             }
             if (gameEvent is SaleRolled roll)
             {
+                // Played, not queued: it belongs to the tumble, which passive effects
+                // deliberately wait behind.
+                Sfx.Play(Sfx.SaleRoll);
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
                     roll.Purpose);
                 // Start collecting this roll's earnings for the "you earned" recap.
@@ -501,6 +551,7 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is DieRerolled reroll)
             {
+                Sfx.Play(Sfx.SaleRoll); // a second real tumble deserves the same sound
                 _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
                     reroll.ByPlayerId == _session.Seat);
             }
@@ -533,7 +584,46 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is BraggingRightsPurchased brag && brag.PlayerId == _session.Seat)
             {
-                Sfx.Play(Sfx.TitleClaim);
+                Sfx.Play(Sfx.TitleClaim); // a title claim first, a purchase second
+            }
+            else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
+            {
+                // Queued: the card often lands at turn start, so the wail waits for
+                // ONWARD! and plays when you can actually see why. The claim reveal
+                // holds the card centered (readable), then flies it into the lord fan
+                // — the fan keeps the card HIDDEN until the flight delivers it (the
+                // table renders the new state immediately, well before the theatre).
+                _table.SuppressWhinyBaby = true;
+                _fx.QueueSound(Sfx.WhinyBaby);
+                _fx.QueueClaim(_art.WhiniestBaby(), "You are the Whiniest Baby!",
+                    () => _table.WhinyBabyLandingWorld(),
+                    () =>
+                    {
+                        _table.SuppressWhinyBaby = false;
+                        _renderedRevision = -1; // surface the landed card now
+                    });
+            }
+            else if (gameEvent is SpoiledRottenMoved spoiled && spoiled.ToPlayerId == _session.Seat)
+            {
+                // Same claim theatre as the baby — reveal, then fly into the lord fan.
+                _table.SuppressSpoiledRotten = true;
+                _fx.QueueSound(Sfx.TitleClaim);
+                _fx.QueueClaim(_art.SpoiledRotten(), "You are Spoiled Rotten!",
+                    () => _table.SpoiledRottenLandingWorld(),
+                    () =>
+                    {
+                        _table.SuppressSpoiledRotten = false;
+                        _renderedRevision = -1;
+                    });
+            }
+            else if (gameEvent is BlackMarketPurchased bought && bought.PlayerId == _session.Seat)
+            {
+                // Queued, so the register rings alongside the "-$X" floater.
+                _fx.QueueSound(Sfx.CashRegister);
+            }
+            else if (gameEvent is StandPurchased standBought && standBought.PlayerId == _session.Seat)
+            {
+                _fx.QueueSound(Sfx.CashRegister);
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -593,7 +683,7 @@ namespace LemonadeWars.Unity
             else if (gameEvent is PlayCancelled cancelled)
             {
                 _fx.QueueToast($"{NameOf(cancelled.OwnerId).ToUpperInvariant()}'S " +
-                    $"{LemonName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED!");
+                    $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED!");
             }
         }
 
@@ -605,7 +695,7 @@ namespace LemonadeWars.Unity
             }
             catch
             {
-                return defId.Replace("-", " ");
+                return TitleCased(defId);
             }
         }
 
@@ -617,8 +707,38 @@ namespace LemonadeWars.Unity
             }
             catch
             {
-                return defId.Replace("-", " ");
+                return TitleCased(defId);
             }
+        }
+
+        /// <summary>
+        /// A card name when the catalog isn't known up front: PlayCancelled carries a
+        /// Black Market id when a PURCHASE is tantrummed and a Lemon id otherwise.
+        /// </summary>
+        private string CardName(string defId)
+        {
+            try
+            {
+                return _db.Lemon(defId).Name;
+            }
+            catch
+            {
+                return BlackMarketName(defId);
+            }
+        }
+
+        /// <summary>Last-resort display for an id with no catalog entry: "early-worm" -> "Early Worm".</summary>
+        private static string TitleCased(string defId)
+        {
+            var words = defId.Replace("-", " ").Split(' ');
+            for (int i = 0; i < words.Length; i++)
+            {
+                if (words[i].Length > 0)
+                {
+                    words[i] = char.ToUpperInvariant(words[i][0]) + words[i].Substring(1);
+                }
+            }
+            return string.Join(" ", words);
         }
 
         private void Update()
@@ -764,6 +884,8 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
+            // A roll that is still open for responses keeps its die on the table.
+            _dice.Linger = View != null && View.PendingRollValue != null;
             _dice.Tick();
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
@@ -773,8 +895,10 @@ namespace LemonadeWars.Unity
             // so flush only once the pending roll is gone.
             if (_saleEarnings != null && View != null && View.PendingRollValue == null)
             {
-                if (_saleEarnings.Count > 0)
+                if (_saleTotal > 0)
                 {
+                    // Coins first so they ring under the recap, not after it.
+                    _fx.QueueSound(Sfx.Coins);
                     _fx.QueueToast($"YOU EARN ${_saleTotal}:  " +
                         string.Join("  ·  ", _saleEarnings).ToUpperInvariant());
                 }
@@ -873,7 +997,7 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(played.PlayerId)} plays {LemonName(played.DefId)}" +
                            (played.TargetPlayerId is int t ? $" on {NameOf(t)}" : "");
                 case PlayCancelled cancelled:
-                    return $"{NameOf(cancelled.OwnerId)}'s {LemonName(cancelled.DefId)} is cancelled";
+                    return $"{NameOf(cancelled.OwnerId)}'s {CardName(cancelled.DefId)} is cancelled";
                 case AttackRedirected redirect:
                     return $"{NameOf(redirect.ByPlayerId)} tags the attack to {NameOf(redirect.NewTargetId)}";
                 case AttackReflected reflect:
@@ -1025,7 +1149,7 @@ namespace LemonadeWars.Unity
             _session = null;
             _remote = null;
             _screen = Screen.Menu;
-            _speedButton.gameObject.SetActive(false);
+            UiKit.Clear(_turnActionRow);
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();
@@ -1160,6 +1284,12 @@ namespace LemonadeWars.Unity
         /// (Finders Keepers, That's Not Fair!): pick the victim, then pick the card off
         /// their board in the big picker — with BACK to reconsider the victim.
         /// </summary>
+        /// <summary>That's Not Fair! discards its target instead of stealing it.</summary>
+        private bool TargetsForDiscardOnly(IEnumerable<GameAction> moves) =>
+            moves.OfType<PlayLemonCard>().Any(m =>
+                View.Hand.FirstOrDefault(c => c.InstanceId == m.CardInstanceId)?.DefId
+                    == "thats-not-fair");
+
         private void OpenEquippedSteal(string cardName, Texture2D cardArt, List<GameAction> steals)
         {
             var byVictim = steals.Cast<PlayLemonCard>()
@@ -1183,7 +1313,11 @@ namespace LemonadeWars.Unity
                     .GroupBy(m => m.TargetEquippedInstanceId.Value)
                     .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
                 var cards = EquippedCardInfos(victim, victimMoves);
-                _table.OpenDiscardPicker($"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victim).ToUpperInvariant()}",
+                // That's Not Fair! trashes the card; Finders Keepers takes it.
+                bool trashes = TargetsForDiscardOnly(victimMoves);
+                string verb = trashes ? "DISCARD" : "TAKE";
+                _table.OpenDiscardPicker(
+                    $"{cardName.ToUpperInvariant()}: {verb} FROM {NameOf(victim).ToUpperInvariant()}",
                     cards, blackMarket: true,
                     c => _db.BlackMarket(c.DefId).Name,
                     equippedId =>
@@ -1192,7 +1326,7 @@ namespace LemonadeWars.Unity
                         ResolveEquipDestination(byEquipped[equippedId],
                             _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
                     },
-                    onBack: ShowVictims);
+                    onBack: ShowVictims, verb: verb);
             }
 
             ShowVictims();
@@ -1222,6 +1356,58 @@ namespace LemonadeWars.Unity
                 targets.Add(victim);
             }
             return targets;
+        }
+
+        private GameAction RefreshMove() =>
+            CurrentGroups()?.BarMoves.FirstOrDefault(m => m is RefreshMarket);
+
+        private GameAction DrawMove() =>
+            CurrentGroups()?.BarMoves.FirstOrDefault(m => m is DrawLemonCard);
+
+        /// <summary>
+        /// Market slots a hand card can take from (Connections), or null when the card
+        /// doesn't reach the shelf — the aiming layer treats null as "not mine".
+        /// </summary>
+        private ISet<int> MarketTargets(int cardInstanceId)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves) ||
+                moves.Count == 0)
+            {
+                return null;
+            }
+            var slots = new HashSet<int>();
+            foreach (var move in moves)
+            {
+                if (!(move is PlayLemonCard play) || !(play.MarketIndex is int index))
+                {
+                    return null; // any non-market variant: this is not a shelf card
+                }
+                slots.Add(index);
+            }
+            return slots;
+        }
+
+        /// <summary>
+        /// Connections picked a market card: place it exactly like a bought one —
+        /// straight in when there's one legal slot, else aim at your board.
+        /// </summary>
+        private void ResolveMarketTake(int cardInstanceId, int marketIndex)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
+            {
+                return;
+            }
+            var taken = moves
+                .Where(m => m is PlayLemonCard play && play.MarketIndex == marketIndex)
+                .ToList();
+            if (taken.Count == 0)
+            {
+                return;
+            }
+            var card = View.Market[marketIndex];
+            ResolveEquipDestination(taken, _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square));
         }
 
         /// <summary>The opponent a play ultimately hits, or -1 when it isn't aimed at one.</summary>
@@ -1305,8 +1491,10 @@ namespace LemonadeWars.Unity
                     .GroupBy(m => m.TargetEquippedInstanceId.Value)
                     .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
                 var cards = EquippedCardInfos(victimId, onVictim);
+                // That's Not Fair! trashes what it points at; Finders Keepers takes it.
+                string verb = TargetsForDiscardOnly(onVictim) ? "DISCARD" : "TAKE";
                 _table.OpenDiscardPicker(
-                    $"{cardName.ToUpperInvariant()}: TAKE FROM {NameOf(victimId).ToUpperInvariant()}",
+                    $"{cardName.ToUpperInvariant()}: {verb} FROM {NameOf(victimId).ToUpperInvariant()}",
                     cards, blackMarket: true,
                     c => _db.BlackMarket(c.DefId).Name,
                     equippedId =>
@@ -1315,7 +1503,7 @@ namespace LemonadeWars.Unity
                         ResolveEquipDestination(byEquipped[equippedId],
                             _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
                     },
-                    onBack: () => _table.RestartAttackTargeting(cardInstanceId));
+                    onBack: () => _table.RestartAttackTargeting(cardInstanceId), verb: verb);
                 return;
             }
             _prompt.Show($"{cardName} → {NameOf(victimId)}",
@@ -1591,6 +1779,7 @@ namespace LemonadeWars.Unity
                 _table.Render(View, _db, groups);
                 _table.SetLog(_actionLog);
                 RenderActionBar(groups);
+                RenderTurnActions(groups);
             }
             catch (System.Exception e)
             {
@@ -1645,8 +1834,11 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             _picker.Hide();
             _reaction.Hide();
+            Sfx.Play(Sfx.YourTurn); // played, not queued: it announces the banner itself
             _turnBanner.Show(TurnSubtitle());
         }
+
+        private static string Actions(int count) => count == 1 ? "1 action" : $"{count} actions";
 
         private bool IsMyTurn()
         {
@@ -1668,7 +1860,7 @@ namespace LemonadeWars.Unity
             {
                 return "Final round — make it count!";
             }
-            return $"{View.ActionsRemaining} actions — the market awaits";
+            return $"{Actions(View.ActionsRemaining)} — the market awaits";
         }
 
         private void RenderStatus()
@@ -1688,7 +1880,6 @@ namespace LemonadeWars.Unity
                          (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
                          (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
                          (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
-                RefreshSpeedChip();
                 // The table is stalled on someone else: say who, so a quiet moment
                 // (their response window, their discard) never reads as a hang.
                 if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
@@ -1703,9 +1894,23 @@ namespace LemonadeWars.Unity
         private void RenderBanner()
         {
             string banner;
-            if (View.Stage == GameStage.Finished)
+            if (_reaction.IsOpen)
+            {
+                // The response panel's headline lives HERE while it is open: the bar
+                // was saying nearly the same thing, and the freed band keeps showing
+                // the die (or the attack) you are responding to.
+                banner = _reactionBanner;
+            }
+            else if (View.Stage == GameStage.Finished)
             {
                 banner = "Thanks for playing!";
+            }
+            else if (View.StackTop != null)
+            {
+                // Someone's card is resolving but OUR response panel isn't open
+                // (nothing to respond with, or it's someone else's window). Name
+                // the play — "Dex's turn — Play" told bystanders nothing.
+                banner = StackHeadline();
             }
             else if (View.PendingRollValue is int roll)
             {
@@ -1722,13 +1927,99 @@ namespace LemonadeWars.Unity
             }
             else if (View.ActivePlayer == View.ViewerId)
             {
-                banner = $"Your turn — {View.Phase} ({View.ActionsRemaining} actions left)";
+                banner = $"Your turn — {View.Phase} ({Actions(View.ActionsRemaining)} left)";
             }
             else
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
             _topBanner.text = banner;
+        }
+
+        /// <summary>
+        /// Third-person headline for the yellow bar while a card sits on the stack:
+        /// plain plays ("Dex plays Automation"), attacks ("Dex plays Slander on Kim"),
+        /// and reactions (tags, reflections, tantrums) all name the card instead of
+        /// falling back to the generic "X's turn — Phase" label.
+        /// </summary>
+        private string StackHeadline()
+        {
+            var top = View.StackTop;
+            // CardName, not LemonName: purchases and some responses carry
+            // Black Market ids, and CardName checks both catalogs.
+            string card = CardName(top.DefId);
+            bool self = top.OwnerId == View.ViewerId;
+            string owner = self ? "You" : NameOf(top.OwnerId);
+            string plays = self ? "play" : "plays";
+            if (top.AttackTargetId is int t)
+            {
+                string victim = t == View.ViewerId ? "you" : NameOf(t);
+                return $"{owner} {plays} {card} on {victim}";
+            }
+            // Reactions name WHAT they answer, mirroring the response panel.
+            string answered = null;
+            if (!string.IsNullOrEmpty(top.RespondingToDefId))
+            {
+                answered = top.RespondingToIsPurchase
+                    ? $"the {CardName(top.RespondingToDefId)} purchase"
+                    : CardName(top.RespondingToDefId);
+                if (top.RespondingToOwnerId is int by && !top.RespondingToIsPurchase)
+                {
+                    answered = (by == View.ViewerId ? "your " : NameOf(by) + "'s ") + answered;
+                }
+            }
+            if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+            {
+                string who = redirect == View.ViewerId ? "you" : NameOf(redirect);
+                return $"{owner} {plays} {card} — {answered ?? "the attack"} goes to {who}";
+            }
+            if (top.DefId == "im-rubber-youre-glue" && answered != null)
+            {
+                return $"{owner} {plays} {card} — {answered} is reflected back";
+            }
+            if (answered != null)
+            {
+                return $"{owner} {plays} {card} on {answered}";
+            }
+            if (top.IsPurchase)
+            {
+                return self ? $"You buy {card}" : $"{owner} buys {card}";
+            }
+            return $"{owner} {plays} {card}";
+        }
+
+        /// <summary>
+        /// The two "advance the game" buttons, pinned top-right in the status bar:
+        /// short labels, dark chips against the yellow.
+        /// </summary>
+        private void RenderTurnActions(MoveGroups groups)
+        {
+            UiKit.Clear(_turnActionRow);
+            if (groups == null || groups.IsModal)
+            {
+                return;
+            }
+            foreach (var move in groups.BarMoves)
+            {
+                string label = move is EndTurn ? "END TURN (SELL)"
+                    : move is InitialBuyEnd ? "FINISH DRAFT"
+                    : null;
+                if (label == null)
+                {
+                    continue;
+                }
+                var captured = move;
+                // End Turn stays silent: the die's own roll sound covers it.
+                var button = UiKit.CreateButton(_turnActionRow, label, 16,
+                    () => Submit(captured), dark: true,
+                    clickSound: captured is EndTurn ? null : Sfx.ButtonClick);
+                var element = button.GetComponent<LayoutElement>();
+                element.minWidth = 190;
+                element.minHeight = 36;
+                var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+                text.alignment = TMPro.TextAlignmentOptions.Center;
+                UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
+            }
         }
 
         private void RenderActionBar(MoveGroups groups)
@@ -1740,9 +2031,18 @@ namespace LemonadeWars.Unity
             }
             foreach (var move in groups.BarMoves)
             {
+                if (move is RefreshMarket || move is DrawLemonCard ||
+                    move is EndTurn || move is InitialBuyEnd)
+                {
+                    continue; // these live on the table / in the top bar now
+                }
                 var captured = move;
+                // Buttons whose ACTION has a sound stay silent, rather than clicking
+                // over their own tumble a frame later.
+                bool ownsItsSound = captured is EndTurn;
                 var button = UiKit.CreateButton(_table.ActionBar,
-                    _session.LabelFor(captured), 15, () => Submit(captured));
+                    _session.LabelFor(captured), 15, () => Submit(captured),
+                    clickSound: ownsItsSound ? null : Sfx.ButtonClick);
                 button.GetComponent<LayoutElement>().minWidth = 150;
             }
             if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
@@ -1790,18 +2090,31 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            // Skip/Pass lead the list: with dozens of play variants below, the "do
-            // nothing" escape hatch must never scroll off-screen.
-            var orderedMoves = groups.ModalMoves
-                .OrderBy(m => m is SkipFreePlay || m is PassWindow ? 0 : 1)
-                .ToList();
+            bool passFirst(GameAction m) => m is SkipFreePlay || m is PassWindow;
             if (ReactionWindowDue(groups))
             {
                 // A stack-top window: react from the log column with the table live.
+                // The list is short here, so Pass sits at the BOTTOM — reactions read
+                // first, "do nothing" is the fallback under them.
+                var reactionMoves = groups.ModalMoves
+                    .OrderBy(m => passFirst(m) ? 1 : 0)
+                    .ToList();
+                var kind = View.MyDecisions.FirstOrDefault()?.Kind;
                 _prompt.Hide();
-                _reaction.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves));
+                _reactionBanner = ModalTitle();
+                _reaction.Show(ModalCards(), ToOptions(reactionMoves),
+                    kind == DecisionKind.AttackRetarget ? "PICK A NEW TARGET"
+                    : kind == DecisionKind.BouncerAttack ? "STRIKE BACK"
+                    : View.StackTop == null && View.PendingRollValue != null
+                        ? "USE AN ABILITY?"
+                        : "YOUR RESPONSE");
                 return;
             }
+            // Blur modals can list dozens of play variants (Smear Campaign's free
+            // play): there the escape hatch leads, so it never scrolls off-screen.
+            var orderedMoves = groups.ModalMoves
+                .OrderBy(m => passFirst(m) ? 0 : 1)
+                .ToList();
             _reaction.Hide();
             _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
         }

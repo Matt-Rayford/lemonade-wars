@@ -27,6 +27,18 @@ namespace LemonadeWars.Unity
             public Texture2D Art;
             public string Title;
         }
+        /// <summary>A reveal that then FLIES somewhere: hold centered, shrink-fly to
+        /// the anchor. NOT dropped by CancelPendingReveals — it announces a state
+        /// change (the Whiniest Baby), not a play a modal is about to narrate.</summary>
+        private sealed class ClaimFx : Fx
+        {
+            public Texture2D Art;
+            public string Title;
+            public System.Func<Vector3> Destination;
+            /// <summary>Fires exactly once when the card lands (or the fx is skipped) —
+            /// the moment the persistent card may appear where the flight ended.</summary>
+            public System.Action OnDelivered;
+        }
         private sealed class FlyFx : Fx
         {
             public Texture2D CardBack;   // null = coin flight
@@ -150,6 +162,21 @@ namespace LemonadeWars.Unity
             _queue.Enqueue(new RevealFx { Art = art, Title = title });
         }
 
+        /// <summary>Reveal centered, then shrink-fly the card to a destination. The
+        /// destination is a func because layout may not have settled at queue time.</summary>
+        public void QueueClaim(Texture2D art, string title, System.Func<Vector3> destination,
+            System.Action onDelivered = null)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new ClaimFx
+            {
+                Art = art,
+                Title = title,
+                Destination = destination,
+                OnDelivered = onDelivered,
+            });
+        }
+
         /// <summary>
         /// The viewer is about to answer this play in a response modal — the modal tells
         /// the story itself, so drop any queued reveal instead of double-billing it.
@@ -265,6 +292,9 @@ namespace LemonadeWars.Unity
                 case RevealFx reveal:
                     StartReveal(reveal);
                     break;
+                case ClaimFx claim:
+                    StartClaim(claim);
+                    break;
                 case ToastFx toast:
                     SpawnToast(toast.Text);
                     _busyUntil = Time.time + 1.0f;
@@ -315,6 +345,68 @@ namespace LemonadeWars.Unity
             _revealRoot.gameObject.SetActive(true);
             _busyUntil = Time.time + 1.7f;
             _endActive = () => _revealRoot.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Reveal + delivery: the card holds centered long enough to read, then
+        /// shrink-flies to its destination (the lord fan). The busy window covers the
+        /// whole journey, so the deferred re-render — which adds the persistent card —
+        /// runs right as the flight lands. Click-to-skip kills the flight too.
+        /// </summary>
+        private void StartClaim(ClaimFx claim)
+        {
+            StartReveal(new RevealFx { Art = claim.Art, Title = claim.Title });
+
+            const float holdSeconds = 1.0f;
+            const float flySeconds = 0.35f;
+            const float width = 230f;
+            const float height = 322f;
+
+            var chip = (RectTransform)UiKit.CreateCardImage(_layer, claim.Art, width, height)
+                .transform.parent;
+            foreach (var graphic in chip.GetComponentsInChildren<UnityEngine.UI.Graphic>())
+            {
+                graphic.raycastTarget = false;
+            }
+            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
+            chip.pivot = new Vector2(0.5f, 0.5f);
+            chip.sizeDelta = new Vector2(width, height);
+
+            bool delivered = false;
+            void Deliver()
+            {
+                if (!delivered)
+                {
+                    delivered = true;
+                    claim.OnDelivered?.Invoke();
+                }
+            }
+
+            var motion = chip.gameObject.AddComponent<FlightMotion>();
+            motion.From = new Vector2(0, 60f);    // the reveal card's resting spot
+            motion.Delay = holdSeconds;
+            motion.Duration = flySeconds;
+            motion.ArcHeight = 40f;
+            motion.EndScale = 190f / width;       // land at the fan's card size
+            // The destination is resolved when the flight BEGINS, not at queue time —
+            // the fan the card must join may have re-laid-out in the meantime.
+            motion.OnStart = () =>
+            {
+                motion.To = _layer.InverseTransformPoint(claim.Destination());
+                _revealRoot.gameObject.SetActive(false); // the chip takes over seamlessly
+            };
+            motion.OnArrive = Deliver;
+
+            _busyUntil = Time.time + holdSeconds + flySeconds;
+            _endActive = () =>
+            {
+                _revealRoot.gameObject.SetActive(false);
+                if (chip != null)
+                {
+                    Object.Destroy(chip.gameObject); // skip-click: no orphaned flight
+                }
+                Deliver(); // skip still delivers — the card must never stay hidden
+            };
         }
 
         // ---------------------------------------------------------- flights
@@ -481,11 +573,17 @@ namespace LemonadeWars.Unity
         public float Delay;
         public float Duration = 0.55f;
         public float ArcHeight = 110f;
+        /// <summary>Scale on arrival (1 = unchanged) — claim flights land smaller.</summary>
+        public float EndScale = 1f;
+        /// <summary>Fires once when the delay elapses and the flight actually begins —
+        /// late-bind To here if the layout may have moved during the delay.</summary>
+        public System.Action OnStart;
         public System.Action OnArrive;
 
         private RectTransform _rect;
         private CanvasGroup _group;
         private float _elapsed;
+        private bool _started;
 
         private void Awake()
         {
@@ -503,6 +601,11 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            if (!_started)
+            {
+                _started = true;
+                OnStart?.Invoke();
+            }
             if (t >= 1f)
             {
                 OnArrive?.Invoke();
@@ -514,6 +617,7 @@ namespace LemonadeWars.Unity
             var position = Vector2.Lerp(From, To, eased);
             position.y += ArcHeight * 4f * t * (1f - t);
             _rect.anchoredPosition = position;
+            transform.localScale = Vector3.one * Mathf.Lerp(1f, EndScale, eased);
         }
     }
 

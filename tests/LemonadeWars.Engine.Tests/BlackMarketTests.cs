@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
@@ -381,6 +382,29 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void PeddlinPeteDiscountsDuringTheSetupDraft()
+        {
+            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal" }, 4242);
+            foreach (var p in game.State.Players)
+            {
+                game.Apply(new ChooseLemonLords
+                {
+                    PlayerId = p.PlayerId,
+                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
+                });
+            }
+            Assert.Equal(GameStage.InitialBuys, game.State.Stage);
+
+            int buyer = game.State.InitialBuyQueue[0];
+            var def = TestData.Db.BlackMarket("early-worm");
+            Assert.Equal(def.Cost, game.BlackMarketPrice(buyer, def));
+
+            // Pete on the Turf discounts the very next draft purchase (designer ruling).
+            RigEquip(game, buyer, "peddlin-pete");
+            Assert.Equal(def.Cost - 1, game.BlackMarketPrice(buyer, def));
+        }
+
+        [Fact]
         public void ShoppingSpreeAndPeddlinPeteDiscountPurchases()
         {
             var game = ReadyToPlay();
@@ -603,6 +627,113 @@ namespace LemonadeWars.Engine.Tests
             Assert.Equal(GameStage.Finished, s.Stage);
             // 3 bragging rights + 2 fulfilled Lemon Lords = 5 VP; sole winner.
             Assert.Equal(new List<int> { first }, s.Winners);
+        }
+
+        // ---------------------------------------------------------- tie-break
+
+        /// <summary>
+        /// Finish a game where the first two seats hold identical victory points, so only the
+        /// rulebook p14 tie-break chain can separate them. The rig sets money/tantrums on them.
+        /// </summary>
+        private static Game FinishTiedOnVictoryPoints(Action<Game, PlayerState, PlayerState> rig)
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "out-of-stock");
+            var s = game.State;
+            int first = s.FirstPlayer;
+            int second = (first + 1) % s.Players.Count;
+            Assert.Equal(first, s.ActivePlayer);
+
+            // A Timeout drawn during the final round would move money around behind the rig.
+            foreach (int id in s.LemonDeck.Where(id => s.LemonInstances[id].DefId == "timeout").ToList())
+            {
+                s.LemonDeck.Remove(id);
+            }
+            s.FirstDibsRow.Clear();
+            foreach (var p in s.Players)
+            {
+                p.LemonLordKept.Clear();
+            }
+
+            var a = s.Players[first];
+            var b = s.Players[second];
+            a.BraggingRights = 3;
+            b.BraggingRights = 3;
+            // No stands and a shared power pour number: the final round pays both seats equally,
+            // so whatever money the rig sets is still tied (or still apart) when scoring runs.
+            a.Stands.Clear();
+            b.Stands.Clear();
+            b.Turf.PowerPourNumber = a.Turf.PowerPourNumber;
+            rig(game, a, b);
+
+            // First player already sits on 3 VP, so their EndTurn starts the final round.
+            for (int i = 0; i < s.Players.Count; i++)
+            {
+                GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = s.ActivePlayer });
+            }
+
+            Assert.Equal(GameStage.Finished, s.Stage);
+            return game;
+        }
+
+        private static void RigTantrums(Game game, int playerId, int count)
+        {
+            var player = game.State.Players[playerId];
+            for (int i = 0; i < count; i++)
+            {
+                int tantrum = GiveCard(game, playerId, "tantrum");
+                player.Hand.Remove(tantrum);
+                player.TantrumPile.Add(new TantrumRecord
+                {
+                    InstanceId = tantrum,
+                    GainSeq = game.State.NextTantrumGainSeq++,
+                });
+            }
+        }
+
+        [Fact]
+        public void EqualVictoryPointsAreBrokenByMostMoney()
+        {
+            var game = FinishTiedOnVictoryPoints((_, a, b) =>
+            {
+                a.Money = 12;
+                b.Money = 40;
+            });
+            var s = game.State;
+
+            Assert.Equal(new List<int> { (s.FirstPlayer + 1) % s.Players.Count }, s.Winners);
+        }
+
+        [Fact]
+        public void EqualMoneyIsBrokenByFewestPlayedTantrums()
+        {
+            var game = FinishTiedOnVictoryPoints((g, a, b) =>
+            {
+                a.Money = 25;
+                b.Money = 25;
+                RigTantrums(g, b.PlayerId, 2);
+            });
+            var s = game.State;
+
+            Assert.Equal(new List<int> { s.FirstPlayer }, s.Winners);
+        }
+
+        [Fact]
+        public void ExhaustingTheTieBreakChainLeavesJointWinners()
+        {
+            // Rock paper scissors (rulebook p14) happens at the table, not in the engine.
+            var game = FinishTiedOnVictoryPoints((g, a, b) =>
+            {
+                a.Money = 25;
+                b.Money = 25;
+                RigTantrums(g, a.PlayerId, 1);
+                RigTantrums(g, b.PlayerId, 1);
+            });
+            var s = game.State;
+            int first = s.FirstPlayer;
+
+            var tied = new List<int> { first, (first + 1) % s.Players.Count };
+            Assert.Equal(tied.OrderBy(x => x).ToList(), s.Winners.OrderBy(x => x).ToList());
         }
     }
 }

@@ -282,7 +282,7 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Wire a card image to preview on hover: shows while Alt/Cmd is held.
+        /// Wire a card image to preview on hover: dwell to show, Alt/Cmd for instant.
         /// </summary>
         public void Attach(GameObject cardGo, Texture2D texture)
         {
@@ -291,12 +291,15 @@ namespace LemonadeWars.Unity
     }
 
     /// <summary>
-    /// Gates the preview: shows only while Alt/Cmd is held over a card (play-testers
-    /// found the hover-dwell auto-zoom intrusive), and closes the moment the key or
-    /// the hover ends.
+    /// Gates the preview: hovering a card shows it after a short dwell (long enough
+    /// that sweeping the cursor across the hand doesn't strobe), and Alt/Cmd skips
+    /// the wait. Once up it stays up until the hover ends — releasing the key while
+    /// still on the card shouldn't snatch it away.
     /// </summary>
     public sealed class PreviewDriver : MonoBehaviour
     {
+        private const float DwellSeconds = 0.75f;
+
         public System.Action ShowReady;
         public System.Action HideRequested;
         public Texture2D PendingTexture { get; private set; }
@@ -306,6 +309,7 @@ namespace LemonadeWars.Unity
         private GameObject _source;
         private bool _hovering;
         private bool _shown;
+        private float _hoverTime;
 
         public void BeginHover(GameObject source, Texture2D texture)
         {
@@ -317,6 +321,7 @@ namespace LemonadeWars.Unity
             PendingTexture = texture;
             _hovering = true;
             _shown = false;
+            _hoverTime = 0f;
         }
 
         public void EndHover()
@@ -345,13 +350,8 @@ namespace LemonadeWars.Unity
             bool modifier = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) ||
                             Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
 
-            if (_shown && !modifier)
-            {
-                _shown = false;
-                HideRequested?.Invoke();
-                return;
-            }
-            if (!_shown && modifier)
+            _hoverTime += Time.unscaledDeltaTime;
+            if (!_shown && (modifier || _hoverTime >= DwellSeconds))
             {
                 _shown = true;
                 ShowReady?.Invoke();

@@ -203,13 +203,30 @@ namespace LemonadeWars.Unity
         {
             if (!slot.Selected && SelectedCount() >= _requiredCount)
             {
-                return; // at the limit; deselect something first
+                // A pick-one choice switches on click instead of demanding a
+                // deselect first; multi-card picks still need room made.
+                if (_requiredCount != 1)
+                {
+                    return;
+                }
+                foreach (var other in _slots)
+                {
+                    if (other.Selected)
+                    {
+                        SetSelected(other, false);
+                    }
+                }
             }
-            slot.Selected = !slot.Selected;
-            slot.GlowInner.SetActive(slot.Selected);
-            slot.GlowOuter.SetActive(slot.Selected);
-            UiTween.SlideTo(slot.Lift, slot.Selected ? new Vector2(0, LiftHeight) : Vector2.zero);
+            SetSelected(slot, !slot.Selected);
             RefreshAccept();
+        }
+
+        private static void SetSelected(Slot slot, bool selected)
+        {
+            slot.Selected = selected;
+            slot.GlowInner.SetActive(selected);
+            slot.GlowOuter.SetActive(selected);
+            UiTween.SlideTo(slot.Lift, selected ? new Vector2(0, LiftHeight) : Vector2.zero);
         }
 
         private int SelectedCount()

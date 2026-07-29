@@ -289,7 +289,7 @@ namespace LemonadeWars.Engine.Ai
         public const string Medium = "medium";
         public const string Hard = "hard";
         /// <summary>Above hard: the same search with double the time and a wider net.</summary>
-        public const string Wambulence = "wambulence";
+        public const string Wambulance = "wambulance";
 
         public static string Normalize(string? level)
         {
@@ -297,7 +297,9 @@ namespace LemonadeWars.Engine.Ai
             {
                 case Easy: return Easy;
                 case Hard: return Hard;
-                case Wambulence: return Wambulence;
+                case Wambulance: return Wambulance;
+                // Persisted rooms/action logs carry the old spelling; keep it as an alias.
+                case "wambulence": return Wambulance;
                 default: return Medium;
             }
         }
@@ -311,10 +313,10 @@ namespace LemonadeWars.Engine.Ai
                 // 300ms/14x14 config AND a same-budget ISMCTS (see tools/BotArena;
                 // "ismcts" and "pimc+" remain as arena levels for future A/Bs).
                 case Hard: return new SearchBot(seed, budgetMs: 750, maxCandidates: 18, maxWorlds: 30);
-                // The wambulence: 1.12x over three HARD bots in the arena. Truncated
+                // The wambulance: 1.12x over three HARD bots in the arena. Truncated
                 // ISMCTS only ever TIED this config at equal budget — flat keeps the
                 // crown until someone builds tree reuse.
-                case Wambulence: return new SearchBot(seed, budgetMs: 1400, maxCandidates: 24, maxWorlds: 50);
+                case Wambulance: return new SearchBot(seed, budgetMs: 1400, maxCandidates: 24, maxWorlds: 50);
                 default: return new GreedyBot();
             }
         }

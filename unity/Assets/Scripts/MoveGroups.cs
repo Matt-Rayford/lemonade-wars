@@ -45,9 +45,27 @@ namespace LemonadeWars.Unity
                 {
                     foreach (var move in moves)
                     {
-                        if (move is RespondToWindow respond && respond.EquippedInstanceId == null)
+                        if (!(move is RespondToWindow respond) || respond.EquippedInstanceId != null)
+                        {
+                            continue;
+                        }
+                        // The engine lists ONE copy of each response card (identical
+                        // copies are interchangeable, and two "Play Tantrum" rows would
+                        // be noise) — so bind the move to EVERY copy in hand, or the
+                        // second Tantrum reads as dead.
+                        string defId = view.Hand
+                            .FirstOrDefault(c => c.InstanceId == respond.CardInstanceId)?.DefId;
+                        if (defId == null)
                         {
                             Add(groups.HandMoves, respond.CardInstanceId, move);
+                            continue;
+                        }
+                        foreach (var card in view.Hand)
+                        {
+                            if (card.DefId == defId)
+                            {
+                                Add(groups.HandMoves, card.InstanceId, move);
+                            }
                         }
                     }
                 }
