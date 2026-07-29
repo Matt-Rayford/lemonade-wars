@@ -1879,6 +1879,13 @@ namespace LemonadeWars.Unity
             {
                 banner = "Thanks for playing!";
             }
+            else if (View.StackTop != null)
+            {
+                // Someone's card is resolving but OUR response panel isn't open
+                // (nothing to respond with, or it's someone else's window). Name
+                // the play — "Dex's turn — Play" told bystanders nothing.
+                banner = StackHeadline();
+            }
             else if (View.PendingRollValue is int roll)
             {
                 string what = RollPurposeName(View.PendingRollPurpose) ?? "Sale";
@@ -1901,6 +1908,58 @@ namespace LemonadeWars.Unity
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
             _topBanner.text = banner;
+        }
+
+        /// <summary>
+        /// Third-person headline for the yellow bar while a card sits on the stack:
+        /// plain plays ("Dex plays Automation"), attacks ("Dex plays Slander on Kim"),
+        /// and reactions (tags, reflections, tantrums) all name the card instead of
+        /// falling back to the generic "X's turn — Phase" label.
+        /// </summary>
+        private string StackHeadline()
+        {
+            var top = View.StackTop;
+            // CardName, not LemonName: purchases and some responses carry
+            // Black Market ids, and CardName checks both catalogs.
+            string card = CardName(top.DefId);
+            bool self = top.OwnerId == View.ViewerId;
+            string owner = self ? "You" : NameOf(top.OwnerId);
+            string plays = self ? "play" : "plays";
+            if (top.AttackTargetId is int t)
+            {
+                string victim = t == View.ViewerId ? "you" : NameOf(t);
+                return $"{owner} {plays} {card} on {victim}";
+            }
+            // Reactions name WHAT they answer, mirroring the response panel.
+            string answered = null;
+            if (!string.IsNullOrEmpty(top.RespondingToDefId))
+            {
+                answered = top.RespondingToIsPurchase
+                    ? $"the {CardName(top.RespondingToDefId)} purchase"
+                    : CardName(top.RespondingToDefId);
+                if (top.RespondingToOwnerId is int by && !top.RespondingToIsPurchase)
+                {
+                    answered = (by == View.ViewerId ? "your " : NameOf(by) + "'s ") + answered;
+                }
+            }
+            if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+            {
+                string who = redirect == View.ViewerId ? "you" : NameOf(redirect);
+                return $"{owner} {plays} {card} — {answered ?? "the attack"} goes to {who}";
+            }
+            if (top.DefId == "im-rubber-youre-glue" && answered != null)
+            {
+                return $"{owner} {plays} {card} — {answered} is reflected back";
+            }
+            if (answered != null)
+            {
+                return $"{owner} {plays} {card} on {answered}";
+            }
+            if (top.IsPurchase)
+            {
+                return self ? $"You buy {card}" : $"{owner} buys {card}";
+            }
+            return $"{owner} {plays} {card}";
         }
 
         /// <summary>

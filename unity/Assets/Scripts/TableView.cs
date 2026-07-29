@@ -1423,6 +1423,15 @@ namespace LemonadeWars.Unity
             {
                 vpTextures.Add(_art.BraggingRights(i) ?? _art.Back("braggingRights"));
             }
+            // Game over: everyone's secret Lemon Lords are revealed (FinishedLords is
+            // empty until then), so they join the stack — click a rival's bar and their
+            // lords are right there with the rest of their points. Unmet lords show too
+            // (the reveal is half the fun); the caption sticks to VP actually scored.
+            foreach (var lord in owner.FinishedLords)
+            {
+                vpTextures.Add(_art.Title(lord.TitleId));
+            }
+            int scoredVp = owner.InGameVictoryPoints + owner.FinishedLords.Count(l => l.Met);
             RectTransform vpCell;
             if (vpTextures.Count == 0)
             {
@@ -1431,7 +1440,7 @@ namespace LemonadeWars.Unity
             else
             {
                 vpCell = AddCard(_boardRow, vpTextures[0], 188, 263,
-                    vpTextures.Count == 1 ? "1 VP" : $"{vpTextures.Count} VP", false, null);
+                    scoredVp == 1 ? "1 VP" : $"{scoredVp} VP", false, null);
                 AddTuckedStack(vpCell, vpTextures.Skip(1).ToList());
             }
             _vpGlow = null;
@@ -2352,7 +2361,7 @@ namespace LemonadeWars.Unity
             string botLevel = BotLevelLookup?.Invoke(playerId);
             if (!string.IsNullOrEmpty(botLevel))
             {
-                string levelColor = botLevel == "wambulence" ? "#8CC7FF"
+                string levelColor = botLevel == "wambulance" ? "#8CC7FF"
                     : botLevel == "hard" ? "#FF9E73"
                     : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
                 nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";

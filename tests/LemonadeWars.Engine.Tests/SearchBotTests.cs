@@ -150,8 +150,9 @@ namespace LemonadeWars.Engine.Tests
             Assert.IsType<EasyBot>(BotFactory.Create("easy", 1));
             Assert.IsType<GreedyBot>(BotFactory.Create("medium", 1));
             Assert.IsType<SearchBot>(BotFactory.Create("hard", 1));
-            Assert.IsType<SearchBot>(BotFactory.Create("wambulence", 1));
-            Assert.Equal("wambulence", BotFactory.Normalize(" WAMBULENCE "));
+            Assert.IsType<SearchBot>(BotFactory.Create("wambulance", 1));
+            Assert.Equal("wambulance", BotFactory.Normalize(" WAMBULANCE "));
+            Assert.Equal("wambulance", BotFactory.Normalize("wambulence")); // legacy spelling from persisted rooms
             Assert.IsType<GreedyBot>(BotFactory.Create(null, 1));
             Assert.IsType<GreedyBot>(BotFactory.Create("HARD??", 1));
             Assert.Equal("hard", BotFactory.Normalize(" Hard "));

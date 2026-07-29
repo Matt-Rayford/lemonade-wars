@@ -452,11 +452,11 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>The difficulty chip cycles easy -> medium -> hard -> wambulence -> easy.</summary>
+        /// <summary>The difficulty chip cycles easy -> medium -> hard -> wambulance -> easy.</summary>
         public static string NextLevel(string level) =>
             level == "easy" ? "medium"
             : level == "medium" ? "hard"
-            : level == "hard" ? "wambulence"
+            : level == "hard" ? "wambulance"
             : "easy";
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
@@ -539,7 +539,7 @@ namespace LemonadeWars.Unity
                 var chipRect = (RectTransform)chipGo.transform;
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
-                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULENCE
+                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULANCE
                 chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;
@@ -548,7 +548,7 @@ namespace LemonadeWars.Unity
                 chipImage.color = chipIdle;
                 var levelText = UiKit.CreateText(chipGo.transform,
                     botLevel.ToUpperInvariant(), 15, TextAnchor.MiddleCenter,
-                    botLevel == "wambulence" ? new Color(0.55f, 0.78f, 1f)
+                    botLevel == "wambulance" ? new Color(0.55f, 0.78f, 1f)
                     : botLevel == "hard" ? new Color(1f, 0.62f, 0.45f)
                     : botLevel == "easy" ? new Color(0.62f, 0.90f, 0.62f)
                     : new Color(0.85f, 0.88f, 0.92f), body: true);
