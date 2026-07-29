@@ -138,6 +138,11 @@ namespace LemonadeWars.Unity
 
         // Hand arrangement: the player's preferred order, kept across renders.
         private readonly List<int> _handOrder = new List<int>();
+        // Last-rendered fingerprints for the zones that skip unchanged rebuilds
+        // (see RenderHand): rebuilding a hovered fan drops the raise and the preview.
+        private string _handSignature;
+        private string _dibsSignature;
+        private string _lordSignature;
         private int _reorderCardId = -1;
         private int _reorderSlot = -1;
         /// <summary>Card held raised after a drop until the pointer actually leaves it.</summary>
@@ -1482,17 +1487,10 @@ namespace LemonadeWars.Unity
 
         private void RenderHand(PlayerView view, MoveGroups groups)
         {
-            UiKit.Clear(_handHost);
-            _handFrames.Clear();
             int count = view.Hand.Count;
             // The deck sits at the right end of the fan as a card-shaped slot, so
             // drawing reads as taking a card rather than pressing a bar button.
             bool canDraw = CanDrawLemon?.Invoke() == true;
-            if (count == 0 && !canDraw)
-            {
-                _handOrder.Clear();
-                return;
-            }
 
             // Respect the player's own arrangement (drag a card sideways to move it);
             // cards we haven't seen yet — fresh draws — join on the right.
@@ -1503,6 +1501,38 @@ namespace LemonadeWars.Unity
                     return index < 0 ? int.MaxValue : index;
                 })
                 .ToList();
+
+            // Skip the rebuild when nothing the hand shows has changed (bot turns
+            // re-render constantly): tearing the fan down mid-hover drops the raised
+            // card and kills an open preview for no reason. The signature covers the
+            // order, each card's move count (bindings bake it in), the draw slot, and
+            // the band width the layout was computed against.
+            var signatureBuilder = new StringBuilder(canDraw ? "draw|" : "|");
+            signatureBuilder.Append(Mathf.RoundToInt(_handHost.rect.width)).Append('|');
+            foreach (var card in hand)
+            {
+                int moveCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
+                    ? moves.Count
+                    : 0;
+                // DefId too: instance ids restart each game, so a fresh game's opening
+                // hand could otherwise collide with the old one's and keep stale cards.
+                signatureBuilder.Append(card.InstanceId).Append(':').Append(card.DefId)
+                    .Append(':').Append(moveCount).Append(',');
+            }
+            string signature = signatureBuilder.ToString();
+            if (signature == _handSignature)
+            {
+                return;
+            }
+            _handSignature = signature;
+
+            UiKit.Clear(_handHost);
+            _handFrames.Clear();
+            if (count == 0 && !canDraw)
+            {
+                _handOrder.Clear();
+                return;
+            }
             _handOrder.Clear();
             _handOrder.AddRange(hand.Select(c => c.InstanceId));
 
@@ -1973,7 +2003,6 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void RenderFirstDibs(PlayerView view)
         {
-            UiKit.Clear(_dibsHost);
             var entries = new List<(string TitleId, string ClaimedBy)>();
             foreach (string titleId in view.FirstDibsRow)
             {
@@ -1986,6 +2015,18 @@ namespace LemonadeWars.Unity
                     entries.Add((claimed, player.Name));
                 }
             }
+
+            // Same skip as the hand: don't tear down a hovered fan over a re-render
+            // that changed nothing here.
+            string signature = Mathf.RoundToInt(_dibsHost.rect.width) + "|" +
+                string.Join(",", entries.Select(e => e.TitleId + ":" + e.ClaimedBy));
+            if (signature == _dibsSignature)
+            {
+                return;
+            }
+            _dibsSignature = signature;
+
+            UiKit.Clear(_dibsHost);
             if (entries.Count == 0)
             {
                 return;
@@ -2052,6 +2093,16 @@ namespace LemonadeWars.Unity
         /// <summary>Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.</summary>
         private void RenderLords(PlayerView view)
         {
+            // Same skip as the hand: don't tear down a hovered fan over a re-render
+            // that changed nothing here.
+            string signature = string.Join(",",
+                view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
+            if (signature == _lordSignature)
+            {
+                return;
+            }
+            _lordSignature = signature;
+
             UiKit.Clear(_lordHost);
             int count = view.LemonLordStatus.Count;
             if (count == 0)
@@ -2335,8 +2386,11 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
             // Victory points: a crown per VP, arcing over the portrait left-to-right —
-            // frees the stat row below for the money/hand/tantrum counts.
-            int crowns = Mathf.Min(player.InGameVictoryPoints, 8);
+            // frees the stat row below for the money/hand/tantrum counts. Met Lemon
+            // Lords count once revealed (FinishedLords is empty until game end), so
+            // the crowns agree with the final standings, not just the in-game score.
+            int crowns = Mathf.Min(
+                player.InGameVictoryPoints + player.FinishedLords.Count(l => l.Met), 8);
             var badgeCenter = new Vector2(12f + 28f, 0f);
             for (int crown = 0; crown < crowns; crown++)
             {
