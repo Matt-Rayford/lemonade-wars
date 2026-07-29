@@ -86,8 +86,14 @@ namespace LemonadeWars.Unity
             Texture2D texture = null;
             if (File.Exists(fullPath))
             {
-                texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                // Mip chain + trilinear: the art is far larger than most places it is
+                // drawn (market row, thumbnails), and minifying a mipless texture
+                // undersamples it into mush — card text goes unreadable. LoadImage
+                // regenerates the mips from the decoded image.
+                texture = new Texture2D(2, 2, TextureFormat.RGBA32, true);
                 texture.LoadImage(File.ReadAllBytes(fullPath));
+                texture.filterMode = FilterMode.Trilinear;
+                texture.anisoLevel = 4; // keeps edges crisp at slight scale/squash
                 texture.name = relativePath;
             }
             else

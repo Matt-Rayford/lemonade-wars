@@ -290,11 +290,14 @@ namespace LemonadeWars.Unity
             {
                 return cached;
             }
-            var texture = new Texture2D(2, 2, TextureFormat.RGB24, false);
+            // Mips + trilinear: pages are ~2250px wide but display around 600 — a
+            // mipless minified texture turns the rule text to mush.
+            var texture = new Texture2D(2, 2, TextureFormat.RGB24, true);
             string fullPath = Path.Combine(_imagesRoot, relativePath);
             if (File.Exists(fullPath))
             {
                 texture.LoadImage(File.ReadAllBytes(fullPath));
+                texture.filterMode = FilterMode.Trilinear;
             }
             _textures[relativePath] = texture;
             return texture;

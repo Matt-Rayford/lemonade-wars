@@ -231,8 +231,10 @@ namespace LemonadeWars.Unity
             {
                 return null;
             }
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            // Mips + trilinear: icons draw at 22-38px from much larger sources.
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true);
             texture.LoadImage(File.ReadAllBytes(path));
+            texture.filterMode = FilterMode.Trilinear;
             return texture;
         }
 
