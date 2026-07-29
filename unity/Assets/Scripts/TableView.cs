@@ -162,6 +162,11 @@ namespace LemonadeWars.Unity
         private float _handSpacing;
         /// <summary>Fired when the player switches whose board is displayed.</summary>
         public System.Action OnBoardViewChanged;
+
+        /// <summary>While true, the Whiniest Baby card stays OUT of the lord fan even
+        /// though the view says we hold it — set for the span of the claim reveal's
+        /// flight, lifted when the card lands (see LemonadeWarsApp).</summary>
+        public bool SuppressWhinyBaby;
         private RectTransform _marketRow;
 
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
@@ -1146,6 +1151,7 @@ namespace LemonadeWars.Unity
         private RectTransform _logExpandedPanel;
         private RectTransform _logList;
         private TMP_Text _logLatest;
+        private TMP_Text _logToggleHint;
         private readonly List<string> _logLines = new List<string>();
         private bool _logExpanded;
         private string _logSignature = "";
@@ -1157,27 +1163,9 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(zone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
                 new Vector2(4, 0), new Vector2(-10, -4));
 
-            // Collapsed: the latest line on a slim chip at the zone's bottom.
-            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
-            UiKit.Anchor(_logCollapsed, new Vector2(0, 0), new Vector2(1, 0),
-                new Vector2(0, 0), new Vector2(0, 26));
-            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
-                new Color(0.86f, 0.88f, 0.92f), body: true);
-            _logLatest.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
-                new Vector2(8, 0), new Vector2(-26, 0));
-            var expandHint = UiKit.CreateText(_logCollapsed, "+", 15, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
-            expandHint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)expandHint.transform, new Vector2(1, 0), new Vector2(1, 1),
-                new Vector2(-24, 0), new Vector2(-4, 0));
-            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
-            _logCollapsed.gameObject.SetActive(false);
-
-            // Expanded: the recent history, newest at the top, header click collapses.
-            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
-            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one);
-            var header = UiKit.CreatePanel(_logExpandedPanel, "LogHeader", new Color(0, 0, 0, 0.45f));
+            // Header pinned at the TOP in both states — toggling swaps only the +/–
+            // hint and what hangs beneath, so the control never jumps around the zone.
+            var header = UiKit.CreatePanel(zone, "LogHeader", new Color(0, 0, 0, 0.45f));
             UiKit.Anchor(header, new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -24), new Vector2(0, 0));
             var headerText = UiKit.CreateText(header, "ACTION LOG", 13, TextAnchor.MiddleLeft,
@@ -1185,15 +1173,33 @@ namespace LemonadeWars.Unity
             headerText.raycastTarget = false;
             UiKit.Anchor((RectTransform)headerText.transform, Vector2.zero, Vector2.one,
                 new Vector2(8, 0), new Vector2(0, 0));
-            var collapseHint = UiKit.CreateText(header, "–", 15, TextAnchor.MiddleCenter,
+            _logToggleHint = UiKit.CreateText(header, "+", 15, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f));
-            collapseHint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)collapseHint.transform, new Vector2(1, 0), new Vector2(1, 1),
+            _logToggleHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logToggleHint.transform, new Vector2(1, 0), new Vector2(1, 1),
                 new Vector2(-24, 0), new Vector2(-4, 0));
             UiKit.AddClick(header.gameObject, ToggleLog);
+
+            // Collapsed: the latest line on a slim chip directly beneath the header.
+            _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
+            UiKit.Anchor(_logCollapsed, new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -50), new Vector2(0, -24));
+            _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
+                new Color(0.86f, 0.88f, 0.92f), body: true);
+            _logLatest.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_logLatest.transform, Vector2.zero, Vector2.one,
+                new Vector2(8, 0), new Vector2(-8, 0));
+            UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
+            _logCollapsed.gameObject.SetActive(false);
+
+            // Expanded: the recent history below the header, newest at the top — its
+            // first row sits exactly where the collapsed chip was.
+            _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
+            UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one,
+                new Vector2(0, 0), new Vector2(0, -24));
             var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
             listHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -26));
+            UiKit.Anchor(listHost, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -4));
             _logList = UiKit.CreateScrollList(listHost);
             _logList.GetComponent<VerticalLayoutGroup>().spacing = 2;
             _logExpandedPanel.gameObject.SetActive(false);
@@ -1203,6 +1209,7 @@ namespace LemonadeWars.Unity
         {
             _logExpanded = !_logExpanded;
             _logExpandedPanel.gameObject.SetActive(_logExpanded);
+            _logToggleHint.text = _logExpanded ? "–" : "+";
             RenderLog();
         }
 
@@ -2090,12 +2097,21 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.</summary>
+        /// <summary>
+        /// Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.
+        /// The Whiniest Baby card joins on the LEFT while you hold it — a card in your
+        /// zone beats a line of status text for "you are the baby".
+        /// </summary>
         private void RenderLords(PlayerView view)
         {
+            // Suppressed while the claim reveal is mid-flight: the table renders the
+            // instant the state changes, but the card should only exist in the fan
+            // once the animation has delivered it (the app lifts this on arrival).
+            bool baby = view.WhiniestBabyHolder == view.ViewerId && !SuppressWhinyBaby;
+
             // Same skip as the hand: don't tear down a hovered fan over a re-render
             // that changed nothing here.
-            string signature = string.Join(",",
+            string signature = (baby ? "baby|" : "|") + string.Join(",",
                 view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
             if (signature == _lordSignature)
             {
@@ -2104,7 +2120,13 @@ namespace LemonadeWars.Unity
             _lordSignature = signature;
 
             UiKit.Clear(_lordHost);
-            int count = view.LemonLordStatus.Count;
+            var textures = new List<Texture2D>();
+            if (baby)
+            {
+                textures.Add(_art.WhiniestBaby());
+            }
+            textures.AddRange(view.LemonLordStatus.Select(l => _art.Title(l.TitleId)));
+            int count = textures.Count;
             if (count == 0)
             {
                 return;
@@ -2114,13 +2136,15 @@ namespace LemonadeWars.Unity
             const float height = 266f;
             const float raisedY = 12f;
             const float peek = 158f;
-            float spacing = width * 0.72f;
+            float spacing = LordSpacing(count);
             float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
 
             for (int i = 0; i < count; i++)
             {
-                var lord = view.LemonLordStatus[i];
-                var texture = _art.Title(lord.TitleId);
+                var lord = baby && i == 0
+                    ? null
+                    : view.LemonLordStatus[baby ? i - 1 : i];
+                var texture = textures[i];
 
                 var image = UiKit.CreateCardImage(_lordHost, texture, width, height);
                 var frame = (RectTransform)image.transform.parent;
@@ -2132,7 +2156,7 @@ namespace LemonadeWars.Unity
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();
                 motion.TargetY = restY;
 
-                if (lord.Met)
+                if (lord != null && lord.Met)
                 {
                     var chip = UiKit.CreatePanel(frame, "MetChip", UiKit.ButtonColor);
                     UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
@@ -2157,6 +2181,45 @@ namespace LemonadeWars.Unity
                     });
                 _preview.Attach(image.gameObject, texture);
             }
+        }
+
+        /// <summary>
+        /// Card overlap in the lord fan: the usual hand overlap while the zone has
+        /// room, compressing (like First Dibs) once a third card — the Whiniest Baby —
+        /// would spill past the screen edge. The margin keeps a sliver of table
+        /// visible on the right.
+        /// </summary>
+        private float LordSpacing(int count)
+        {
+            const float width = 190f;
+            const float margin = 24f;
+            float available = _lordHost.rect.width - margin;
+            if (available < 10f)
+            {
+                available = 380f; // first-frame fallback before canvas layout settles
+            }
+            return count > 1
+                ? Mathf.Min(width * 0.72f, (available - width) / (count - 1))
+                : 0f;
+        }
+
+        /// <summary>
+        /// World position where the Whiniest Baby card will land when it joins the
+        /// lord fan: the LEFT-MOST slot of the fan as it will be AFTER the card is
+        /// added (the fan hides the card until the flight delivers it, so the current
+        /// children don't include it yet). Mirrors RenderLords' layout math.
+        /// </summary>
+        public Vector3 WhinyBabyLandingWorld()
+        {
+            const float width = 190f;
+            const float height = 266f;
+            const float peek = 158f;
+            int futureCount = _lordHost.childCount + 1;
+            float spacing = LordSpacing(futureCount);
+            float x = -(width + spacing * (futureCount - 1)) / 2f + width / 2f;
+            // Children hang from the host's bottom-center pivot; card center is half a
+            // card above its bottom-anchored rest position.
+            return _lordHost.TransformPoint(new Vector3(x, peek - height + height / 2f, 0));
         }
 
         /// <summary>Appends to the market row — call after RenderMarket (which clears it).</summary>

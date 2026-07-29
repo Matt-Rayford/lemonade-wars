@@ -503,6 +503,7 @@ namespace LemonadeWars.Unity
             _dice.Clear();
             _fx.Clear();
             _table.ViewedBoardPlayer = -1;
+            _table.SuppressWhinyBaby = false; // a dropped mid-flight claim must not hide it forever
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
@@ -587,8 +588,19 @@ namespace LemonadeWars.Unity
             else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
             {
                 // Queued: the card often lands at turn start, so the wail waits for
-                // ONWARD! and plays when you can actually see why.
+                // ONWARD! and plays when you can actually see why. The claim reveal
+                // holds the card centered (readable), then flies it into the lord fan
+                // — the fan keeps the card HIDDEN until the flight delivers it (the
+                // table renders the new state immediately, well before the theatre).
+                _table.SuppressWhinyBaby = true;
                 _fx.QueueSound(Sfx.WhinyBaby);
+                _fx.QueueClaim(_art.WhiniestBaby(), "You are the Whiniest Baby!",
+                    () => _table.WhinyBabyLandingWorld(),
+                    () =>
+                    {
+                        _table.SuppressWhinyBaby = false;
+                        _renderedRevision = -1; // surface the landed card now
+                    });
             }
             else if (gameEvent is BlackMarketPurchased bought && bought.PlayerId == _session.Seat)
             {
