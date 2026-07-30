@@ -2367,6 +2367,70 @@ namespace LemonadeWars.Unity
             UiKit.AddClick(image.gameObject, () => OpenDiscardViewer(
                 blackMarket ? "BLACK MARKET DISCARDS" : "LEMON DISCARDS",
                 discards, blackMarket));
+
+            if (!blackMarket)
+            {
+                BuildDrawChip(frame);
+            }
+        }
+
+        /// <summary>
+        /// Always-on DRAW chip along the lemon pile's bottom edge — a second draw
+        /// affordance beside the hand's draw slot, in the same dark chrome as the
+        /// END TURN chip. Inset so its rounded corners nest inside the card's, and
+        /// dark-and-inert (like the refresh slab) when drawing isn't legal.
+        /// </summary>
+        private void BuildDrawChip(RectTransform cardFrame)
+        {
+            bool enabled = CanDrawLemon?.Invoke() == true;
+            float radius = UiKit.CardCornerRadius(154f);
+
+            // The chip is a MASK over the card's bottom band, overhanging the edges by
+            // 2px so the card's white border can't peek out around the rounding. The
+            // actual rounded fill extends one radius above the mask, so its top
+            // corners are clipped off — square top, card-matched rounding at bottom.
+            var chip = UiKit.CreatePanel(cardFrame, "DrawChip", new Color(0, 0, 0, 0));
+            UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(-2f, -2f), new Vector2(2f, 34f));
+            chip.gameObject.AddComponent<RectMask2D>();
+
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(chip, false);
+            UiKit.Anchor((RectTransform)fillGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(0, 0), new Vector2(0, radius));
+            var fill = fillGo.GetComponent<Image>();
+            fill.sprite = UiSprites.RoundedRect;
+            fill.type = Image.Type.Sliced;
+            fill.pixelsPerUnitMultiplier = 14f / radius;
+            fill.raycastTarget = false;
+            var idle = enabled
+                ? new Color(0.10f, 0.12f, 0.16f)
+                : new Color(0.13f, 0.15f, 0.19f);
+            fill.color = idle;
+
+            var label = UiKit.CreateText(chip, "DRAW", 18, TextAnchor.MiddleCenter,
+                enabled ? new Color(0.96f, 0.94f, 0.86f) : new Color(0.55f, 0.54f, 0.50f));
+            label.raycastTarget = false;
+            UiKit.Anchor((RectTransform)label.transform, Vector2.zero, Vector2.one);
+
+            if (!enabled)
+            {
+                chip.GetComponent<Image>().raycastTarget = false; // browse-click passes through
+                return;
+            }
+            UiKit.AddHover(chip.gameObject,
+                () =>
+                {
+                    fill.color = new Color(0.18f, 0.21f, 0.28f);
+                    label.color = UiKit.ButtonColor;
+                },
+                () =>
+                {
+                    fill.color = idle;
+                    label.color = new Color(0.96f, 0.94f, 0.86f);
+                });
+            // No button sound: the draw's own card-draw sound answers the click.
+            UiKit.AddClick(chip.gameObject, () => OnDrawCard?.Invoke());
         }
 
         /// <summary>A flexible spacer; multiple gaps in the row share leftover width equally.</summary>
