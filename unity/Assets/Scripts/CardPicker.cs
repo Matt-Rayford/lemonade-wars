@@ -40,6 +40,9 @@ namespace LemonadeWars.Unity
         private readonly List<Slot> _slots = new List<Slot>();
         private int _requiredCount;
         private System.Action<List<int>> _onAccept;
+        /// <summary>False for pickers whose cards are already near full size (the
+        /// Lemon Lord choice) — a magnify pop-up there is just noise.</summary>
+        private bool _previewEnabled = true;
 
         public bool IsOpen { get; private set; }
         /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
@@ -107,12 +110,13 @@ namespace LemonadeWars.Unity
         /// backdrop blur has been captured.
         /// </summary>
         public void Show(string title, IReadOnlyList<Texture2D> textures, int requiredCount,
-            System.Action<List<int>> onAccept)
+            System.Action<List<int>> onAccept, bool preview = true)
         {
             IsOpen = true;
             _title.text = title;
             _requiredCount = requiredCount;
             _onAccept = onAccept;
+            _previewEnabled = preview;
             _slots.Clear();
             UiKit.Clear(_row);
 
@@ -194,7 +198,10 @@ namespace LemonadeWars.Unity
                 GlowInner = glowInner,
                 GlowOuter = glowOuter,
             };
-            _preview.Attach(image.gameObject, texture);
+            if (_previewEnabled)
+            {
+                _preview.Attach(image.gameObject, texture);
+            }
             UiKit.AddClick(image.gameObject, () => Toggle(slot));
             return slot;
         }

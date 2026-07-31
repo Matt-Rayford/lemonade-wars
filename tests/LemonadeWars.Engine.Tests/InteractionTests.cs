@@ -656,7 +656,7 @@ namespace LemonadeWars.Engine.Tests
         // ------------------------------------------------------ card effects
 
         [Fact]
-        public void SmearCampaignStealsTwoAndOffersAFreePlay()
+        public void SmearCampaignStealsTwoAndCostsNoAction()
         {
             var game = ReadyToPlay();
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
@@ -665,17 +665,17 @@ namespace LemonadeWars.Engine.Tests
             int attack = GiveCard(game, a, "smear-campaign");
             int aHand = game.State.Players[a].Hand.Count;
             int bHand = game.State.Players[b].Hand.Count;
+            int actions = game.State.ActionsRemaining;
 
             game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
 
             Assert.Equal(aHand - 1 + 2, game.State.Players[a].Hand.Count);
             Assert.Equal(bHand - 2, game.State.Players[b].Hand.Count);
 
-            var decision = Assert.Single(game.State.PendingDecisions);
-            Assert.Equal(DecisionKind.FreePlayOffer, decision.Kind);
-            game.Apply(new SkipFreePlay { PlayerId = a });
+            // "Then you may play any card" = the smear costs no action: no free-play
+            // modal, the spent action comes straight back.
             Assert.Empty(game.State.PendingDecisions);
-            Assert.Equal(1, game.State.ActionsRemaining);
+            Assert.Equal(actions, game.State.ActionsRemaining);
         }
 
         [Fact]

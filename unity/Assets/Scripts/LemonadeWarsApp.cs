@@ -684,8 +684,18 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is PlayCancelled cancelled)
             {
+                // The Inflatable Decoy is an equipped reaction with no play event of
+                // its own — without a reveal it cancels invisibly and reads as a bug.
+                if (cancelled.WithDefId == "inflatable-decoy" && cancelled.ByPlayerId is int blocker)
+                {
+                    _fx.QueueReveal(_art.BlackMarket("inflatable-decoy", Shape.Square),
+                        $"{NameOf(blocker)} blocks with Inflatable Decoy!");
+                }
+                string byWhat = cancelled.ByPlayerId is int by && cancelled.WithDefId != null
+                    ? $" BY {NameOf(by).ToUpperInvariant()}'S {CardName(cancelled.WithDefId).ToUpperInvariant()}"
+                    : "";
                 _fx.QueueToast($"{NameOf(cancelled.OwnerId).ToUpperInvariant()}'S " +
-                    $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED!");
+                    $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED{byWhat}!");
             }
         }
 
@@ -999,7 +1009,10 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(played.PlayerId)} plays {LemonName(played.DefId)}" +
                            (played.TargetPlayerId is int t ? $" on {NameOf(t)}" : "");
                 case PlayCancelled cancelled:
-                    return $"{NameOf(cancelled.OwnerId)}'s {CardName(cancelled.DefId)} is cancelled";
+                    return $"{NameOf(cancelled.OwnerId)}'s {CardName(cancelled.DefId)} is cancelled" +
+                        (cancelled.ByPlayerId is int by && cancelled.WithDefId != null
+                            ? $" by {NameOf(by)}'s {CardName(cancelled.WithDefId)}"
+                            : "");
                 case AttackRedirected redirect:
                     return $"{NameOf(redirect.ByPlayerId)} tags the attack to {NameOf(redirect.NewTargetId)}";
                 case AttackReflected reflect:
@@ -1045,6 +1058,7 @@ namespace LemonadeWars.Unity
 
         private float _stuckSince = -1f;
         private float _fxBusySince = -1f;
+        private int _fxBlocksSeen = -1;
 
         /// <summary>
         /// Self-healing for the soft-lock family: when the player is owed a modal but
@@ -1056,15 +1070,20 @@ namespace LemonadeWars.Unity
         private void TickPresentationWatchdog()
         {
             // Effects stuck: blocking theatre should advance every ~2s on its own.
+            // Measure PROGRESS, not total time — a big exchange (attack, tag,
+            // retarget, steals) legitimately chains theatre well past 8s, and the old
+            // total-time check cleared it mid-show. Only a single effect that sits
+            // for 8s without a new one starting is actually wedged.
             if (_fx.IsBusy)
             {
-                if (_fxBusySince < 0f)
+                if (_fxBusySince < 0f || _fx.BlocksStarted != _fxBlocksSeen)
                 {
                     _fxBusySince = Time.time;
+                    _fxBlocksSeen = _fx.BlocksStarted;
                 }
                 else if (Time.time - _fxBusySince > 8f)
                 {
-                    Debug.LogWarning("[LW] watchdog: effects busy >8s — clearing. " + _fx.DebugState());
+                    Debug.LogWarning("[LW] watchdog: one effect busy >8s — clearing. " + _fx.DebugState());
                     _fx.Clear();
                     _fxBusySince = -1f;
                 }
@@ -1656,6 +1675,15 @@ namespace LemonadeWars.Unity
                 pickDestination(byDest.Keys.First());
                 return;
             }
+            // The destinations are YOUR stands: if the steal was aimed on the victim's
+            // board, snap home first (synchronously — the targeting layer must open
+            // over the board it points at, and a later render would dismiss it).
+            if (_table.ViewedBoardPlayer >= 0)
+            {
+                _table.ViewedBoardPlayer = -1;
+                _renderedRevision = -1;
+                RenderIfChanged();
+            }
             _table.BeginEquipTargeting(texture,
                 new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
@@ -1896,6 +1924,13 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             _picker.Hide();
             _reaction.Hide();
+            // Your turn starts at YOUR board: snap back from wherever you were
+            // snooping, so ONWARD! lands on a table you can act on.
+            if (_table.ViewedBoardPlayer >= 0)
+            {
+                _table.ViewedBoardPlayer = -1;
+                _renderedRevision = -1;
+            }
             Sfx.Play(Sfx.YourTurn); // played, not queued: it announces the banner itself
             _turnBanner.Show(TurnSubtitle());
         }
@@ -2302,7 +2337,8 @@ namespace LemonadeWars.Unity
                     picked => Submit(new ChooseLemonLords
                     {
                         KeepTitleIds = picked.Select(i => dealt[i]).ToList(),
-                    }));
+                    }),
+                    preview: false); // three near-full-size cards need no magnifier
                 return true;
             }
 

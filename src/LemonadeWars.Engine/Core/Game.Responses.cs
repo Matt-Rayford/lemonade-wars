@@ -336,7 +336,13 @@ namespace LemonadeWars.Engine.Core
                 top.Cancelled = true;
                 player.Turf.Equipped.Remove(decoyId);
                 State.BlackMarketDiscard.Add(decoyId);
-                events.Add(new PlayCancelled { OwnerId = top.OwnerId, DefId = top.LemonDefId });
+                events.Add(new PlayCancelled
+                {
+                    OwnerId = top.OwnerId,
+                    DefId = top.LemonDefId,
+                    ByPlayerId = player.PlayerId,
+                    WithDefId = "inflatable-decoy",
+                });
                 events.Add(new CardsDiscarded { PlayerId = player.PlayerId, InstanceIds = new List<int> { decoyId } });
                 BumpRevision();
                 Pump(events);
@@ -602,6 +608,8 @@ namespace LemonadeWars.Engine.Core
                     DefId = target.Kind == StackItemKind.BlackMarketPurchase
                         ? State.BlackMarketInstances[target.BmInstanceId!.Value].DefId
                         : target.LemonDefId,
+                    ByPlayerId = tantrum.OwnerId,
+                    WithDefId = TantrumId,
                 });
             }
             // The tantrum card itself stays in its owner's pile (gained at play time).
@@ -616,7 +624,13 @@ namespace LemonadeWars.Engine.Core
                 {
                     // 2-player: "discard it instead" (card text).
                     target.Cancelled = true;
-                    events.Add(new PlayCancelled { OwnerId = target.OwnerId, DefId = target.LemonDefId });
+                    events.Add(new PlayCancelled
+                    {
+                        OwnerId = target.OwnerId,
+                        DefId = target.LemonDefId,
+                        ByPlayerId = tag.OwnerId,
+                        WithDefId = TagId,
+                    });
                 }
                 else
                 {

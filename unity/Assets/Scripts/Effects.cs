@@ -285,8 +285,13 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>Bumped whenever a blocking effect starts — the watchdog resets its
+        /// stuck-timer on progress, so long LEGIT theatre chains never trip it.</summary>
+        public int BlocksStarted { get; private set; }
+
         private void StartBlocking(Fx fx)
         {
+            BlocksStarted++;
             switch (fx)
             {
                 case RevealFx reveal:

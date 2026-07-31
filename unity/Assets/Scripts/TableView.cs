@@ -3013,6 +3013,9 @@ namespace LemonadeWars.Unity
                 var glow = UiKit.CreateGlow(strip, new Vector2(0.5f, 0.5f),
                     new Vector2(0.5f, 0.5f), Vector2.zero, 188f + 26f, TuckPeek + 26f,
                     AttackGlowColor);
+                // Ring, not fill: the strip IS the card's face — a solid glow would
+                // paint over exactly what the player is trying to aim at.
+                glow.GetComponent<Image>().sprite = UiSprites.GlowRing;
                 glow.SetActive(false);
                 _equipCells.Add((equipped[i].InstanceId, strip, glow));
             }

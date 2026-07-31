@@ -171,6 +171,10 @@ namespace LemonadeWars.Engine.Core
     {
         public int OwnerId { get; set; }
         public string DefId { get; set; } = "";
+        /// <summary>Who cancelled it, and with what ("Cancelled" alone reads as "for
+        /// no reason" — an Inflatable Decoy fires with no play event of its own).</summary>
+        public int? ByPlayerId { get; set; }
+        public string? WithDefId { get; set; }
         public override string ToString() => $"P{OwnerId}'s {DefId} was cancelled";
     }
 

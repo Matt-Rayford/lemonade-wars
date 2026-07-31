@@ -534,19 +534,14 @@ namespace LemonadeWars.Engine.Core
                     {
                         events.Add(new CardsStolen { FromPlayerId = victim.PlayerId, ToPlayerId = owner.PlayerId, Count = steals });
                     }
-                    // "Then you may play any card" — one free plan/attack (designer ruling).
-                    if (owner.Hand.Any(id =>
+                    // "Then you may play any card" (designer ruling): the smear costs
+                    // no ACTION instead of granting a modal free play — keep your
+                    // action and play anything from hand the normal way. Gated on
+                    // FreePlay: a Bouncer-fired smear never spent one, and a
+                    // cancelled smear refunds nothing (resolution never runs).
+                    if (!item.FreePlay)
                     {
-                        var t = Db.Lemon(State.LemonInstances[id].DefId).Type;
-                        return t == LemonCardType.Plan || t == LemonCardType.Attack;
-                    }))
-                    {
-                        State.PendingDecisions.Add(new PendingDecision
-                        {
-                            PlayerId = owner.PlayerId,
-                            Kind = DecisionKind.FreePlayOffer,
-                        });
-                        events.Add(new DecisionRequired { PlayerId = owner.PlayerId, Kind = DecisionKind.FreePlayOffer });
+                        State.ActionsRemaining += 1;
                     }
                     return true;
                 }
