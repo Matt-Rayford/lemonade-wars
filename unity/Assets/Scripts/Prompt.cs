@@ -126,6 +126,13 @@ namespace LemonadeWars.Unity
             bool compact = options.Count > 8;
             foreach (var option in options)
             {
+                if (option.OnPick == null)
+                {
+                    // No action = pure information (the end-game score rows): a plain
+                    // line, not a button pretending it does something.
+                    AddStaticRow(_optionList, option.Label, compact);
+                    continue;
+                }
                 AddOptionButton(_optionList, option.Label, option.OnPick,
                     emphasized: true, option.Card, compact);
             }
@@ -147,6 +154,20 @@ namespace LemonadeWars.Unity
             IsCancelable = false;
             _root.gameObject.SetActive(false);
             _backdrop.Hide();
+        }
+
+        /// <summary>Read-only line in the option column — same footprint, no chrome.</summary>
+        private static void AddStaticRow(RectTransform parent, string label, bool compact)
+        {
+            var go = new GameObject("StaticRow", typeof(RectTransform), typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            go.GetComponent<LayoutElement>().minHeight = compact ? 34 : 46;
+            var text = UiKit.CreateText(go.transform, label, compact ? 16 : 19,
+                TextAnchor.MiddleCenter, TextIdle);
+            text.raycastTarget = false;
+            UiKit.AddTextShadow(text);
+            UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
+                new Vector2(12, 2), new Vector2(-12, -2));
         }
 
         /// <summary>Dark rounded button that turns lemonade-yellow on hover.</summary>
