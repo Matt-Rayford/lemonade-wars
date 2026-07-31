@@ -110,6 +110,15 @@ namespace LemonadeWars.Unity
         private Vector2 _attackArrowTo;
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
             new List<(int, RectTransform, GameObject)>();
+        // Direct aim at an opponent's EQUIPPED cards (That's Not Fair, Finders
+        // Keepers): the visible peek strip of each tucked card on the viewed board is
+        // a target of its own, beside the player bars.
+        public System.Func<int, ISet<int>> EquipTargetsFor; // hand id -> equipped ids
+        public System.Action<int, int> OnEquipPick;         // hand id, equipped id
+        private readonly List<(int Id, RectTransform Strip, GameObject Glow)> _equipCells =
+            new List<(int, RectTransform, GameObject)>();
+        private ISet<int> _attackEquipValid;
+        private int _equipHover = -1;    // equipped instance id, -1 = none
 
         // Supply-drag insertion preview.
         private RectTransform _boardPanel;
@@ -685,6 +694,11 @@ namespace LemonadeWars.Unity
             _attackValid = validTargets;
             _attackDragMode = dragMode;
             _attackHover = -1;
+            _equipHover = -1;
+            // Bar aiming may ALSO hit equipped cards directly when the card names them.
+            _attackEquipValid = target == AimTarget.PlayerBars
+                ? EquipTargetsFor?.Invoke(cardInstanceId)
+                : null;
             _aimTarget = target;
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
             bool reaction = AimIsReaction?.Invoke() == true;
@@ -726,6 +740,21 @@ namespace LemonadeWars.Unity
                 return;
             }
 
+            // The viewed board's equipped cards outrank the bars: their strips are
+            // precise targets, the bar is the broad one — regions never overlap.
+            int equipHover = -1;
+            if (_aimTarget == AimTarget.PlayerBars && _attackEquipValid != null)
+            {
+                foreach (var (id, strip, _) in _equipCells)
+                {
+                    if (strip != null && _attackEquipValid.Contains(id) &&
+                        RectTransformUtility.RectangleContainsScreenPoint(strip, screenPosition))
+                    {
+                        equipHover = id;
+                        break;
+                    }
+                }
+            }
             int hover = -1;
             if (_aimTarget == AimTarget.MarketCards)
             {
@@ -739,7 +768,7 @@ namespace LemonadeWars.Unity
                     }
                 }
             }
-            else
+            else if (equipHover < 0)
             {
                 foreach (var (playerId, row, _) in _playerRows)
                 {
@@ -751,9 +780,10 @@ namespace LemonadeWars.Unity
                     }
                 }
             }
-            if (hover != _attackHover)
+            if (hover != _attackHover || equipHover != _equipHover)
             {
                 _attackHover = hover;
+                _equipHover = equipHover;
                 if (_aimTarget == AimTarget.MarketCards)
                 {
                     // Reuse each cell's own buy-glow, tinted to the aiming colour.
@@ -777,6 +807,14 @@ namespace LemonadeWars.Unity
                         {
                             glow.GetComponent<Image>().color = _aimGlowColor;
                             glow.SetActive(playerId == hover);
+                        }
+                    }
+                    foreach (var (id, _, glow) in _equipCells)
+                    {
+                        if (glow != null)
+                        {
+                            glow.GetComponent<Image>().color = _aimGlowColor;
+                            glow.SetActive(id == equipHover);
                         }
                     }
                 }
@@ -839,14 +877,24 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>Fire on the hovered bar, or just disarm when aimed at nothing.</summary>
+        /// <summary>Fire on the hovered bar/card, or just disarm when aimed at nothing.</summary>
         private void FinishAttackTargeting()
         {
             int cardId = _attackCardId;
             int target = _attackHover;
+            int equip = _equipHover;
             var kind = _aimTarget;
             EndAttackTargeting();
-            if (cardId < 0 || target < 0)
+            if (cardId < 0)
+            {
+                return;
+            }
+            if (equip >= 0)
+            {
+                OnEquipPick?.Invoke(cardId, equip);
+                return;
+            }
+            if (target < 0)
             {
                 return;
             }
@@ -888,9 +936,15 @@ namespace LemonadeWars.Unity
                 outer?.SetActive(false);
                 inner?.SetActive(false);
             }
+            foreach (var (_, _, glow) in _equipCells)
+            {
+                glow?.SetActive(false);
+            }
             _attackCardId = -1;
             _attackHover = -1;
+            _equipHover = -1;
             _attackValid = null;
+            _attackEquipValid = null;
             _aimTarget = AimTarget.PlayerBars;
             UiKit.Clear(_attackArrowHost);
             _attackRoot.gameObject.SetActive(false);
@@ -1405,6 +1459,7 @@ namespace LemonadeWars.Unity
         private void RenderBoard(PlayerView view)
         {
             UiKit.Clear(_boardRow);
+            _equipCells.Clear(); // strips live on the board's tucked cards
             if (_targetingPick != null)
             {
                 // The board is being rebuilt under the targeting layer: dismiss it.
@@ -1613,21 +1668,7 @@ namespace LemonadeWars.Unity
                     {
                         return;
                     }
-                    var shelf = MarketTargetsFor?.Invoke(captured);
-                    if (shelf != null && shelf.Count > 0)
-                    {
-                        BeginAttackTargeting(captured, shelf, dragMode: false, AimTarget.MarketCards);
-                        return;
-                    }
-                    var targets = AttackTargetsFor?.Invoke(captured);
-                    if (targets != null && targets.Count > 0)
-                    {
-                        BeginAttackTargeting(captured, targets, dragMode: false);
-                    }
-                    else
-                    {
-                        OnHandCard?.Invoke(captured);
-                    }
+                    ActivateHandCard(captured);
                 }
 
                 if (optionCount > 0)
@@ -1755,6 +1796,31 @@ namespace LemonadeWars.Unity
             if (canDraw)
             {
                 BuildDrawSlot(startX + count * spacing, width, height, peek, raisedY, count);
+            }
+        }
+
+        /// <summary>
+        /// Arm a hand card exactly as clicking it would: Connections aims at the
+        /// shelf, attacks aim at players, everything else opens the card's menu.
+        /// Public so modal options ("Play That's Not Fair...") can hand off to the
+        /// same flows instead of listing every target as its own button.
+        /// </summary>
+        public void ActivateHandCard(int cardInstanceId)
+        {
+            var shelf = MarketTargetsFor?.Invoke(cardInstanceId);
+            if (shelf != null && shelf.Count > 0)
+            {
+                BeginAttackTargeting(cardInstanceId, shelf, dragMode: false, AimTarget.MarketCards);
+                return;
+            }
+            var targets = AttackTargetsFor?.Invoke(cardInstanceId);
+            if (targets != null && targets.Count > 0)
+            {
+                BeginAttackTargeting(cardInstanceId, targets, dragMode: false);
+            }
+            else
+            {
+                OnHandCard?.Invoke(cardInstanceId);
             }
         }
 
@@ -2304,10 +2370,7 @@ namespace LemonadeWars.Unity
             // Price chip along the bottom edge; click-transparent like the count chips.
             // Full lemonade yellow with black text — the button palette — so the price
             // pops off the dark table instead of dissolving into it.
-            var chip = UiKit.CreatePanel(frame, "PriceChip", UiKit.ButtonColor);
-            UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0));
-            chip.sizeDelta = new Vector2(0, 30);
-            chip.pivot = new Vector2(0.5f, 0);
+            var (chip, _) = BuildBottomChip(frame, "PriceChip", 30f, UiKit.ButtonColor);
             chip.GetComponent<Image>().raycastTarget = false;
             var chipText = UiKit.CreateText(chip, $"${price}", 16,
                 TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
@@ -2380,18 +2443,19 @@ namespace LemonadeWars.Unity
         /// END TURN chip. Inset so its rounded corners nest inside the card's, and
         /// dark-and-inert (like the refresh slab) when drawing isn't legal.
         /// </summary>
-        private void BuildDrawChip(RectTransform cardFrame)
+        /// <summary>
+        /// Full-width chip on a card's bottom edge: square top, bottom corners tracing
+        /// the card's own rounding. Built as a MASK clipping a taller rounded fill
+        /// (the fill's top corners are cut off), overhanging the card by 2px so the
+        /// white border can't peek out around the curve.
+        /// </summary>
+        private static (RectTransform Chip, Image Fill) BuildBottomChip(
+            RectTransform cardFrame, string name, float height, Color color)
         {
-            bool enabled = CanDrawLemon?.Invoke() == true;
             float radius = UiKit.CardCornerRadius(154f);
-
-            // The chip is a MASK over the card's bottom band, overhanging the edges by
-            // 2px so the card's white border can't peek out around the rounding. The
-            // actual rounded fill extends one radius above the mask, so its top
-            // corners are clipped off — square top, card-matched rounding at bottom.
-            var chip = UiKit.CreatePanel(cardFrame, "DrawChip", new Color(0, 0, 0, 0));
+            var chip = UiKit.CreatePanel(cardFrame, name, new Color(0, 0, 0, 0));
             UiKit.Anchor(chip, new Vector2(0, 0), new Vector2(1, 0),
-                new Vector2(-2f, -2f), new Vector2(2f, 34f));
+                new Vector2(-2f, -2f), new Vector2(2f, height));
             chip.gameObject.AddComponent<RectMask2D>();
 
             var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
@@ -2403,10 +2467,17 @@ namespace LemonadeWars.Unity
             fill.type = Image.Type.Sliced;
             fill.pixelsPerUnitMultiplier = 14f / radius;
             fill.raycastTarget = false;
+            fill.color = color;
+            return (chip, fill);
+        }
+
+        private void BuildDrawChip(RectTransform cardFrame)
+        {
+            bool enabled = CanDrawLemon?.Invoke() == true;
             var idle = enabled
                 ? new Color(0.10f, 0.12f, 0.16f)
                 : new Color(0.13f, 0.15f, 0.19f);
-            fill.color = idle;
+            var (chip, fill) = BuildBottomChip(cardFrame, "DrawChip", 34f, idle);
 
             var label = UiKit.CreateText(chip, "DRAW", 18, TextAnchor.MiddleCenter,
                 enabled ? new Color(0.96f, 0.94f, 0.86f) : new Color(0.55f, 0.54f, 0.50f));
@@ -2927,24 +2998,42 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void AddEquipList(RectTransform cell, List<PlayerView.CardInfo> equipped)
         {
-            AddTuckedStack(cell, equipped
+            var rects = AddTuckedStack(cell, equipped
                 .Select(e => _art.BlackMarket(e.DefId, e.Shape ?? Shape.Square))
                 .ToList());
+            // Each tucked card's visible peek strip becomes an aim target of its own
+            // (That's Not Fair / Finders Keepers can hit the card, not just the bar).
+            for (int i = 0; i < rects.Count; i++)
+            {
+                var stripGo = new GameObject("AimStrip", typeof(RectTransform));
+                stripGo.transform.SetParent(rects[i], false);
+                var strip = (RectTransform)stripGo.transform;
+                UiKit.Anchor(strip, new Vector2(0, 1), new Vector2(1, 1),
+                    new Vector2(0, -TuckPeek), new Vector2(0, 0));
+                var glow = UiKit.CreateGlow(strip, new Vector2(0.5f, 0.5f),
+                    new Vector2(0.5f, 0.5f), Vector2.zero, 188f + 26f, TuckPeek + 26f,
+                    AttackGlowColor);
+                glow.SetActive(false);
+                _equipCells.Add((equipped[i].InstanceId, strip, glow));
+            }
         }
 
         /// <summary>
         /// Cards tucked BEHIND a cell's front card: each peeks its top strip out above,
         /// stacked like the physical game. Hover a peeking strip for the preview.
+        /// Returns the created card rects, index-aligned with the input.
         /// </summary>
-        private void AddTuckedStack(RectTransform cell, List<Texture2D> textures)
+        private const float TuckPeek = 40f; // the top icon bar, minus a hair — 5 stacks fit
+
+        private List<RectTransform> AddTuckedStack(RectTransform cell, List<Texture2D> textures)
         {
-            const float peek = 40f;   // the top icon bar, minus a hair — 5 stacks fit
             const float width = 188f; // same scale as the card it tucks behind
             const float height = 263f;
+            var rects = new List<RectTransform>(new RectTransform[textures.Count]);
             var cardFrame = cell.Find("Card");
             if (cardFrame == null)
             {
-                return;
+                return rects;
             }
             // Deepest card first; each next one is inserted just before the front card,
             // so it draws over the slivers behind it and under the front card itself.
@@ -2960,12 +3049,14 @@ namespace LemonadeWars.Unity
                 rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
                 rect.pivot = new Vector2(0.5f, 1f);
                 rect.sizeDelta = new Vector2(width, height);
-                rect.anchoredPosition = new Vector2(0, peek * (i + 1));
+                rect.anchoredPosition = new Vector2(0, TuckPeek * (i + 1));
                 var image = go.GetComponent<RawImage>();
                 image.texture = texture;
                 image.material = UiKit.RoundedImageMaterial(width, height);
                 _preview.Attach(go, texture);
+                rects[i] = rect;
             }
+            return rects;
         }
 
         /// <summary>The empty VP column: a green dashed frame naming what goes there.</summary>

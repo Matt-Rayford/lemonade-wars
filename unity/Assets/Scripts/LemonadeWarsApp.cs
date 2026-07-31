@@ -144,6 +144,8 @@ namespace LemonadeWars.Unity
             _table.AimIsReaction = () => ReactionWindowDue(CurrentGroups());
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
+            _table.EquipTargetsFor = EquipAimTargets;
+            _table.OnEquipPick = ConfirmEquipAttack;
             _table.OnAttackPick = ResolveAttackOnPlayer;
             _table.MarketTargetsFor = MarketTargets;
             _table.OnMarketPick = ResolveMarketTake;
@@ -1358,6 +1360,66 @@ namespace LemonadeWars.Unity
             return targets;
         }
 
+        /// <summary>
+        /// The equipped Black Market cards this hand card can hit directly (That's Not
+        /// Fair, Finders Keepers) — while aiming at the bars, the visible copies on
+        /// the viewed board are precise targets of their own.
+        /// </summary>
+        private ISet<int> EquipAimTargets(int cardInstanceId)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
+            {
+                return null;
+            }
+            var targets = new HashSet<int>();
+            foreach (var move in moves)
+            {
+                if (move is PlayLemonCard play && play.TargetEquippedInstanceId is int eq)
+                {
+                    targets.Add(eq);
+                }
+            }
+            return targets.Count > 0 ? targets : null;
+        }
+
+        /// <summary>
+        /// Aimed straight at an equipped card on someone's board: confirm the exact
+        /// hit, then fall into the shared destination flow (which just submits when
+        /// there's nothing left to choose).
+        /// </summary>
+        private void ConfirmEquipAttack(int cardInstanceId, int equippedId)
+        {
+            var groups = CurrentGroups();
+            if (groups == null || !groups.HandMoves.TryGetValue(cardInstanceId, out var moves))
+            {
+                return;
+            }
+            var variants = moves.OfType<PlayLemonCard>()
+                .Where(p => p.TargetEquippedInstanceId == equippedId)
+                .Cast<GameAction>()
+                .ToList();
+            var info = EquippedInfoOf(equippedId);
+            if (variants.Count == 0 || info == null)
+            {
+                return;
+            }
+            string cardName = LemonName(
+                View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId)?.DefId ?? "");
+            int victim = FindEquipOwner(equippedId);
+            bool trashes = TargetsForDiscardOnly(variants);
+            var art = _art.BlackMarket(info.DefId, info.Shape ?? Shape.Square);
+            _prompt.Show(
+                $"Play {cardName} on {NameOf(victim)}'s {BlackMarketName(info.DefId)}?",
+                new[] { art },
+                new List<Prompt.Option>
+                {
+                    new Prompt.Option(trashes ? "Discard it!" : "Take it!",
+                        () => ResolveEquipDestination(variants, art)),
+                },
+                showCancel: true);
+        }
+
         private GameAction RefreshMove() =>
             CurrentGroups()?.BarMoves.FirstOrDefault(m => m is RefreshMarket);
 
@@ -2102,7 +2164,7 @@ namespace LemonadeWars.Unity
                 var kind = View.MyDecisions.FirstOrDefault()?.Kind;
                 _prompt.Hide();
                 _reactionBanner = ModalTitle();
-                _reaction.Show(ModalCards(), ToOptions(reactionMoves),
+                _reaction.Show(ModalCards(), GroupedPlayOptions(reactionMoves, tableLive: true),
                     kind == DecisionKind.AttackRetarget ? "PICK A NEW TARGET"
                     : kind == DecisionKind.BouncerAttack ? "STRIKE BACK"
                     : View.StackTop == null && View.PendingRollValue != null
@@ -2110,13 +2172,87 @@ namespace LemonadeWars.Unity
                         : "YOUR RESPONSE");
                 return;
             }
-            // Blur modals can list dozens of play variants (Smear Campaign's free
-            // play): there the escape hatch leads, so it never scrolls off-screen.
+            // Blur modals group play variants by card (Smear Campaign's free play
+            // once listed dozens of rows): the escape hatch leads, so it never
+            // scrolls off-screen.
             var orderedMoves = groups.ModalMoves
                 .OrderBy(m => passFirst(m) ? 0 : 1)
                 .ToList();
             _reaction.Hide();
-            _prompt.Show(ModalTitle(), ModalCards(), ToOptions(orderedMoves), showCancel: false);
+            _prompt.Show(ModalTitle(), ModalCards(),
+                GroupedPlayOptions(orderedMoves, tableLive: false), showCancel: false);
+        }
+
+        /// <summary>
+        /// Options for a free-play window (Bouncer strike-back, Smear Campaign's
+        /// offer): the engine enumerates one move per card x target, which reads as a
+        /// wall of near-identical rows. Collapse to one option per CARD — picking it
+        /// submits directly (single variant), arms the live-table aiming (reaction
+        /// panel), or opens a target page (blur modal). Non-play moves pass through.
+        /// </summary>
+        private List<Prompt.Option> GroupedPlayOptions(IEnumerable<GameAction> moves, bool tableLive)
+        {
+            var all = moves.ToList();
+            var options = new List<Prompt.Option>();
+            var seenDefs = new HashSet<string>();
+            foreach (var move in all)
+            {
+                if (!(move is PlayLemonCard play))
+                {
+                    options.Add(new Prompt.Option(_session.LabelFor(move),
+                        () => Submit(move), ArtForMove(move)));
+                    continue;
+                }
+                string defId = View.Hand.FirstOrDefault(c => c.InstanceId == play.CardInstanceId)?.DefId;
+                if (defId == null || !seenDefs.Add(defId))
+                {
+                    continue; // copies of one card are one choice
+                }
+                var variants = all.OfType<PlayLemonCard>()
+                    .Where(v => View.Hand.FirstOrDefault(
+                        c => c.InstanceId == v.CardInstanceId)?.DefId == defId)
+                    .ToList();
+                var art = _art.Lemon(defId);
+                if (variants.Count == 1)
+                {
+                    var only = variants[0];
+                    options.Add(new Prompt.Option(_session.LabelFor(only), () => Submit(only), art));
+                }
+                else if (tableLive)
+                {
+                    int instanceId = play.CardInstanceId;
+                    options.Add(new Prompt.Option($"Play {LemonName(defId)}...",
+                        () => _table.ActivateHandCard(instanceId), art));
+                }
+                else
+                {
+                    string name = LemonName(defId);
+                    options.Add(new Prompt.Option($"Play {name}...",
+                        () => ShowVariantPage(name, art, variants), art));
+                }
+            }
+            return options;
+        }
+
+        /// <summary>Second page of a blur-modal free play: this card's targets, with
+        /// a way back to reconsider the card.</summary>
+        private void ShowVariantPage(string name, Texture2D art, List<PlayLemonCard> variants)
+        {
+            var options = new List<Prompt.Option>
+            {
+                new Prompt.Option("< Back", () =>
+                {
+                    // Rewind the modal gate: the next tick re-renders and reopens the
+                    // grouped first page (same trick as the turn banner's dismiss).
+                    _modalRevision = -1;
+                    _modalSignature = "";
+                    _renderedRevision = -1;
+                }),
+            };
+            options.AddRange(variants.Select(v => new Prompt.Option(
+                _session.LabelFor(v), () => Submit(v),
+                v.TargetEquippedInstanceId is int eq ? EquippedArt(eq) : null)));
+            _prompt.Show($"Play {name}", new[] { art }, options, showCancel: false);
         }
 
         /// <summary>
