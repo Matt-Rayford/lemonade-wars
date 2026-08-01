@@ -2445,7 +2445,13 @@ namespace LemonadeWars.Unity
                     case DecisionKind.AttackRetarget: return "Your attack was redirected — pick a new target";
                     case DecisionKind.FreePlayOffer: return "Smear Campaign: free play?";
                     case DecisionKind.ForcedPlay: return "Reverse Engineer: play the recovered card";
-                    case DecisionKind.BouncerAttack: return "Bouncer: strike back?";
+                    case DecisionKind.BouncerAttack:
+                        // Name the provocation: "strike back?" alone reads as noise
+                        // when the attack has already left the stack.
+                        return decision.ContextDefId != null && decision.ContextPlayerId is int attacker
+                            ? $"{NameOf(attacker)} attacked you with " +
+                              $"{LemonName(decision.ContextDefId)} — strike back?"
+                            : "Bouncer: strike back?";
                     case DecisionKind.AbilityVictim:
                         return source != null ? $"{source}: choose who to rob" : "Choose who to rob";
                     case DecisionKind.InnovationCopy: return "Innovation: copy which ability?";
@@ -2527,6 +2533,12 @@ namespace LemonadeWars.Unity
         {
             var cards = new List<Texture2D>();
             var decision = View.MyDecisions.FirstOrDefault();
+            if (decision?.ContextDefId != null)
+            {
+                // The play that provoked the decision (Bouncer: the attack that just
+                // hit you) — leftmost, so the story reads cause then answer.
+                cards.Add(_art.Lemon(decision.ContextDefId));
+            }
             if (decision?.SourceInstanceId is int src)
             {
                 // The equipped card whose ability is asking — the "why" of this modal.
