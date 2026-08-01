@@ -106,6 +106,14 @@ namespace LemonadeWars.Unity
         private int _attackHover = -1;   // player id, -1 = none
         private bool _attackDragMode;    // true: release fires; false: second click fires
         private bool _attackDragAborted; // Esc mid-drag: stay disarmed until release
+        /// <summary>The armed card's frame at the moment it was armed. A re-render can
+        /// rebuild the fan under an in-progress aim, which destroys the DragRelay that
+        /// owns the gesture — comparing identity after a render tells us the release
+        /// event will never arrive (see _attackDragRelayLost).</summary>
+        private RectTransform _attackFrame;
+        /// <summary>Drag-mode aim whose originating DragRelay was destroyed by a
+        /// re-render: nothing will deliver the pointer-up, so the Tick fires it.</summary>
+        private bool _attackDragRelayLost;
         private Vector2 _attackArrowFrom;
         private Vector2 _attackArrowTo;
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
@@ -693,6 +701,8 @@ namespace LemonadeWars.Unity
             _attackCardId = cardInstanceId;
             _attackValid = validTargets;
             _attackDragMode = dragMode;
+            _attackDragRelayLost = false;
+            _attackFrame = null;
             _attackHover = -1;
             _equipHover = -1;
             // Bar aiming may ALSO hit equipped cards directly when the card names them.
@@ -716,9 +726,98 @@ namespace LemonadeWars.Unity
                 {
                     entry.Frame.SetAsLastSibling();
                     entry.Motion.TargetY = 12f; // the fan's raised pose
+                    _attackFrame = entry.Frame;
                     break;
                 }
             }
+            _attackRoot.gameObject.SetActive(true);
+        }
+
+        /// <summary>
+        /// Re-bind an in-progress aim to the just-rebuilt hand / bars / shelf, or tear
+        /// it down when the aim has genuinely gone stale. Called at the very end of
+        /// Render, after every list it reads (_handFrames, _playerRows, _equipCells,
+        /// _marketCells) has been repopulated.
+        ///
+        /// Aiming used to be cancelled at the TOP of Render, which meant any
+        /// revision-driven re-render — bot pacing ticks, another player's pass, a
+        /// keepalive — silently disarmed the player's red arrow a second or two after
+        /// they drew it. The aiming state is plain data, so it survives the rebuild;
+        /// only the VISUALS have to be re-acquired.
+        /// </summary>
+        private void ReacquireAttackTargeting(PlayerView view)
+        {
+            if (_attackCardId < 0)
+            {
+                return;
+            }
+            // 1. The armed card must still be in hand (it may have been played,
+            //    stolen or discarded by whatever caused this render).
+            bool inHand = false;
+            for (int i = 0; i < view.Hand.Count; i++)
+            {
+                if (view.Hand[i].InstanceId == _attackCardId)
+                {
+                    inHand = true;
+                    break;
+                }
+            }
+            // 2. …and it must still have somewhere legal to point (a closed window
+            //    takes the moves with it even when the card stays in hand).
+            var valid = !inHand ? null
+                : _aimTarget == AimTarget.MarketCards
+                    ? MarketTargetsFor?.Invoke(_attackCardId)
+                    : AttackTargetsFor?.Invoke(_attackCardId);
+            // Bar aiming may also hit equipped cards directly, exactly as at arming.
+            var equipValid = inHand && _aimTarget == AimTarget.PlayerBars
+                ? EquipTargetsFor?.Invoke(_attackCardId)
+                : null;
+            if ((valid == null || valid.Count == 0) &&
+                (equipValid == null || equipValid.Count == 0))
+            {
+                EndAttackTargeting(); // the ONLY teardown here: the aim is truly stale
+                return;
+            }
+            // Target ids can shift under us (a victim left, the shelf refreshed).
+            _attackValid = valid ?? new HashSet<int>();
+            _attackEquipValid = equipValid;
+            // Keep the hover only while it is still legal. The glow objects are NEW,
+            // so re-apply the highlight now: the next Tick would see an unchanged
+            // hover id and skip the work, leaving the new bar dark.
+            if (_attackHover >= 0 && !_attackValid.Contains(_attackHover))
+            {
+                _attackHover = -1;
+            }
+            if (_equipHover >= 0 &&
+                (_attackEquipValid == null || !_attackEquipValid.Contains(_equipHover)))
+            {
+                _equipHover = -1;
+            }
+            ApplyAimGlows();
+
+            // Re-raise the armed card. RenderHand either rebuilt the fan (new frame,
+            // sitting at rest) or short-circuited on its signature (same frame, still
+            // raised — this is then a no-op).
+            var previousFrame = _attackFrame;
+            _attackFrame = null;
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Id == _attackCardId && entry.Frame != null)
+                {
+                    entry.Frame.SetAsLastSibling();
+                    entry.Motion.TargetY = 12f; // the fan's raised pose, as at arming
+                    _attackFrame = entry.Frame;
+                    break;
+                }
+            }
+            // A rebuilt fan destroyed the DragRelay that began a held-mouse aim, so no
+            // pointer-up will ever reach it; the Tick fires on release instead.
+            if (_attackDragMode && _attackFrame != previousFrame)
+            {
+                _attackDragRelayLost = true;
+            }
+            // Force the next Tick to redraw the arrow from the (possibly new) frame.
+            _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
             _attackRoot.gameObject.SetActive(true);
         }
 
@@ -729,6 +828,48 @@ namespace LemonadeWars.Unity
             if (targets != null && targets.Count > 0)
             {
                 BeginAttackTargeting(cardInstanceId, targets, dragMode: false);
+            }
+        }
+
+        /// <summary>
+        /// Light exactly the currently hovered target (bar, equipped strip or market
+        /// cell) in the aim's colour. Split out of the Tick because a re-render hands
+        /// the aim brand-new glow objects that must be re-lit without a hover CHANGE
+        /// to trigger it (see ReacquireAttackTargeting).
+        /// </summary>
+        private void ApplyAimGlows()
+        {
+            if (_aimTarget == AimTarget.MarketCards)
+            {
+                // Reuse each cell's own buy-glow, tinted to the aiming colour.
+                foreach (var (index, _, outer, inner) in _marketCells)
+                {
+                    foreach (var glow in new[] { outer, inner })
+                    {
+                        if (glow != null)
+                        {
+                            glow.GetComponent<Image>().color = _aimGlowColor;
+                            glow.SetActive(index == _attackHover);
+                        }
+                    }
+                }
+                return;
+            }
+            foreach (var (playerId, _, glow) in _playerRows)
+            {
+                if (glow != null)
+                {
+                    glow.GetComponent<Image>().color = _aimGlowColor;
+                    glow.SetActive(playerId == _attackHover);
+                }
+            }
+            foreach (var (id, _, glow) in _equipCells)
+            {
+                if (glow != null)
+                {
+                    glow.GetComponent<Image>().color = _aimGlowColor;
+                    glow.SetActive(id == _equipHover);
+                }
             }
         }
 
@@ -784,40 +925,17 @@ namespace LemonadeWars.Unity
             {
                 _attackHover = hover;
                 _equipHover = equipHover;
-                if (_aimTarget == AimTarget.MarketCards)
-                {
-                    // Reuse each cell's own buy-glow, tinted to the aiming colour.
-                    foreach (var (index, _, outer, inner) in _marketCells)
-                    {
-                        foreach (var glow in new[] { outer, inner })
-                        {
-                            if (glow != null)
-                            {
-                                glow.GetComponent<Image>().color = _aimGlowColor;
-                                glow.SetActive(index == hover);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    foreach (var (playerId, _, glow) in _playerRows)
-                    {
-                        if (glow != null)
-                        {
-                            glow.GetComponent<Image>().color = _aimGlowColor;
-                            glow.SetActive(playerId == hover);
-                        }
-                    }
-                    foreach (var (id, _, glow) in _equipCells)
-                    {
-                        if (glow != null)
-                        {
-                            glow.GetComponent<Image>().color = _aimGlowColor;
-                            glow.SetActive(id == equipHover);
-                        }
-                    }
-                }
+                ApplyAimGlows();
+            }
+
+            // Held-mouse aim whose DragRelay a re-render destroyed: its Ended callback
+            // died with the old card object, so nothing else can fire on release.
+            // Hover is up to date at this point, so this lands on the same target the
+            // relay would have picked.
+            if (_attackDragMode && _attackDragRelayLost && !Input.GetMouseButton(0))
+            {
+                FinishAttackTargeting();
+                return;
             }
 
             // Arrow: from the armed card's top edge, trailing the cursor.
@@ -945,6 +1063,8 @@ namespace LemonadeWars.Unity
             _equipHover = -1;
             _attackValid = null;
             _attackEquipValid = null;
+            _attackFrame = null;
+            _attackDragRelayLost = false;
             _aimTarget = AimTarget.PlayerBars;
             UiKit.Clear(_attackArrowHost);
             _attackRoot.gameObject.SetActive(false);
@@ -1311,11 +1431,13 @@ namespace LemonadeWars.Unity
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             _db = db;
-            if (_attackCardId >= 0)
-            {
-                // Hand and player bars are about to be rebuilt under the aiming layer.
-                EndAttackTargeting();
-            }
+            // An in-progress aim SURVIVES the rebuild. Renders fire on every revision
+            // bump (bot pacing ticks, other players' passes, keepalives), so tearing
+            // targeting down here cancelled the player's arrow a second or two after
+            // they drew it. The aiming state is plain data; only the visuals it points
+            // at are rebuilt below, and ReacquireAttackTargeting re-binds them (or ends
+            // the aim if it has actually gone stale).
+            bool wasAiming = _attackCardId >= 0;
             _pickHover = -1;
             RenderMarket(view, db, groups);
             RenderBoard(view);
@@ -1324,6 +1446,12 @@ namespace LemonadeWars.Unity
             RenderFirstDibs(view);
             RenderSupply(view, db, groups);
             RenderPlayers(view);
+            if (wasAiming)
+            {
+                // Last: every list it re-binds against (_marketCells, _equipCells,
+                // _handFrames, _playerRows) has just been repopulated above.
+                ReacquireAttackTargeting(view);
+            }
         }
 
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)

@@ -179,6 +179,38 @@ namespace LemonadeWars.Engine.Tests
                 game.Apply(new DrawLemonCard { PlayerId = active }));
         }
 
+        /// <summary>
+        /// The action log has to explain every action a turn spent. Draws and the market
+        /// sweep look identical to bookkeeping unless the events say what caused them.
+        /// </summary>
+        [Fact]
+        public void DrawsAndMarketRefreshCarryTheirCause()
+        {
+            var game = ReadyToPlay();
+            int active = game.State.ActivePlayer;
+
+            // The paid sweep names the player; the refill after a purchase stays anonymous.
+            var refreshed = game.Apply(new RefreshMarket { PlayerId = active })
+                .OfType<MarketRefilled>().Single();
+            Assert.Equal(active, refreshed.RefreshedByPlayerId);
+
+            // A draw bought with an action is stamped as such — otherwise a turn spent
+            // drawing is indistinguishable from a passed turn.
+            var byAction = game.Apply(new DrawLemonCard { PlayerId = active })
+                .OfType<CardDrawn>().Single();
+            Assert.Equal(DrawReason.Action, byAction.Reason);
+
+            // The automatic top-of-turn draw carries a different reason, so it can be
+            // phrased (and batched) as the freebie it is.
+            var events = new List<GameEvent>(game.Apply(new EndTurn { PlayerId = active }));
+            while (game.State.AwaitingResponse.Count > 0)
+            {
+                events.AddRange(
+                    game.Apply(new PassWindow { PlayerId = game.State.AwaitingResponse[0] }));
+            }
+            Assert.Contains(events.OfType<CardDrawn>(), d => d.Reason == DrawReason.TurnStart);
+        }
+
         [Fact]
         public void BraggingRightsEscalateAndLimitOncePerTurn()
         {

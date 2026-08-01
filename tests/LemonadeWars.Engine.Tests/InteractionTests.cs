@@ -809,6 +809,72 @@ namespace LemonadeWars.Engine.Tests
             Assert.Equal(3, game.State.ActionsRemaining);
         }
 
+        [Fact]
+        public void ReverseEngineerOffersEveryDiscardedCopy()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+
+            // Both Automations land in the discard: the picker shows the physical pile,
+            // so BOTH copies must be offered — not one row per distinct card.
+            var copies = new List<int>();
+            for (int i = 0; i < 2; i++)
+            {
+                int id = GiveCard(game, a, "automation");
+                game.State.Players[a].Hand.Remove(id);
+                game.State.LemonDiscard.Add(id);
+                copies.Add(id);
+            }
+
+            int card = GiveCard(game, a, "reverse-engineer");
+            var offered = game.LegalMovesFor(a).OfType<PlayLemonCard>()
+                .Where(m => m.CardInstanceId == card && m.DiscardedLemonInstanceId != null)
+                .Select(m => m.DiscardedLemonInstanceId!.Value)
+                .ToList();
+
+            Assert.Contains(copies[0], offered);
+            Assert.Contains(copies[1], offered);
+            // Every playable card in the pile, each exactly once.
+            Assert.Equal(offered.Count, offered.Distinct().Count());
+            int playable = game.State.LemonDiscard.Count(id =>
+            {
+                var def = TestData.Db.Lemon(game.State.LemonInstances[id].DefId);
+                return def.Type == Data.LemonCardType.Plan || def.Type == Data.LemonCardType.Attack;
+            });
+            Assert.Equal(playable, offered.Count);
+        }
+
+        [Fact]
+        public void ReduceAndReuseOffersEveryDiscardedBlackMarketCopy()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+            var s = game.State;
+
+            // Two copies of one Black Market card sit in the discard.
+            var copies = s.BlackMarketDeck
+                .GroupBy(id => s.BlackMarketInstances[id].DefId)
+                .First(g => g.Count() >= 2)
+                .Take(2).ToList();
+            foreach (int id in copies)
+            {
+                s.BlackMarketDeck.Remove(id);
+                s.BlackMarketDiscard.Add(id);
+            }
+
+            int card = GiveCard(game, a, "reduce-and-reuse");
+            var offered = game.LegalMovesFor(a).OfType<PlayLemonCard>()
+                .Where(m => m.CardInstanceId == card && m.DiscardedBmInstanceId != null)
+                .Select(m => m.DiscardedBmInstanceId!.Value)
+                .Distinct().ToList();
+
+            Assert.Contains(copies[0], offered);
+            Assert.Contains(copies[1], offered);
+            Assert.Equal(s.BlackMarketDiscard.Count, offered.Count);
+        }
+
         // ------------------------------------------------------ status cards
 
         [Fact]

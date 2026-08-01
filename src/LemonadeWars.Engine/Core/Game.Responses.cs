@@ -812,7 +812,7 @@ namespace LemonadeWars.Engine.Core
         // ----------------------------------------------------- draw queue
 
         private void QueueDraws(int playerId, int count, bool countsForRoll = false,
-            bool trackDrawnIds = false)
+            bool trackDrawnIds = false, DrawReason reason = DrawReason.Effect)
         {
             State.PendingDraws.Add(new PendingDraw
             {
@@ -820,6 +820,7 @@ namespace LemonadeWars.Engine.Core
                 Count = count,
                 CountsForRoll = countsForRoll,
                 TrackDrawnIds = trackDrawnIds,
+                Reason = reason,
             });
         }
 
@@ -833,7 +834,7 @@ namespace LemonadeWars.Engine.Core
                 {
                     entry.Count--;
                     int handBefore = player.Hand.Count;
-                    bool drewCard = DrawOneCard(player, events);
+                    bool drewCard = DrawOneCard(player, entry.Reason, events);
                     if (entry.TrackDrawnIds && player.Hand.Count > handBefore)
                     {
                         State.TrackedDrawnCards.Add(player.Hand[player.Hand.Count - 1]);
@@ -857,7 +858,7 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>Draw one card for the player. Returns false when a Timeout paused the game.</summary>
-        private bool DrawOneCard(PlayerState player, List<GameEvent> events)
+        private bool DrawOneCard(PlayerState player, DrawReason reason, List<GameEvent> events)
         {
             if (State.LemonDeck.Count == 0)
             {
@@ -882,6 +883,7 @@ namespace LemonadeWars.Engine.Core
                     PlayerId = player.PlayerId,
                     InstanceId = instanceId,
                     DefId = def.Id,
+                    Reason = reason,
                 });
                 return true;
             }
@@ -1136,7 +1138,7 @@ namespace LemonadeWars.Engine.Core
                     }
                     QueueDraws(State.ActivePlayer,
                         isBaby ? Db.Config.TurnStartDraw + 1 : Db.Config.TurnStartDraw,
-                        trackDrawnIds: isBaby);
+                        trackDrawnIds: isBaby, reason: DrawReason.TurnStart);
                     break;
                 case 2: // Whiniest Baby: discard 1 — of the cards just drawn, not the whole hand.
                     State.TurnStartStep = 3;

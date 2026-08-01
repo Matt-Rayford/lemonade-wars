@@ -673,15 +673,11 @@ namespace LemonadeWars.Engine.Core
 
                 case "reduce-and-reuse":
                 {
-                    // One instance per distinct def is enough — copies are interchangeable.
-                    var seen = new HashSet<string>();
+                    // EVERY physical copy in the discard is offered: the picker shows the
+                    // pile as it sits on the table, and players count the copies.
                     foreach (int bmId in State.BlackMarketDiscard)
                     {
                         var bmDef = EquippedDef(bmId);
-                        if (!seen.Add(bmDef.Id))
-                        {
-                            continue;
-                        }
                         foreach (var (standId, replaceId) in DestinationsFor(player, bmDef))
                         {
                             var play = Base();
@@ -700,15 +696,12 @@ namespace LemonadeWars.Engine.Core
                     draw.DrawInstead = true;
                     yield return draw;
 
-                    var seenDefs = new HashSet<string>();
+                    // EVERY physical copy in the discard is offered: the picker shows the
+                    // pile as it sits on the table, and players count the copies.
                     foreach (int lemonId in State.LemonDiscard)
                     {
                         var lemonDef = Db.Lemon(State.LemonInstances[lemonId].DefId);
                         if (lemonDef.Type != LemonCardType.Plan && lemonDef.Type != LemonCardType.Attack)
-                        {
-                            continue;
-                        }
-                        if (!seenDefs.Add(lemonDef.Id))
                         {
                             continue;
                         }

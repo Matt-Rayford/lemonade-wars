@@ -202,17 +202,27 @@ namespace LemonadeWars.Engine.Ai
                     return 20 + game.StandEarnings(me, stand) * 4;
                 }
                 case "hoa-violation":
-                    return target == null ? 0 : 20 + Math.Min(5, target.Money) * 4;
                 case "sharing-is-caring":
-                    return target == null ? 0 : 15 + Math.Min((target.Money + 1) / 2, 10) * 3;
                 case "taxes":
-                    return target == null ? 0 : 15 + Math.Min(2 * target.Stands.Count, 10) * 3;
+                    // All three cap at the victim's cash, so the nominal steal is a lie:
+                    // score what would ACTUALLY change hands from THIS victim.
+                    return target == null ? 0 : MoneyAttackScore(MoneyRecovered(defId, target) ?? 0);
                 case "smear-campaign":
                     return target == null ? 0 : 20 + Math.Min(2, target.Hand.Count) * 6;
                 case "trash-pandas":
                     return target == null ? 0 : (target.Hand.Count - me.Hand.Count) * 6;
                 case "steal-the-cashbox":
-                    return target == null ? 0 : 18 + target.Stands.Count * 3;
+                {
+                    // A trap on the victim's NEXT roll, not their wallet: what matters is
+                    // how much their stands earn when they sell, capped at $10.
+                    if (target == null)
+                    {
+                        return 0;
+                    }
+                    double perRoll = target.Stands.Sum(
+                        st => game.StandEarnings(target, st) * game.SaleNumbersOf(st).Count) / 6.0;
+                    return 18 + Math.Min(perRoll, 10) * 3;
+                }
                 case "thats-not-fair":
                     return 22 + StolenValue(game, me, play);
                 case "finders-keepers":
@@ -226,7 +236,18 @@ namespace LemonadeWars.Engine.Ai
                 case "rummage-sale":
                     return 6; // usually better to keep upgrades
                 case "rebrand":
-                    return 10;
+                {
+                    var swapped = me.Stands.FirstOrDefault(st => st.InstanceId == play.TargetStandInstanceId);
+                    if (swapped == null)
+                    {
+                        return 10;
+                    }
+                    // Only worth an action when it moves us TOWARD an unclaimed First Dibs
+                    // collection — and it's a real setback when it walks a stand back out
+                    // of one we're partway through. Overflow upgrades get discarded.
+                    return 10 + RebrandDibsDelta(game, me, swapped.StandTypeId, play.NewStandTypeId)
+                        - play.SelectedInstanceIds.Count * 5;
+                }
                 case "apologize":
                     // Expert Whiner WANTS to end the game as the Whiniest Baby.
                     if (me.LemonLordKept.Contains("expert-whiner"))
@@ -243,6 +264,72 @@ namespace LemonadeWars.Engine.Ai
                 default:
                     return 10;
             }
+        }
+
+        /// <summary>
+        /// Dollars a money-stealing attack would ACTUALLY move: the card's nominal steal
+        /// capped by the victim's cash, exactly the way <c>StealMoney</c> caps it (and a
+        /// $0 transfer is a no-op). Null for cards that never touch a player's cash pile.
+        /// </summary>
+        public static int? MoneyRecovered(string defId, PlayerState victim)
+        {
+            switch (defId)
+            {
+                case "hoa-violation":
+                    return Math.Min(5, victim.Money);
+                case "taxes":
+                    return Math.Min(Math.Min(2 * victim.Stands.Count, 10), victim.Money);
+                case "sharing-is-caring":
+                    return Math.Min((victim.Money + 1) / 2, 10);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Worth of a money attack given what it would actually recover: nothing at $0,
+        /// barely worth the action off a near-broke victim, top-tier at the $10 cap.
+        /// </summary>
+        private static double MoneyAttackScore(int recovered) =>
+            recovered <= 0 ? 0 : 6 + recovered * 3.8;
+
+        /// <summary>
+        /// Net First Dibs stand-count progress of a Rebrand: what the destination type
+        /// gains minus what the abandoned type loses.
+        /// </summary>
+        private static double RebrandDibsDelta(Game game, PlayerState me, string fromType, string toType)
+        {
+            int Owned(string type) => me.Stands.Count(st => st.StandTypeId == type);
+            // Connoisseur wants 3 Gourmet AND 1 other: on an all-gourmet board the spare
+            // gourmet is exactly the stand that should be converted.
+            if (game.State.FirstDibsRow.Contains("connoisseur") && fromType == "gourmet" &&
+                toType != "gourmet" && Owned("gourmet") >= 4 && me.Stands.Count == Owned("gourmet"))
+            {
+                return 12;
+            }
+            return DibsStandMarginal(game, toType, Owned(toType) + 1)
+                - DibsStandMarginal(game, fromType, Owned(fromType));
+        }
+
+        /// <summary>How many stands of a type an unclaimed First Dibs title wants (0 = none on offer).</summary>
+        private static int DibsStandGoal(Game game, string standTypeId)
+        {
+            var row = game.State.FirstDibsRow;
+            if (standTypeId == "bargain" && row.Contains("penny-pincher")) return 5;
+            if (standTypeId == "classic" && row.Contains("local-legend")) return 4;
+            if (standTypeId == "gourmet" && row.Contains("connoisseur")) return 3;
+            return 0;
+        }
+
+        /// <summary>
+        /// What the <paramref name="nth"/> stand of a type is worth toward an unclaimed
+        /// First Dibs stand title: growing, so a started collection gets finished, and
+        /// zero once the title's count is already covered.
+        /// </summary>
+        private static double DibsStandMarginal(Game game, string standTypeId, int nth)
+        {
+            int goal = DibsStandGoal(game, standTypeId);
+            return goal == 0 || nth < 1 || nth > goal ? 0 : 6 + (nth - 1) * 4;
         }
 
         /// <summary>
@@ -372,25 +459,16 @@ namespace LemonadeWars.Engine.Ai
         {
             var row = game.State.FirstDibsRow;
             int Owned(string type) => me.Stands.Count(st => st.StandTypeId == type);
-            if (standTypeId == "bargain" && row.Contains("penny-pincher") && Owned("bargain") < 5)
+            double dibs = DibsStandMarginal(game, standTypeId, Owned(standTypeId) + 1);
+            if (dibs > 0)
             {
-                return 6 + Owned("bargain") * 4;
+                return dibs;
             }
-            if (standTypeId == "classic" && row.Contains("local-legend") && Owned("classic") < 4)
+            // Three gourmets down, all-gourmet board: the title's "1 other Stand".
+            if (row.Contains("connoisseur") && standTypeId != "gourmet" &&
+                Owned("gourmet") >= 3 && me.Stands.Count == Owned("gourmet"))
             {
-                return 6 + Owned("classic") * 4;
-            }
-            if (row.Contains("connoisseur"))
-            {
-                if (standTypeId == "gourmet" && Owned("gourmet") < 3)
-                {
-                    return 6 + Owned("gourmet") * 4;
-                }
-                // Three gourmets down, all-gourmet board: the title's "1 other Stand".
-                if (standTypeId != "gourmet" && Owned("gourmet") >= 3 && me.Stands.Count == Owned("gourmet"))
-                {
-                    return 12;
-                }
+                return 12;
             }
             // Kept lords with stand-flavored conditions pull the stand mix too.
             double lordBonus = 0;
@@ -632,18 +710,46 @@ namespace LemonadeWars.Engine.Ai
     /// <summary>Drives a game to completion with a bot in every seat.</summary>
     /// <summary>
     /// Moves no human would ever consider — strictly dominated placements of
-    /// numbered upgrades. The greedy policy already avoids them via affinities, but
-    /// SEARCH bots must exclude them up front: when a turn has fewer legal moves
-    /// than the candidate cap, everything gets rolled out, and rollout noise can
-    /// rank a wasted placement above its sensible twin (a few dollars of income
-    /// barely moves a win-probability estimate).
+    /// numbered upgrades, and money attacks that would move $0. The greedy policy
+    /// already avoids them via affinities, but SEARCH bots must exclude them up
+    /// front: when a turn has fewer legal moves than the candidate cap, everything
+    /// gets rolled out, and rollout noise can rank a wasted move above its sensible
+    /// twin (a few dollars barely moves a win-probability estimate).
     /// </summary>
     public static class MoveFilters
     {
         public static bool ObjectivelyWasted(Game game, int playerId, GameAction move)
         {
-            if (!(move is BuyBlackMarket bm) ||
-                bm.ReplaceInstanceId != null || // replacing may free the very number it re-adds
+            switch (move)
+            {
+                case PlayLemonCard play:
+                    return WastedMoneyAttack(game, play);
+                case BuyBlackMarket bm:
+                    return WastedPlacement(game, playerId, bm);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Taxes / HOA Violation / Sharing Is Caring all take min(nominal, the victim's
+        /// cash). Against a victim holding $0 the transfer is literally a no-op, so the
+        /// action buys nothing. A $1-2 victim is merely a bad target, not a wasted one.
+        /// </summary>
+        private static bool WastedMoneyAttack(Game game, PlayLemonCard play)
+        {
+            if (!(play.TargetPlayerId is int victimId) ||
+                victimId < 0 || victimId >= game.State.Players.Count ||
+                !game.State.LemonInstances.TryGetValue(play.CardInstanceId, out var instance))
+            {
+                return false;
+            }
+            return GreedyBot.MoneyRecovered(instance.DefId, game.State.Players[victimId]) == 0;
+        }
+
+        private static bool WastedPlacement(Game game, int playerId, BuyBlackMarket bm)
+        {
+            if (bm.ReplaceInstanceId != null || // replacing may free the very number it re-adds
                 bm.MarketIndex >= game.State.Market.Count)
             {
                 return false;

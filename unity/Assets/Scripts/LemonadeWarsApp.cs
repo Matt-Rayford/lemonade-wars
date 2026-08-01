@@ -77,6 +77,9 @@ namespace LemonadeWars.Unity
         private int _modalRevision = -1;
         private string _modalSignature = "";
         private bool _autoModalOpen; // last prompt/picker came from MaybeShowModal
+        // Revision whose forced play was already auto-submitted — online, the revision
+        // does not advance until the server answers, and a second submit would be a bug.
+        private int _autoForcedPlayRevision = -1;
         private bool _wasMyTurn;
 
         private PlayerView View => _session?.View;
@@ -511,6 +514,7 @@ namespace LemonadeWars.Unity
             _modalRevision = -1;
             _wasMyTurn = false;
             _actionLog.Clear();
+            _drawRunText = null;
             _saleEarnings = null;
             _endShown = false;
         }
@@ -999,13 +1003,15 @@ namespace LemonadeWars.Unity
 
         /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log
-        /// (draws, individual money ticks, window bookkeeping).
+        /// (individual money ticks, window bookkeeping) or already folded into the
+        /// line above (a run of draws grows its own line in place).
         /// </summary>
         private string LogLine(GameEvent e)
         {
             switch (e)
             {
                 case TurnStarted turn: return $"— {NameOf(turn.PlayerId)}'s turn —";
+                case CardDrawn drawn: return DrawLine(drawn);
                 case LemonCardPlayed played:
                     return $"{NameOf(played.PlayerId)} plays {LemonName(played.DefId)}" +
                            (played.TargetPlayerId is int t ? $" on {NameOf(t)}" : "");
@@ -1026,6 +1032,13 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(bmBuy.PlayerId)} buys {BlackMarketName(bmBuy.DefId)}";
                 case BraggingRightsPurchased brag:
                     return $"{NameOf(brag.PlayerId)} buys Bragging Rights (${brag.Price})";
+                // Only the paid sweep is worth a line — the refill after a purchase is not.
+                case MarketRefilled refill when refill.RefreshedByPlayerId is int refresher:
+                    return $"{NameOf(refresher)} refreshes the Black Market";
+                case PowerPourTriggered pour:
+                    return $"{NameOf(pour.PlayerId)} hits a Power Pour!";
+                case AbilityTriggered ability:
+                    return $"{NameOf(ability.PlayerId)}'s {BlackMarketName(ability.DefId)} kicks in";
                 case TitleClaimed title:
                     return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
                 case SaleRolled rolled:
@@ -1050,10 +1063,62 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(r)} is now Spoiled Rotten";
                 case TrapPlaced trap:
                     return $"{NameOf(trap.OwnerId)} sets a trap on {NameOf(trap.OnPlayerId)}'s turf";
+                case StageChanged stage when stage.Stage == GameStage.FinalRound:
+                    return "— Final round! —";
                 case GameEnded ended:
                     return $"Game over — {string.Join(", ", ended.Winners.Select(NameOf))} wins!";
                 default:
                     return null;
+            }
+        }
+
+        // A run of draws — turn-start, a Draw action, or a card handing over 3 at once —
+        // grows ONE line instead of spamming one per card. The run belongs to the last
+        // logged line: anything else logged in between starts a fresh one.
+        private int _drawRunPlayer = -1;
+        private DrawReason _drawRunReason;
+        private int _drawRunCount;
+        private string _drawRunText;
+
+        /// <summary>
+        /// Log a draw without leaking what was drawn. Returns the new line, or null when
+        /// the draw was folded into the line already on the end of the log.
+        /// </summary>
+        private string DrawLine(CardDrawn drawn)
+        {
+            bool continues = _drawRunText != null &&
+                             _drawRunPlayer == drawn.PlayerId &&
+                             _drawRunReason == drawn.Reason &&
+                             _actionLog.Count > 0 &&
+                             _actionLog[_actionLog.Count - 1] == _drawRunText;
+
+            _drawRunPlayer = drawn.PlayerId;
+            _drawRunReason = drawn.Reason;
+            _drawRunCount = continues ? _drawRunCount + 1 : 1;
+            _drawRunText = DrawRunText(drawn.PlayerId, drawn.Reason, _drawRunCount);
+
+            if (!continues)
+            {
+                return _drawRunText;
+            }
+            _actionLog[_actionLog.Count - 1] = _drawRunText;
+            return null;
+        }
+
+        private string DrawRunText(int playerId, DrawReason reason, int count)
+        {
+            string cards = count == 1 ? "a card" : $"{count} cards";
+            switch (reason)
+            {
+                case DrawReason.Action:
+                    // The one draw kind that costs an action — say so in full.
+                    return count == 1
+                        ? $"{NameOf(playerId)} draws a Lemon card"
+                        : $"{NameOf(playerId)} draws {count} Lemon cards";
+                case DrawReason.TurnStart:
+                    return $"{NameOf(playerId)} draws {cards} to start the turn";
+                default:
+                    return $"{NameOf(playerId)} draws {cards}";
             }
         }
 
@@ -1264,34 +1329,9 @@ namespace LemonadeWars.Unity
             string cardName = _db.Lemon(card?.DefId ?? "").Name;
             var cardArt = _art.Lemon(card?.DefId ?? "");
 
-            // Multi-variant plays collapse into one option that opens a guided flow,
-            // instead of flooding the menu with one text row per combination.
-            var bmTakes = moves.OfType<PlayLemonCard>()
-                .Where(m => m.DiscardedBmInstanceId != null).Cast<GameAction>().ToList();
-            var lemonTakes = moves.OfType<PlayLemonCard>()
-                .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
-            var equipSteals = moves.OfType<PlayLemonCard>()
-                .Where(m => m.TargetEquippedInstanceId != null).Cast<GameAction>().ToList();
-            var direct = moves
-                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
-                            !equipSteals.Contains(m)).ToList();
-
+            var guided = GuidedOptions(cardName, cardArt, moves, onBack: null, out var direct);
             var options = ToOptions(direct);
-            if (bmTakes.Count > 0)
-            {
-                options.Add(new Prompt.Option("Take a discarded Black Market card...",
-                    () => OpenTakeFromDiscard(bmTakes, blackMarket: true)));
-            }
-            if (lemonTakes.Count > 0)
-            {
-                options.Add(new Prompt.Option("Take a discarded Lemon card...",
-                    () => OpenTakeFromDiscard(lemonTakes, blackMarket: false)));
-            }
-            if (equipSteals.Count > 0)
-            {
-                options.Add(new Prompt.Option("Choose a player to target...",
-                    () => OpenEquippedSteal(cardName, cardArt, equipSteals)));
-            }
+            options.AddRange(guided);
 
             if (direct.Count == 0 && options.Count == 1)
             {
@@ -1299,6 +1339,47 @@ namespace LemonadeWars.Unity
                 return;
             }
             _prompt.Show(cardName, new[] { cardArt }, options, showCancel: true);
+        }
+
+        /// <summary>
+        /// Multi-variant plays collapse into one option that opens a guided flow (the
+        /// visual discard picker, the victim-then-card steal), instead of flooding a
+        /// menu with one text row per combination. Whatever is left over comes back in
+        /// <paramref name="direct"/> for the caller to list normally. Shared by the
+        /// hand menu and the blur-modal variant page, so a card plays the same way
+        /// whether you clicked it in hand or answered a forced/free play with it.
+        /// </summary>
+        private List<Prompt.Option> GuidedOptions(string cardName, Texture2D cardArt,
+            IEnumerable<GameAction> moves, System.Action onBack, out List<GameAction> direct)
+        {
+            var all = moves.ToList();
+            var bmTakes = all.OfType<PlayLemonCard>()
+                .Where(m => m.DiscardedBmInstanceId != null).Cast<GameAction>().ToList();
+            var lemonTakes = all.OfType<PlayLemonCard>()
+                .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
+            var equipSteals = all.OfType<PlayLemonCard>()
+                .Where(m => m.TargetEquippedInstanceId != null).Cast<GameAction>().ToList();
+            direct = all
+                .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
+                            !equipSteals.Contains(m)).ToList();
+
+            var options = new List<Prompt.Option>();
+            if (bmTakes.Count > 0)
+            {
+                options.Add(new Prompt.Option("Take a discarded Black Market card...",
+                    () => OpenTakeFromDiscard(bmTakes, blackMarket: true, onBack)));
+            }
+            if (lemonTakes.Count > 0)
+            {
+                options.Add(new Prompt.Option("Take a discarded Lemon card...",
+                    () => OpenTakeFromDiscard(lemonTakes, blackMarket: false, onBack)));
+            }
+            if (equipSteals.Count > 0)
+            {
+                options.Add(new Prompt.Option("Choose a player to target...",
+                    () => OpenEquippedSteal(cardName, cardArt, equipSteals)));
+            }
+            return options;
         }
 
         /// <summary>
@@ -1618,8 +1699,15 @@ namespace LemonadeWars.Unity
                 .ToList();
         }
 
-        /// <summary>Choose which discard to take via the discard-pile picker overlay.</summary>
-        private void OpenTakeFromDiscard(List<GameAction> takes, bool blackMarket)
+        /// <summary>
+        /// Choose which discard to take via the discard-pile picker overlay. The pool is
+        /// every physical copy the engine offers — duplicates included, because players
+        /// count the pile — and the confirm button names what the pick actually does.
+        /// A recovered Lemon card is played on the spot (Reverse Engineer), so its verb
+        /// says so and there is no separate confirmation beat afterwards.
+        /// </summary>
+        private void OpenTakeFromDiscard(List<GameAction> takes, bool blackMarket,
+            System.Action onBack = null)
         {
             _prompt.Hide();
             var byCard = takes.Cast<PlayLemonCard>()
@@ -1627,6 +1715,7 @@ namespace LemonadeWars.Unity
                 .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
             var pool = (blackMarket ? View.BlackMarketDiscard : View.LemonDiscard)
                 .Where(c => byCard.ContainsKey(c.InstanceId)).ToList();
+            string verb = blackMarket ? "TAKE" : "TAKE AND PLAY";
 
             _table.OpenDiscardPicker(
                 blackMarket ? "TAKE A DISCARDED BLACK MARKET CARD" : "TAKE A DISCARDED LEMON CARD",
@@ -1639,7 +1728,8 @@ namespace LemonadeWars.Unity
                         ? _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square)
                         : _art.Lemon(picked.DefId);
                     ResolveEquipDestination(byCard[instanceId], texture);
-                });
+                },
+                onBack: onBack, verb: verb);
         }
 
         /// <summary>
@@ -2179,6 +2269,10 @@ namespace LemonadeWars.Unity
             }
             _modalRevision = revision;
             _modalSignature = signature;
+            if (TryAutoForcedPlay(groups, revision))
+            {
+                return;
+            }
             _autoModalOpen = true;
             if (TryShowPlayerPick(groups))
             {
@@ -2274,21 +2368,60 @@ namespace LemonadeWars.Unity
         /// a way back to reconsider the card.</summary>
         private void ShowVariantPage(string name, Texture2D art, List<PlayLemonCard> variants)
         {
-            var options = new List<Prompt.Option>
+            // Rewind the modal gate: the next tick re-renders and reopens the
+            // grouped first page (same trick as the turn banner's dismiss).
+            System.Action back = () =>
             {
-                new Prompt.Option("< Back", () =>
-                {
-                    // Rewind the modal gate: the next tick re-renders and reopens the
-                    // grouped first page (same trick as the turn banner's dismiss).
-                    _modalRevision = -1;
-                    _modalSignature = "";
-                    _renderedRevision = -1;
-                }),
+                _modalRevision = -1;
+                _modalSignature = "";
+                _renderedRevision = -1;
             };
-            options.AddRange(variants.Select(v => new Prompt.Option(
-                _session.LabelFor(v), () => Submit(v),
-                v.TargetEquippedInstanceId is int eq ? EquippedArt(eq) : null)));
+            // Same guided flows the hand menu uses — Reduce and Reuse must reach the
+            // visual pile picker whether it was played from hand or off a modal.
+            var guided = GuidedOptions(name, art, variants.Cast<GameAction>(), back,
+                out var direct);
+            if (direct.Count == 0 && guided.Count == 1)
+            {
+                _prompt.Hide();
+                guided[0].OnPick(); // a lone guided flow — skip the one-button page
+                return;
+            }
+            var options = new List<Prompt.Option> { new Prompt.Option("< Back", back) };
+            options.AddRange(guided);
+            options.AddRange(direct.Select(v => new Prompt.Option(
+                _session.LabelFor(v),
+                () => Submit(v),
+                v is PlayLemonCard p && p.TargetEquippedInstanceId is int eq
+                    ? EquippedArt(eq) : null)));
             _prompt.Show($"Play {name}", new[] { art }, options, showCancel: false);
+        }
+
+        /// <summary>
+        /// Reverse Engineer's recovered card MUST be played, so when there is exactly
+        /// one way to play it the modal is a dead click on a page with nothing to
+        /// decide — submit it and let the play speak for itself. Anything with a real
+        /// choice (targets, destinations, or a skip because the card has no legal
+        /// parameterization) falls through to the normal flows.
+        /// </summary>
+        private bool TryAutoForcedPlay(MoveGroups groups, int revision)
+        {
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null || decision.Kind != DecisionKind.ForcedPlay ||
+                _autoForcedPlayRevision == revision)
+            {
+                return false;
+            }
+            // One move, and it must be the play itself: a lone SkipFreePlay means the
+            // card cannot be played at all, and that is the player's beat to see.
+            if (groups.ModalMoves.Count != 1 || !(groups.ModalMoves[0] is PlayLemonCard only))
+            {
+                return false;
+            }
+            _autoForcedPlayRevision = revision;
+            _prompt.Hide();
+            _reaction.Hide();
+            Submit(only);
+            return true;
         }
 
         /// <summary>
@@ -2444,7 +2577,12 @@ namespace LemonadeWars.Unity
                                $"(you have ${View.Players[View.ViewerId].Money})";
                     case DecisionKind.AttackRetarget: return "Your attack was redirected — pick a new target";
                     case DecisionKind.FreePlayOffer: return "Smear Campaign: free play?";
-                    case DecisionKind.ForcedPlay: return "Reverse Engineer: play the recovered card";
+                    case DecisionKind.ForcedPlay:
+                        // Only reached when the play still needs a choice — name the
+                        // card, so the page is about something.
+                        return RecoveredCardDefId(decision) is string recovered
+                            ? $"Reverse Engineer: play {LemonName(recovered)}"
+                            : "Reverse Engineer: play the recovered card";
                     case DecisionKind.BouncerAttack:
                         // Name the provocation: "strike back?" alone reads as noise
                         // when the attack has already left the stack.
@@ -2529,10 +2667,23 @@ namespace LemonadeWars.Unity
             return "Your choice";
         }
 
+        /// <summary>The card a ForcedPlay decision is about (it sits in hand by then).</summary>
+        private string RecoveredCardDefId(PlayerView.DecisionInfo decision) =>
+            decision.CardInstanceId is int id
+                ? View.Hand.FirstOrDefault(c => c.InstanceId == id)?.DefId
+                : null;
+
         private List<Texture2D> ModalCards()
         {
             var cards = new List<Texture2D>();
             var decision = View.MyDecisions.FirstOrDefault();
+            if (decision != null && decision.Kind == DecisionKind.ForcedPlay &&
+                RecoveredCardDefId(decision) is string recovered)
+            {
+                // The recovered card IS the subject of this page — without it the
+                // modal reads blank.
+                cards.Add(_art.Lemon(recovered));
+            }
             if (decision?.ContextDefId != null)
             {
                 // The play that provoked the decision (Bouncer: the attack that just

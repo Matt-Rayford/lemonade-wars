@@ -181,6 +181,185 @@ namespace LemonadeWars.Engine.Tests
             Assert.False(MoveFilters.ObjectivelyWasted(game, 0, dupPour));
         }
 
+        // ------------------------------------------------- value-blind attack rigs
+
+        private static int _rigId = 9100;
+
+        /// <summary>Deal through setup and the first draw, stopping in the active player's Play phase.</summary>
+        private static Game ReadyToAct(ulong seed, int players)
+        {
+            var names = new[] { "Ana", "Ben", "Cal", "Dee" }.Take(players).ToArray();
+            var game = Game.Create(TestData.Db, names, seed);
+            foreach (var p in game.State.Players)
+            {
+                game.Apply(new ChooseLemonLords
+                {
+                    PlayerId = p.PlayerId,
+                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
+                });
+            }
+            while (game.State.Stage == GameStage.InitialBuys)
+            {
+                int buyer = game.State.InitialBuyQueue[0];
+                game.Apply(new InitialBuyStand { PlayerId = buyer, StandTypeId = "bargain" });
+                game.Apply(new InitialBuyEnd { PlayerId = buyer });
+            }
+            var warmup = new GreedyBot();
+            while (game.State.Phase != TurnPhase.Play && game.State.Stage != GameStage.Finished)
+            {
+                game.Apply(warmup.Choose(game, game.ActingPlayers()[0]));
+            }
+            return game;
+        }
+
+        /// <summary>Move one instance of a lemon def into the player's hand, from wherever it is.</summary>
+        private static void GiveCard(Game game, int playerId, string defId)
+        {
+            var s = game.State;
+            int Find(List<int> zone) => zone.FirstOrDefault(id => s.LemonInstances[id].DefId == defId);
+
+            int found = Find(s.LemonDeck);
+            if (found != 0)
+            {
+                s.LemonDeck.Remove(found);
+            }
+            else if ((found = Find(s.LemonDiscard)) != 0)
+            {
+                s.LemonDiscard.Remove(found);
+            }
+            else
+            {
+                foreach (var p in s.Players)
+                {
+                    found = Find(p.Hand);
+                    if (found != 0)
+                    {
+                        p.Hand.Remove(found);
+                        break;
+                    }
+                }
+            }
+            Assert.NotEqual(0, found);
+            s.Players[playerId].Hand.Add(found);
+        }
+
+        /// <summary>Bury the player's hand at the bottom of the deck, then deal them one named card.</summary>
+        private static void StripToOneCard(Game game, int playerId, string defId)
+        {
+            var hand = game.State.Players[playerId].Hand;
+            game.State.LemonDeck.AddRange(hand);
+            hand.Clear();
+            GiveCard(game, playerId, defId);
+        }
+
+        private static void AddStand(PlayerState player, string typeId) =>
+            player.Stands.Add(new StandInstance
+            {
+                InstanceId = _rigId++,
+                StandTypeId = typeId,
+                Shape = LemonadeWars.Engine.Data.Shape.Circle,
+            });
+
+        [Fact]
+        public void MoneyAttacksChaseTheVictimWhoCanActuallyPay()
+        {
+            var game = ReadyToAct(21, 3);
+            var s = game.State;
+            int actor = s.ActivePlayer;
+            var me = s.Players[actor];
+            var others = s.Players.Where(p => p.PlayerId != actor).ToList();
+            var broke = others[0];  // enumerated first: the old flat scoring picked this one
+            var rich = others[1];
+
+            // Taxes is the only playable card and there is no money to spend elsewhere,
+            // so the whole decision is which victim to hit.
+            StripToOneCard(game, actor, "taxes");
+            me.Money = 0;
+            // Equal stand counts => an equal NOMINAL steal ($10). Only the wallets differ,
+            // and StealMoney caps the transfer at what the victim actually holds.
+            while (broke.Stands.Count < 5) { AddStand(broke, "bargain"); }
+            while (rich.Stands.Count < 5) { AddStand(rich, "bargain"); }
+            broke.Money = 1;
+            rich.Money = 20;
+
+            var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
+            Assert.Equal("taxes", s.LemonInstances[pick.CardInstanceId].DefId);
+            Assert.Equal(rich.PlayerId, pick.TargetPlayerId);
+        }
+
+        [Fact]
+        public void MoneyAttacksOnABrokeVictimAreFilteredFromSearch()
+        {
+            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben" }, seed: 5);
+            var victim = game.State.Players[1];
+            AddStand(victim, "bargain");
+
+            int Card(string defId) =>
+                game.State.LemonInstances.First(kv => kv.Value.DefId == defId).Key;
+
+            var taxes = new PlayLemonCard { CardInstanceId = Card("taxes"), TargetPlayerId = 1 };
+            victim.Money = 0;
+            Assert.True(MoveFilters.ObjectivelyWasted(game, 0, taxes));   // $0 recovered = no-op
+            victim.Money = 1;
+            Assert.False(MoveFilters.ObjectivelyWasted(game, 0, taxes));  // bad target, not a wasted one
+
+            // The other two cash grabs follow the same rule; card steals are untouched.
+            foreach (string defId in new[] { "hoa-violation", "sharing-is-caring" })
+            {
+                var grab = new PlayLemonCard { CardInstanceId = Card(defId), TargetPlayerId = 1 };
+                victim.Money = 0;
+                Assert.True(MoveFilters.ObjectivelyWasted(game, 0, grab));
+                victim.Money = 3;
+                Assert.False(MoveFilters.ObjectivelyWasted(game, 0, grab));
+            }
+            victim.Money = 0;
+            Assert.False(MoveFilters.ObjectivelyWasted(game, 0,
+                new PlayLemonCard { CardInstanceId = Card("smear-campaign"), TargetPlayerId = 1 }));
+
+            // The broke victim drops out of the shortlist; the paying one survives.
+            var rich = new PlayLemonCard { CardInstanceId = Card("taxes"), TargetPlayerId = 0 };
+            game.State.Players[0].Money = 8;
+            AddStand(game.State.Players[0], "bargain");
+            var kept = MoveFilters.DropWasted(game, 1, new GameAction[] { taxes, rich });
+            Assert.Same(rich, Assert.Single(kept));
+        }
+
+        [Fact]
+        public void RebrandProtectsFirstDibsStandProgress()
+        {
+            var game = ReadyToAct(23, 3);
+            var s = game.State;
+            int actor = s.ActivePlayer;
+            var me = s.Players[actor];
+            me.Money = 0;
+
+            // Connoisseur (first to 3 Gourmet Stands and 1 other) is the only stand title
+            // on offer, and we are two thirds of the way there.
+            s.FirstDibsRow.Clear();
+            s.FirstDibsRow.Add("connoisseur");
+            me.Stands.Clear();
+            AddStand(me, "gourmet");
+            AddStand(me, "gourmet");
+            AddStand(me, "classic");
+
+            // Rebrand plus a hand of tantrums: instants are not playable in the Play
+            // phase, so the hand is full (drawing is cheap) without adding rival plays.
+            StripToOneCard(game, actor, "rebrand");
+            for (int i = 0; i < 6; i++)
+            {
+                GiveCard(game, actor, "tantrum");
+            }
+            me.LemonLordKept.Clear();
+            me.LemonLordKept.Add("friendly-fran");
+
+            var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
+            Assert.Equal("rebrand", s.LemonInstances[pick.CardInstanceId].DefId);
+            // Converts the odd classic stand INTO the third gourmet — never a gourmet away.
+            Assert.Equal("gourmet", pick.NewStandTypeId);
+            Assert.Equal("classic",
+                me.Stands.First(st => st.InstanceId == pick.TargetStandInstanceId).StandTypeId);
+        }
+
         [Fact]
         public void BotFactoryMapsLevels()
         {

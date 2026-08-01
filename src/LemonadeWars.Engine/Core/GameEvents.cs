@@ -28,7 +28,12 @@ namespace LemonadeWars.Engine.Core
         public int PlayerId { get; set; }
         public int InstanceId { get; set; }
         public string DefId { get; set; } = "";
-        public override string ToString() => $"P{PlayerId} drew {DefId}";
+        /// <summary>
+        /// Why the card was drawn. Not hidden information (everyone sees an action being
+        /// spent), so it survives the per-seat redaction that strips the card's identity.
+        /// </summary>
+        public DrawReason Reason { get; set; }
+        public override string ToString() => $"P{PlayerId} drew {DefId} ({Reason})";
     }
 
     public sealed class TimeoutDrawn : GameEvent
@@ -74,6 +79,14 @@ namespace LemonadeWars.Engine.Core
     public sealed class MarketRefilled : GameEvent
     {
         public List<int> Market { get; set; } = new List<int>();
+        /// <summary>
+        /// Set only when a player paid the free-action refresh to sweep the whole row;
+        /// null for the ordinary refill that follows a purchase (nothing to announce).
+        /// </summary>
+        public int? RefreshedByPlayerId { get; set; }
+        public override string ToString() => RefreshedByPlayerId is int p
+            ? $"P{p} refreshed the Black Market"
+            : "Market refilled";
     }
 
     public sealed class BraggingRightsPurchased : GameEvent
