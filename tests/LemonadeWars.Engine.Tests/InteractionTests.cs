@@ -656,6 +656,32 @@ namespace LemonadeWars.Engine.Tests
         // ------------------------------------------------------ card effects
 
         [Fact]
+        public void ProfitShareWindowOpensAfterPassingTheAttackWindow()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            game.State.Players[a].Money = 20;
+            game.State.Players[b].Money = 10;
+            int attack = GiveCard(game, a, "taxes");
+            GiveCard(game, b, "tantrum"); // B is eligible for the ATTACK window first
+            int share = GiveCard(game, b, "profit-share");
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            Assert.Contains(b, game.State.AwaitingResponse); // the attack window
+            game.Apply(new PassWindow { PlayerId = b });     // decline to tantrum
+
+            // Taxes resolved and stole money — the THEFT window must now await B,
+            // with the Profit Share response on offer (passing the attack window
+            // must not consume the later, different window).
+            Assert.NotEmpty(game.State.TheftQueue);
+            Assert.Contains(b, game.State.AwaitingResponse);
+            Assert.Contains(game.LegalMovesFor(b),
+                m => m is RespondToWindow r && r.CardInstanceId == share);
+        }
+
+        [Fact]
         public void SmearCampaignStealsTwoAndCostsNoAction()
         {
             var game = ReadyToPlay();
