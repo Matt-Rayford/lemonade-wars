@@ -145,6 +145,43 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void WastedNumberPlacementsAreFilteredFromSearch()
+        {
+            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben" }, seed: 5);
+            var me = game.State.Players[0];
+            me.Stands.Add(new StandInstance { InstanceId = 9001, StandTypeId = "classic", Shape = LemonadeWars.Engine.Data.Shape.Square }); // sells 4,5
+            me.Stands.Add(new StandInstance { InstanceId = 9002, StandTypeId = "bargain", Shape = LemonadeWars.Engine.Data.Shape.Square }); // sells 1,2,3
+
+            int pushy4 = game.State.BlackMarketDeck
+                .First(id => game.State.BlackMarketInstances[id].DefId == "pushy-salesman-4");
+            game.State.Market.Insert(0, pushy4);
+
+            var ontoClassic = new BuyBlackMarket { MarketIndex = 0, TargetStandInstanceId = 9001 };
+            var ontoBargain = new BuyBlackMarket { MarketIndex = 0, TargetStandInstanceId = 9002 };
+
+            // A 4 onto a stand already selling on 4 is objectively wasted; the same
+            // card onto the bargain stand is a real upgrade.
+            Assert.True(MoveFilters.ObjectivelyWasted(game, 0, ontoClassic));
+            Assert.False(MoveFilters.ObjectivelyWasted(game, 0, ontoBargain));
+
+            var kept = MoveFilters.DropWasted(game, 0, new GameAction[] { ontoClassic, ontoBargain });
+            Assert.Same(ontoBargain, Assert.Single(kept));
+            // Never empties the list: with only wasted options, they stay legal.
+            Assert.Single(MoveFilters.DropWasted(game, 0, new GameAction[] { ontoClassic }));
+
+            // Spiked Lemonade duplicates a pour number we already cover — wasted too,
+            // unless the secret Pour Master lord collects duplicates.
+            int pour = game.PourNumbersOf(me).First();
+            int spiked = game.State.BlackMarketDeck
+                .First(id => game.State.BlackMarketInstances[id].DefId == $"spiked-lemonade-{pour}");
+            game.State.Market.Insert(0, spiked);
+            var dupPour = new BuyBlackMarket { MarketIndex = 0 };
+            Assert.True(MoveFilters.ObjectivelyWasted(game, 0, dupPour));
+            me.LemonLordKept.Add("pour-master");
+            Assert.False(MoveFilters.ObjectivelyWasted(game, 0, dupPour));
+        }
+
+        [Fact]
         public void BotFactoryMapsLevels()
         {
             Assert.IsType<EasyBot>(BotFactory.Create("easy", 1));

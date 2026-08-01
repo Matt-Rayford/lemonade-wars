@@ -630,6 +630,54 @@ namespace LemonadeWars.Engine.Ai
     }
 
     /// <summary>Drives a game to completion with a bot in every seat.</summary>
+    /// <summary>
+    /// Moves no human would ever consider — strictly dominated placements of
+    /// numbered upgrades. The greedy policy already avoids them via affinities, but
+    /// SEARCH bots must exclude them up front: when a turn has fewer legal moves
+    /// than the candidate cap, everything gets rolled out, and rollout noise can
+    /// rank a wasted placement above its sensible twin (a few dollars of income
+    /// barely moves a win-probability estimate).
+    /// </summary>
+    public static class MoveFilters
+    {
+        public static bool ObjectivelyWasted(Game game, int playerId, GameAction move)
+        {
+            if (!(move is BuyBlackMarket bm) ||
+                bm.ReplaceInstanceId != null || // replacing may free the very number it re-adds
+                bm.MarketIndex >= game.State.Market.Count)
+            {
+                return false;
+            }
+            var me = game.State.Players[playerId];
+            var def = game.Db.BlackMarket(
+                game.State.BlackMarketInstances[game.State.Market[bm.MarketIndex]].DefId);
+            switch (def.Name)
+            {
+                case "Pushy Salesman":
+                {
+                    // A sale number the destination stand already sells on earns nothing.
+                    var stand = me.Stands.FirstOrDefault(st => st.InstanceId == bm.TargetStandInstanceId);
+                    return def.Number is int sale && stand != null &&
+                           game.SaleNumbersOf(stand).Contains(sale);
+                }
+                case "Spiked Lemonade":
+                    // A pour number we already cover adds nothing (Pour Master collects anyway).
+                    return def.Number is int pour && game.PourNumbersOf(me).Contains(pour) &&
+                           !me.LemonLordKept.Contains("pour-master");
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Drop wasted moves; never empties the list.</summary>
+        public static IReadOnlyList<GameAction> DropWasted(
+            Game game, int playerId, IReadOnlyList<GameAction> moves)
+        {
+            var kept = moves.Where(m => !ObjectivelyWasted(game, playerId, m)).ToList();
+            return kept.Count > 0 ? kept : moves;
+        }
+    }
+
     public static class GameRunner
     {
         /// <summary>One-line state summary for deadlock/timeout diagnostics.</summary>

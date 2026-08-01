@@ -159,8 +159,15 @@ namespace LemonadeWars.Engine.Ai
             {
                 return moves[0];
             }
+            // Strictly dominated placements never reach the rollouts: on narrow turns
+            // every move becomes a candidate, and noise can rank a wasted one first.
+            var considered = MoveFilters.DropWasted(game, playerId, moves);
+            if (considered.Count == 1)
+            {
+                return considered[0];
+            }
 
-            var candidates = Prune(game, playerId, moves);
+            var candidates = Prune(game, playerId, considered);
             var totals = new double[candidates.Count];
             var counts = new int[candidates.Count];
             var stopwatch = Stopwatch.StartNew();
