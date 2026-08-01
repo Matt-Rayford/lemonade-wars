@@ -43,6 +43,13 @@ namespace LemonadeWars.Unity
         /// <summary>False for pickers whose cards are already near full size (the
         /// Lemon Lord choice) — a magnify pop-up there is just noise.</summary>
         private bool _previewEnabled = true;
+        // Reference band beneath the pick row (the First Dibs on offer during the
+        // Lemon Lord choice): read-only cards, edge-hover scrolled when they overflow.
+        private readonly RectTransform _contextHost;
+        private readonly RectTransform _contextRow;
+        private readonly RectMask2D _contextMask;
+        private readonly TMPro.TMP_Text _contextLabel;
+        private float _contextScroll;
 
         public bool IsOpen { get; private set; }
         /// <summary>Diagnostics: open-but-invisible means a reveal died mid-flight.</summary>
@@ -80,6 +87,45 @@ namespace LemonadeWars.Unity
             layout.childControlHeight = true;
             _row = (RectTransform)rowGo.transform;
 
+            // Context band: reference cards under the pick row. Full-bleed and
+            // masked; when the row overflows, hovering the screen edges scrolls it
+            // (Tick) and the soft mask edge doubles as the "this scrolls" cue.
+            _contextLabel = UiKit.CreateText(_root, "", 28,
+                TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f));
+            UiKit.Anchor((RectTransform)_contextLabel.transform,
+                new Vector2(0f, 0.35f), new Vector2(1f, 0.415f));
+            UiKit.AddTextShadow(_contextLabel);
+            _contextHost = UiKit.CreatePanel(_root, "ContextBand", new Color(0, 0, 0, 0));
+            _contextHost.GetComponent<Image>().raycastTarget = false;
+            // Tall enough for a full 263px card + margins — a shorter band makes the
+            // layout clamp card HEIGHT while width stays put, squashing the aspect.
+            UiKit.Anchor(_contextHost, new Vector2(0f, 0.085f), new Vector2(1f, 0.35f));
+            _contextMask = _contextHost.gameObject.AddComponent<RectMask2D>();
+            var contextRowGo = new GameObject("ContextRow",
+                typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(ContentSizeFitter));
+            contextRowGo.transform.SetParent(_contextHost, false);
+            _contextRow = (RectTransform)contextRowGo.transform;
+            _contextRow.anchorMin = new Vector2(0f, 0f);
+            _contextRow.anchorMax = new Vector2(0f, 1f);
+            _contextRow.pivot = new Vector2(0f, 0.5f);
+            _contextRow.offsetMin = new Vector2(24f, 6f);
+            _contextRow.offsetMax = new Vector2(24f, -6f);
+            var contextLayout = contextRowGo.GetComponent<HorizontalLayoutGroup>();
+            contextLayout.spacing = 14;
+            contextLayout.childAlignment = TextAnchor.MiddleLeft;
+            contextLayout.childForceExpandWidth = false;
+            contextLayout.childForceExpandHeight = false;
+            // Control ON: CreateCardImage sizes cards via LayoutElement preferred
+            // sizes, which only apply when the group controls its children (raw
+            // rects default to 100x100). The band above is sized taller than a full
+            // card, so the height clamp that once squashed the aspect can't engage.
+            contextLayout.childControlWidth = true;
+            contextLayout.childControlHeight = true;
+            contextRowGo.GetComponent<ContentSizeFitter>().horizontalFit =
+                ContentSizeFitter.FitMode.PreferredSize;
+            _contextHost.gameObject.SetActive(false);
+            _contextLabel.gameObject.SetActive(false);
+
             // Accept floats bottom-right of the screen.
             var acceptGo = new GameObject("Accept", typeof(RectTransform), typeof(Image),
                 typeof(Button), typeof(Shadow));
@@ -110,7 +156,8 @@ namespace LemonadeWars.Unity
         /// backdrop blur has been captured.
         /// </summary>
         public void Show(string title, IReadOnlyList<Texture2D> textures, int requiredCount,
-            System.Action<List<int>> onAccept, bool preview = true)
+            System.Action<List<int>> onAccept, bool preview = true,
+            IReadOnlyList<Texture2D> context = null, string contextLabel = null)
         {
             IsOpen = true;
             _title.text = title;
@@ -119,6 +166,27 @@ namespace LemonadeWars.Unity
             _previewEnabled = preview;
             _slots.Clear();
             UiKit.Clear(_row);
+
+            // Context band (e.g. the First Dibs row during the lord pick): the pick
+            // row cedes its lower stretch, and FitCardSize shrinks the picks to match.
+            bool hasContext = context != null && context.Count > 0;
+            _contextHost.gameObject.SetActive(hasContext);
+            _contextLabel.gameObject.SetActive(hasContext);
+            UiKit.Anchor(_rowHost,
+                new Vector2(0.02f, hasContext ? 0.42f : 0.15f), new Vector2(0.98f, 0.88f));
+            UiKit.Clear(_contextRow);
+            _contextScroll = 0f;
+            if (hasContext)
+            {
+                _contextLabel.text = contextLabel ?? "";
+                foreach (var texture in context)
+                {
+                    var image = UiKit.CreateCardImage(_contextRow, texture, 188f, 263f);
+                    // Small reference cards: the magnify preview is how you READ them.
+                    _preview.Attach(image.gameObject, texture);
+                }
+                ApplyContextScroll(); // centered from the first frame when it fits
+            }
 
             var (cardWidth, cardHeight) = FitCardSize(textures.Count);
             for (int i = 0; i < textures.Count; i++)
@@ -136,6 +204,70 @@ namespace LemonadeWars.Unity
             IsOpen = false;
             _root.gameObject.SetActive(false);
             _backdrop.Hide();
+        }
+
+        /// <summary>
+        /// Edge-hover scrolling for the context band (the app calls this every
+        /// frame): hover the left/right stretch of the band and it glides, same
+        /// language as the board's stand overflow.
+        /// </summary>
+        public void Tick(Vector2 screenPosition)
+        {
+            if (!IsOpen || !_contextHost.gameObject.activeSelf)
+            {
+                return;
+            }
+            float overflow = _contextRow.rect.width + 48f - _contextHost.rect.width;
+            var softness = overflow > 0f ? new Vector2Int(70, 0) : Vector2Int.zero;
+            if (_contextMask.softness != softness)
+            {
+                _contextMask.softness = softness;
+            }
+            if (overflow <= 0f)
+            {
+                // Re-applied every frame: the centered position depends on rect widths
+                // that only settle once the layout pass has run.
+                _contextScroll = 0f;
+                ApplyContextScroll();
+                return;
+            }
+            _contextScroll = Mathf.Clamp(_contextScroll, 0f, overflow);
+            if (!RectTransformUtility.RectangleContainsScreenPoint(_contextHost, screenPosition))
+            {
+                return;
+            }
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _contextHost, screenPosition, null, out var local);
+            var rect = _contextHost.rect;
+            float fraction = (local.x - rect.xMin) / Mathf.Max(1f, rect.width);
+            const float zone = 0.15f;
+            float velocity = 0f;
+            if (fraction < zone)
+            {
+                velocity = -Mathf.InverseLerp(zone, 0f, fraction);
+            }
+            else if (fraction > 1f - zone)
+            {
+                velocity = Mathf.InverseLerp(1f - zone, 1f, fraction);
+            }
+            if (velocity == 0f)
+            {
+                return;
+            }
+            _contextScroll = Mathf.Clamp(
+                _contextScroll + velocity * 700f * Time.deltaTime, 0f, overflow);
+            ApplyContextScroll();
+        }
+
+        private void ApplyContextScroll()
+        {
+            // Fits: centered. Overflows: left-anchored, edge-hover scrolled.
+            float overflow = _contextRow.rect.width + 48f - _contextHost.rect.width;
+            var position = _contextRow.anchoredPosition;
+            position.x = overflow > 0f
+                ? 24f - _contextScroll
+                : (_contextHost.rect.width - _contextRow.rect.width) / 2f;
+            _contextRow.anchoredPosition = position;
         }
 
         // ------------------------------------------------------------- cards

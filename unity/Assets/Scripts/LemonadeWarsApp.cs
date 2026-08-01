@@ -896,6 +896,7 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickDiscardScroll(Input.mousePosition);
+            _picker.Tick(Input.mousePosition);
             // A roll that is still open for responses keeps its die on the table.
             _dice.Linger = View != null && View.PendingRollValue != null;
             _dice.Tick();
@@ -2338,7 +2339,10 @@ namespace LemonadeWars.Unity
                     {
                         KeepTitleIds = picked.Select(i => dealt[i]).ToList(),
                     }),
-                    preview: false); // three near-full-size cards need no magnifier
+                    preview: false, // three near-full-size cards need no magnifier
+                    // The First Dibs on offer steer which lords are worth keeping.
+                    context: View.FirstDibsRow.Select(id => _art.Title(id)).ToList(),
+                    contextLabel: "FIRST DIBS CARDS");
                 return true;
             }
 
