@@ -234,7 +234,7 @@ namespace LemonadeWars.Engine.Core
                 case DrawLemonCard draw:
                     RequireTurnAction(draw);
                     SpendAction();
-                    QueueDraws(draw.PlayerId, 1);
+                    QueueDraws(draw.PlayerId, 1, reason: DrawReason.Action);
                     Pump(events);
                     break;
                 case BuyStand buy:
@@ -718,7 +718,11 @@ namespace LemonadeWars.Engine.Core
             State.BlackMarketDiscard.AddRange(State.Market);
             State.Market.Clear();
             RefillMarket();
-            events.Add(new MarketRefilled { Market = State.Market.ToList() });
+            events.Add(new MarketRefilled
+            {
+                Market = State.Market.ToList(),
+                RefreshedByPlayerId = player.PlayerId,
+            });
         }
 
         // ------------------------------------------------------- turn cycle

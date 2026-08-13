@@ -84,6 +84,20 @@ namespace LemonadeWars.Engine.Core
         public int? StandInstanceId { get; set; }
     }
 
+    /// <summary>
+    /// Where a draw came from, so the action log can tell a spent ACTION apart from the
+    /// automatic turn-start draw. Travels as a camelCase string ("turnStart") on the wire.
+    /// </summary>
+    public enum DrawReason
+    {
+        /// <summary>A card effect or Black Market ability handed the cards over.</summary>
+        Effect,
+        /// <summary>The automatic draw at the top of a turn (2 for the Whiniest Baby).</summary>
+        TurnStart,
+        /// <summary>The player spent an action on Draw a Lemon Card.</summary>
+        Action,
+    }
+
     /// <summary>Cards owed to a player by draw effects; processed front to back.</summary>
     public sealed class PendingDraw
     {
@@ -93,6 +107,8 @@ namespace LemonadeWars.Engine.Core
         public bool CountsForRoll { get; set; }
         /// <summary>Record drawn instance ids (Whiniest Baby must discard one of them).</summary>
         public bool TrackDrawnIds { get; set; }
+        /// <summary>What caused this batch — stamped onto every CardDrawn it produces.</summary>
+        public DrawReason Reason { get; set; }
     }
 
     /// <summary>Per-player accumulators for the current roll episode ("on a single roll" titles).</summary>
@@ -159,6 +175,10 @@ namespace LemonadeWars.Engine.Core
         public int? CardInstanceId { get; set; }
         /// <summary>The equipped Black Market card whose ability raised this decision.</summary>
         public int? SourceInstanceId { get; set; }
+        /// <summary>The play that provoked this decision (Bouncer: the resolved attack
+        /// is off the stack, so its def + owner ride here for the UI).</summary>
+        public string? ContextDefId { get; set; }
+        public int? ContextPlayerId { get; set; }
         /// <summary>Victim chosen in an earlier stage of the same ability.</summary>
         public int? ChosenPlayerId { get; set; }
         /// <summary>Card stolen in an earlier stage (the give-back must differ from it).</summary>

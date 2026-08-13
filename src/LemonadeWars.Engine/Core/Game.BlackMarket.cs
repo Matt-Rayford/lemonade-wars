@@ -597,9 +597,11 @@ namespace LemonadeWars.Engine.Core
                 {
                     PlayerId = victimId,
                     Kind = DecisionKind.BouncerAttack,
-                    // The attack has already popped off the stack, so name the card
-                    // that earned this strike — it is the only context the UI has.
+                    // The attack has already popped off the stack, so its context
+                    // rides on the decision — the UI shows WHO hit you WITH WHAT.
                     SourceInstanceId = bouncerId,
+                    ContextDefId = resolvedAttack.LemonDefId,
+                    ContextPlayerId = resolvedAttack.OwnerId,
                 }, events);
             }
         }

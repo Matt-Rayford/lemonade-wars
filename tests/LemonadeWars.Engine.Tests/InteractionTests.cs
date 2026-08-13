@@ -272,6 +272,74 @@ namespace LemonadeWars.Engine.Tests
             Assert.Contains(pileTantrum, game.State.LemonDiscard);
         }
 
+        [Fact]
+        public void ApologizeAutoPicksAndLapsesTheBabyTitle()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+
+            // Rig: A holds the only tantrum in the game — and the baby title with it.
+            int pileTantrum = GiveCard(game, a, "tantrum");
+            game.State.Players[a].Hand.Remove(pileTantrum);
+            game.State.Players[a].TantrumPile.Add(new TantrumRecord
+            {
+                InstanceId = pileTantrum,
+                GainSeq = game.State.NextTantrumGainSeq++,
+            });
+            game.State.WhiniestBabyHolder = a;
+
+            int apologize = GiveCard(game, a, "apologize");
+            // No TantrumInstanceId: the copies are interchangeable, the engine picks.
+            var events = game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = apologize });
+
+            Assert.Empty(game.State.Players[a].TantrumPile);
+            Assert.Contains(pileTantrum, game.State.LemonDiscard);
+            // Nobody has a tantrum anymore — nobody is the Whiniest Baby.
+            Assert.Null(game.State.WhiniestBabyHolder);
+            var moved = Assert.Single(events.OfType<WhiniestBabyMoved>());
+            Assert.Null(moved.ToPlayerId);
+        }
+
+        [Fact]
+        public void BabyTieGoesToMostRecentTantrumPlayer()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int c = Seat(game, 2);
+
+            // B PLAYS a tantrum (against A's attack): count 1, play-recency stamped.
+            int attack = GiveCard(game, a, "hoa-violation");
+            int tantrum = GiveCard(game, b, "tantrum");
+            game.State.Players[a].Money = 20;
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = tantrum });
+            GameFlowTests.PassAll(game);
+            Assert.Equal(b, game.State.WhiniestBabyHolder);
+            Assert.True(game.State.Players[b].LastTantrumPlaySeq > 0);
+
+            // A (rigged with an unplayed tantrum) blame-changes it onto C: C now has
+            // the LATEST GAIN but has never played one.
+            int rigged = GiveCard(game, a, "tantrum");
+            game.State.Players[a].Hand.Remove(rigged);
+            game.State.Players[a].TantrumPile.Add(new TantrumRecord
+            {
+                InstanceId = rigged,
+                GainSeq = game.State.NextTantrumGainSeq++,
+            });
+            int blame = GiveCard(game, a, "blame-changer");
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = blame, TargetPlayerId = c });
+            GameFlowTests.PassAll(game);
+
+            // Tied 1-1 (B and C): under the old latest-GAIN rule C would take the
+            // title; the ruling says the most recent tantrum PLAYER holds it.
+            Assert.Equal(1, game.State.Players[b].TantrumPile.Count);
+            Assert.Equal(1, game.State.Players[c].TantrumPile.Count);
+            Assert.Equal(b, game.State.WhiniestBabyHolder);
+        }
+
         // -------------------------------------------------- attack reactions
 
         [Fact]
@@ -451,6 +519,52 @@ namespace LemonadeWars.Engine.Tests
             Assert.True(onOwnBoard);
         }
 
+        [Fact]
+        public void TaggedFindersKeepersDropsTheStaleStolenCard()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int c = Seat(game, 2);
+            int d = Seat(game, 3);
+            int equippedB = RigTurfEquip(game, b);
+            RigTurfEquip(game, d);
+            bool turfCard = TestData.Db
+                .BlackMarket(game.State.BlackMarketInstances[equippedB].DefId).Target
+                == LemonadeWars.Engine.Data.EquipTarget.Turf;
+            int attack = GiveCard(game, a, "finders-keepers");
+            int tag = GiveCard(game, c, "tag-youre-it");
+
+            game.Apply(new PlayLemonCard
+            {
+                PlayerId = a,
+                CardInstanceId = attack,
+                TargetPlayerId = b,
+                TargetEquippedInstanceId = equippedB,
+                EquipStandInstanceId = turfCard ? (int?)null : game.State.Players[a].Stands[0].InstanceId,
+            });
+            // While the attack aims at B, views advertise B's card as the loot.
+            Assert.Equal(game.State.BlackMarketInstances[equippedB].DefId,
+                game.ViewFor(b).StackTop?.StolenDefId);
+
+            game.Apply(new RespondToWindow { PlayerId = c, CardInstanceId = tag, RedirectTargetId = d });
+            PassWindowsOnly(game);
+
+            // Redirected to D and awaiting the attacker's re-pick: the old pick named
+            // B's card, and neither the stack nor any view may keep showing it.
+            var item = game.State.ResponseStack.Single(i => i.LemonDefId == "finders-keepers");
+            Assert.Null(item.TargetEquippedInstanceId);
+            foreach (int seat in new[] { a, b, c, d })
+            {
+                var top = game.ViewFor(seat).StackTop;
+                if (top != null && top.DefId == "finders-keepers")
+                {
+                    Assert.Null(top.StolenDefId);
+                }
+            }
+        }
+
         // ------------------------------------------------------- roll windows
 
         [Fact]
@@ -542,7 +656,33 @@ namespace LemonadeWars.Engine.Tests
         // ------------------------------------------------------ card effects
 
         [Fact]
-        public void SmearCampaignStealsTwoAndOffersAFreePlay()
+        public void ProfitShareWindowOpensAfterPassingTheAttackWindow()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            game.State.Players[a].Money = 20;
+            game.State.Players[b].Money = 10;
+            int attack = GiveCard(game, a, "taxes");
+            GiveCard(game, b, "tantrum"); // B is eligible for the ATTACK window first
+            int share = GiveCard(game, b, "profit-share");
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            Assert.Contains(b, game.State.AwaitingResponse); // the attack window
+            game.Apply(new PassWindow { PlayerId = b });     // decline to tantrum
+
+            // Taxes resolved and stole money — the THEFT window must now await B,
+            // with the Profit Share response on offer (passing the attack window
+            // must not consume the later, different window).
+            Assert.NotEmpty(game.State.TheftQueue);
+            Assert.Contains(b, game.State.AwaitingResponse);
+            Assert.Contains(game.LegalMovesFor(b),
+                m => m is RespondToWindow r && r.CardInstanceId == share);
+        }
+
+        [Fact]
+        public void SmearCampaignStealsTwoAndCostsNoAction()
         {
             var game = ReadyToPlay();
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
@@ -551,17 +691,17 @@ namespace LemonadeWars.Engine.Tests
             int attack = GiveCard(game, a, "smear-campaign");
             int aHand = game.State.Players[a].Hand.Count;
             int bHand = game.State.Players[b].Hand.Count;
+            int actions = game.State.ActionsRemaining;
 
             game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
 
             Assert.Equal(aHand - 1 + 2, game.State.Players[a].Hand.Count);
             Assert.Equal(bHand - 2, game.State.Players[b].Hand.Count);
 
-            var decision = Assert.Single(game.State.PendingDecisions);
-            Assert.Equal(DecisionKind.FreePlayOffer, decision.Kind);
-            game.Apply(new SkipFreePlay { PlayerId = a });
+            // "Then you may play any card" = the smear costs no action: no free-play
+            // modal, the spent action comes straight back.
             Assert.Empty(game.State.PendingDecisions);
-            Assert.Equal(1, game.State.ActionsRemaining);
+            Assert.Equal(actions, game.State.ActionsRemaining);
         }
 
         [Fact]
@@ -667,6 +807,72 @@ namespace LemonadeWars.Engine.Tests
 
             // Reverse Engineer cost the action; Automation added 2: 2 - 1 + 2 = 3.
             Assert.Equal(3, game.State.ActionsRemaining);
+        }
+
+        [Fact]
+        public void ReverseEngineerOffersEveryDiscardedCopy()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+
+            // Both Automations land in the discard: the picker shows the physical pile,
+            // so BOTH copies must be offered — not one row per distinct card.
+            var copies = new List<int>();
+            for (int i = 0; i < 2; i++)
+            {
+                int id = GiveCard(game, a, "automation");
+                game.State.Players[a].Hand.Remove(id);
+                game.State.LemonDiscard.Add(id);
+                copies.Add(id);
+            }
+
+            int card = GiveCard(game, a, "reverse-engineer");
+            var offered = game.LegalMovesFor(a).OfType<PlayLemonCard>()
+                .Where(m => m.CardInstanceId == card && m.DiscardedLemonInstanceId != null)
+                .Select(m => m.DiscardedLemonInstanceId!.Value)
+                .ToList();
+
+            Assert.Contains(copies[0], offered);
+            Assert.Contains(copies[1], offered);
+            // Every playable card in the pile, each exactly once.
+            Assert.Equal(offered.Count, offered.Distinct().Count());
+            int playable = game.State.LemonDiscard.Count(id =>
+            {
+                var def = TestData.Db.Lemon(game.State.LemonInstances[id].DefId);
+                return def.Type == Data.LemonCardType.Plan || def.Type == Data.LemonCardType.Attack;
+            });
+            Assert.Equal(playable, offered.Count);
+        }
+
+        [Fact]
+        public void ReduceAndReuseOffersEveryDiscardedBlackMarketCopy()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+            var s = game.State;
+
+            // Two copies of one Black Market card sit in the discard.
+            var copies = s.BlackMarketDeck
+                .GroupBy(id => s.BlackMarketInstances[id].DefId)
+                .First(g => g.Count() >= 2)
+                .Take(2).ToList();
+            foreach (int id in copies)
+            {
+                s.BlackMarketDeck.Remove(id);
+                s.BlackMarketDiscard.Add(id);
+            }
+
+            int card = GiveCard(game, a, "reduce-and-reuse");
+            var offered = game.LegalMovesFor(a).OfType<PlayLemonCard>()
+                .Where(m => m.CardInstanceId == card && m.DiscardedBmInstanceId != null)
+                .Select(m => m.DiscardedBmInstanceId!.Value)
+                .Distinct().ToList();
+
+            Assert.Contains(copies[0], offered);
+            Assert.Contains(copies[1], offered);
+            Assert.Equal(s.BlackMarketDiscard.Count, offered.Count);
         }
 
         // ------------------------------------------------------ status cards

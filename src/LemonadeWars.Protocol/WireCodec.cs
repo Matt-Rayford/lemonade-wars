@@ -78,7 +78,15 @@ namespace LemonadeWars.Protocol
             var visible = gameEvent;
             if (gameEvent is CardDrawn drawn && drawn.PlayerId != seat)
             {
-                visible = new CardDrawn { PlayerId = drawn.PlayerId, InstanceId = 0, DefId = "" };
+                // The FACT of the draw (and what prompted it) is public — only the
+                // card's identity is secret.
+                visible = new CardDrawn
+                {
+                    PlayerId = drawn.PlayerId,
+                    InstanceId = 0,
+                    DefId = "",
+                    Reason = drawn.Reason,
+                };
             }
 
             var json = JObject.FromObject(visible, Serializer);

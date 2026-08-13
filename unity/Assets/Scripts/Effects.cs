@@ -233,6 +233,10 @@ namespace LemonadeWars.Unity
             _busyUntil = 0f;
             EndActive();
             UiKit.Clear(_layer);
+            // The completion-callback law: anything that ends the busy period must
+            // guarantee OnFinished, or a modal deferred behind the effects (a Profit
+            // Share window, a decision) never resurfaces. Next Tick announces idle.
+            _announceIdle = true;
         }
 
         // ------------------------------------------------------------- tick
@@ -285,8 +289,13 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>Bumped whenever a blocking effect starts — the watchdog resets its
+        /// stuck-timer on progress, so long LEGIT theatre chains never trip it.</summary>
+        public int BlocksStarted { get; private set; }
+
         private void StartBlocking(Fx fx)
         {
+            BlocksStarted++;
             switch (fx)
             {
                 case RevealFx reveal:

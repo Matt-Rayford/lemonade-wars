@@ -41,6 +41,17 @@ namespace LemonadeWars.Unity
                 // Window responses ALSO map onto their hand cards: with the live-table
                 // reaction panel, clicking the Tantrum in your hand plays it (equipped
                 // responses like Inflatable Decoy stay panel-only).
+                // Free-play decisions (Bouncer strike-back, Smear Campaign's offer)
+                // enumerate full PlayLemonCard variants: bind those to their hand
+                // cards too, so the card itself is clickable mid-window and the
+                // normal aiming/menu flows do the target picking.
+                foreach (var move in moves)
+                {
+                    if (move is PlayLemonCard play)
+                    {
+                        Add(groups.HandMoves, play.CardInstanceId, move);
+                    }
+                }
                 if (view.AwaitingResponse.Contains(view.ViewerId))
                 {
                     foreach (var move in moves)

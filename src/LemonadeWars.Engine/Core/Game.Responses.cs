@@ -336,7 +336,13 @@ namespace LemonadeWars.Engine.Core
                 top.Cancelled = true;
                 player.Turf.Equipped.Remove(decoyId);
                 State.BlackMarketDiscard.Add(decoyId);
-                events.Add(new PlayCancelled { OwnerId = top.OwnerId, DefId = top.LemonDefId });
+                events.Add(new PlayCancelled
+                {
+                    OwnerId = top.OwnerId,
+                    DefId = top.LemonDefId,
+                    ByPlayerId = player.PlayerId,
+                    WithDefId = "inflatable-decoy",
+                });
                 events.Add(new CardsDiscarded { PlayerId = player.PlayerId, InstanceIds = new List<int> { decoyId } });
                 BumpRevision();
                 Pump(events);
@@ -396,6 +402,7 @@ namespace LemonadeWars.Engine.Core
             player.Hand.Remove(action.CardInstanceId);
             // The tantrum is gained the moment it is thrown — even if later cancelled (rulebook p11).
             GainTantrum(player, action.CardInstanceId, events);
+            player.LastTantrumPlaySeq = player.TantrumPile[player.TantrumPile.Count - 1].GainSeq;
             // Swear Jar: throwing a tantrum against this player's card costs $2 per jar.
             ChargeSwearJars(player, Player(top.OwnerId), events);
 
@@ -601,6 +608,8 @@ namespace LemonadeWars.Engine.Core
                     DefId = target.Kind == StackItemKind.BlackMarketPurchase
                         ? State.BlackMarketInstances[target.BmInstanceId!.Value].DefId
                         : target.LemonDefId,
+                    ByPlayerId = tantrum.OwnerId,
+                    WithDefId = TantrumId,
                 });
             }
             // The tantrum card itself stays in its owner's pile (gained at play time).
@@ -615,11 +624,22 @@ namespace LemonadeWars.Engine.Core
                 {
                     // 2-player: "discard it instead" (card text).
                     target.Cancelled = true;
-                    events.Add(new PlayCancelled { OwnerId = target.OwnerId, DefId = target.LemonDefId });
+                    events.Add(new PlayCancelled
+                    {
+                        OwnerId = target.OwnerId,
+                        DefId = target.LemonDefId,
+                        ByPlayerId = tag.OwnerId,
+                        WithDefId = TagId,
+                    });
                 }
                 else
                 {
                     target.AttackTargetId = tag.RedirectTargetId;
+                    // The card-specific pick (Finders Keepers / That's Not Fair) named
+                    // a card of the OLD victim — clear it now, not at resolution, or
+                    // every view keeps showing the old victim's card as the loot for
+                    // the whole response window. The attacker re-picks on resolve.
+                    ClearStaleAttackSpecifics(target);
                     events.Add(new AttackRedirected
                     {
                         ByPlayerId = tag.OwnerId,
@@ -638,8 +658,23 @@ namespace LemonadeWars.Engine.Core
                 int oldAttacker = target.OwnerId;
                 target.OwnerId = rubber.OwnerId;
                 target.AttackTargetId = oldAttacker;
+                ClearStaleAttackSpecifics(target); // same staleness as a Tag redirect
                 events.Add(new AttackReflected { ByPlayerId = rubber.OwnerId, NewTargetId = oldAttacker });
             }
+        }
+
+        /// <summary>
+        /// A redirect/reflection changed the attack's victim, so any card-specific
+        /// choices (the equipped card to steal/discard, and where a Finders Keepers
+        /// steal would go) refer to the WRONG player now. Clearing them keeps the
+        /// stack honest for the response-window views; resolution then routes through
+        /// RequestRetargetOrFizzle exactly as it would for an invalid pick.
+        /// </summary>
+        private static void ClearStaleAttackSpecifics(StackItem attack)
+        {
+            attack.TargetEquippedInstanceId = null;
+            attack.EquipStandInstanceId = null;
+            attack.EquipReplaceInstanceId = null;
         }
 
         private void ResolveOutOfStock(StackItem card, List<GameEvent> events)
@@ -739,33 +774,45 @@ namespace LemonadeWars.Engine.Core
             State.EpisodeHadTantrums = true;
         }
 
-        /// <summary>Whiniest Baby goes to whoever has the most tantrums (latest gain breaks ties).</summary>
-        private void ReassignWhiniestBaby(List<GameEvent> events)
+        /// <summary>
+        /// Who the Whiniest Baby belongs to right now (designer rulings): most
+        /// tantrums; tie goes to whoever most recently PLAYED a tantrum (receiving
+        /// one via Blame Changer doesn't count); a still-standing tie sticks with the
+        /// incumbent; and with no tantrums anywhere, NOBODY is the baby.
+        /// </summary>
+        private int? BabyHolderByRule()
         {
             int max = State.Players.Max(p => p.TantrumPile.Count);
             if (max == 0)
             {
-                return;
+                return null;
             }
-            var holder = State.Players
+            return State.Players
                 .Where(p => p.TantrumPile.Count == max)
-                .OrderByDescending(p => p.TantrumPile.Max(t => t.GainSeq))
-                .First();
-            if (State.WhiniestBabyHolder != holder.PlayerId)
+                .OrderByDescending(p => p.LastTantrumPlaySeq)
+                .ThenByDescending(p => p.PlayerId == State.WhiniestBabyHolder)
+                .ThenBy(p => p.PlayerId)
+                .First().PlayerId;
+        }
+
+        private void ReassignWhiniestBaby(List<GameEvent> events)
+        {
+            int? holder = BabyHolderByRule();
+            if (State.WhiniestBabyHolder != holder)
             {
                 events.Add(new WhiniestBabyMoved
                 {
                     FromPlayerId = State.WhiniestBabyHolder,
-                    ToPlayerId = holder.PlayerId,
+                    ToPlayerId = holder,
                 });
-                State.WhiniestBabyHolder = holder.PlayerId;
+                State.WhiniestBabyHolder = holder;
             }
         }
 
         // ----------------------------------------------------- draw queue
 
         private void QueueDraws(int playerId, int count, bool countsForRoll = false,
-            bool trackDrawnIds = false)
+            bool trackDrawnIds = false, DrawReason reason = DrawReason.Effect)
         {
             State.PendingDraws.Add(new PendingDraw
             {
@@ -773,6 +820,7 @@ namespace LemonadeWars.Engine.Core
                 Count = count,
                 CountsForRoll = countsForRoll,
                 TrackDrawnIds = trackDrawnIds,
+                Reason = reason,
             });
         }
 
@@ -786,7 +834,7 @@ namespace LemonadeWars.Engine.Core
                 {
                     entry.Count--;
                     int handBefore = player.Hand.Count;
-                    bool drewCard = DrawOneCard(player, events);
+                    bool drewCard = DrawOneCard(player, entry.Reason, events);
                     if (entry.TrackDrawnIds && player.Hand.Count > handBefore)
                     {
                         State.TrackedDrawnCards.Add(player.Hand[player.Hand.Count - 1]);
@@ -810,7 +858,7 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>Draw one card for the player. Returns false when a Timeout paused the game.</summary>
-        private bool DrawOneCard(PlayerState player, List<GameEvent> events)
+        private bool DrawOneCard(PlayerState player, DrawReason reason, List<GameEvent> events)
         {
             if (State.LemonDeck.Count == 0)
             {
@@ -835,6 +883,7 @@ namespace LemonadeWars.Engine.Core
                     PlayerId = player.PlayerId,
                     InstanceId = instanceId,
                     DefId = def.Id,
+                    Reason = reason,
                 });
                 return true;
             }
@@ -905,15 +954,7 @@ namespace LemonadeWars.Engine.Core
                 baby.TantrumPile.Clear();
 
                 // Pass to whoever now has the most tantrums, or back to the market (rulebook p12).
-                int max = State.Players.Max(p => p.TantrumPile.Count);
-                int? newHolder = null;
-                if (max > 0)
-                {
-                    newHolder = State.Players
-                        .Where(p => p.TantrumPile.Count == max)
-                        .OrderByDescending(p => p.TantrumPile.Max(t => t.GainSeq))
-                        .First().PlayerId;
-                }
+                int? newHolder = BabyHolderByRule();
                 if (newHolder != State.WhiniestBabyHolder)
                 {
                     events.Add(new WhiniestBabyMoved { FromPlayerId = babyId, ToPlayerId = newHolder });
@@ -1097,7 +1138,7 @@ namespace LemonadeWars.Engine.Core
                     }
                     QueueDraws(State.ActivePlayer,
                         isBaby ? Db.Config.TurnStartDraw + 1 : Db.Config.TurnStartDraw,
-                        trackDrawnIds: isBaby);
+                        trackDrawnIds: isBaby, reason: DrawReason.TurnStart);
                     break;
                 case 2: // Whiniest Baby: discard 1 — of the cards just drawn, not the whole hand.
                     State.TurnStartStep = 3;
