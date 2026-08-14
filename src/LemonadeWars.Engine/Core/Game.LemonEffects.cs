@@ -7,7 +7,7 @@ namespace LemonadeWars.Engine.Core
 {
     /// <summary>
     /// Per-card behavior for plan and attack Lemon cards: submit-time validation and
-    /// resolution handlers. Instants live in Game.Responses.cs (they are window responses).
+    /// resolution handlers. Instants live in Game.ResponseCards.cs (they are window responses).
     /// </summary>
     public sealed partial class Game
     {
@@ -137,8 +137,8 @@ namespace LemonadeWars.Engine.Core
                     {
                         throw new InvalidActionException($"{def.Name}: you have no tantrums.");
                     }
-                    if (action.TantrumInstanceId is int tid &&
-                        player.TantrumPile.All(t => t.InstanceId != tid))
+                    if (action.TantrumInstanceId is int chosenTantrumId &&
+                        player.TantrumPile.All(t => t.InstanceId != chosenTantrumId))
                     {
                         throw new InvalidActionException($"{def.Name}: choose a tantrum from your own pile.");
                     }
@@ -146,11 +146,11 @@ namespace LemonadeWars.Engine.Core
 
                 case "connections":
                 {
-                    if (!(action.MarketIndex is int mi) || mi < 0 || mi >= State.Market.Count)
+                    if (!(action.MarketIndex is int marketIndex) || marketIndex < 0 || marketIndex >= State.Market.Count)
                     {
                         throw new InvalidActionException("Connections: choose a face-up market card.");
                     }
-                    var bmDef = Db.BlackMarket(State.BlackMarketInstances[State.Market[mi]].DefId);
+                    var bmDef = Db.BlackMarket(State.BlackMarketInstances[State.Market[marketIndex]].DefId);
                     ValidateEquipDestination(player, bmDef, action.EquipStandInstanceId, action.EquipReplaceInstanceId);
                     break;
                 }
@@ -170,23 +170,24 @@ namespace LemonadeWars.Engine.Core
                 case "finders-keepers":
                 {
                     var victim = RequireOtherPlayer(action.TargetPlayerId, player.PlayerId);
-                    if (!(action.TargetEquippedInstanceId is int eq) ||
-                        FindEquipOwner(eq).PlayerId != victim.PlayerId)
+                    if (!(action.TargetEquippedInstanceId is int equippedId) ||
+                        FindEquipOwner(equippedId).PlayerId != victim.PlayerId)
                     {
                         throw new InvalidActionException("Finders Keepers: choose a card equipped by the target.");
                     }
-                    var stolenDef = Db.BlackMarket(State.BlackMarketInstances[eq].DefId);
+                    var stolenDef = Db.BlackMarket(State.BlackMarketInstances[equippedId].DefId);
                     ValidateEquipDestination(player, stolenDef, action.EquipStandInstanceId, action.EquipReplaceInstanceId);
                     break;
                 }
 
                 case "reduce-and-reuse":
                 {
-                    if (!(action.DiscardedBmInstanceId is int dbm) || !State.BlackMarketDiscard.Contains(dbm))
+                    if (!(action.DiscardedBmInstanceId is int discardedBmId) ||
+                        !State.BlackMarketDiscard.Contains(discardedBmId))
                     {
                         throw new InvalidActionException("Reduce and Reuse: choose a card from the Black Market discard.");
                     }
-                    var bmDef = Db.BlackMarket(State.BlackMarketInstances[dbm].DefId);
+                    var bmDef = Db.BlackMarket(State.BlackMarketInstances[discardedBmId].DefId);
                     ValidateEquipDestination(player, bmDef, action.EquipStandInstanceId, action.EquipReplaceInstanceId);
                     break;
                 }
@@ -194,11 +195,12 @@ namespace LemonadeWars.Engine.Core
                 case "reverse-engineer":
                     if (!action.DrawInstead)
                     {
-                        if (!(action.DiscardedLemonInstanceId is int dl) || !State.LemonDiscard.Contains(dl))
+                        if (!(action.DiscardedLemonInstanceId is int discardedLemonId) ||
+                            !State.LemonDiscard.Contains(discardedLemonId))
                         {
                             throw new InvalidActionException("Reverse Engineer: choose a card from the Lemon discard (or draw 2).");
                         }
-                        var recovered = Db.Lemon(State.LemonInstances[dl].DefId);
+                        var recovered = Db.Lemon(State.LemonInstances[discardedLemonId].DefId);
                         if (recovered.Type != LemonCardType.Plan && recovered.Type != LemonCardType.Attack)
                         {
                             throw new InvalidActionException(
@@ -236,11 +238,11 @@ namespace LemonadeWars.Engine.Core
 
                 case "thats-not-fair":
                 {
-                    if (!(action.TargetEquippedInstanceId is int eq2))
+                    if (!(action.TargetEquippedInstanceId is int equippedId))
                     {
                         throw new InvalidActionException("That's Not Fair!: choose an equipped Black Market card.");
                     }
-                    if (FindEquipOwner(eq2).PlayerId == player.PlayerId)
+                    if (FindEquipOwner(equippedId).PlayerId == player.PlayerId)
                     {
                         throw new InvalidActionException("That's Not Fair!: target another player's card.");
                     }
@@ -267,11 +269,11 @@ namespace LemonadeWars.Engine.Core
 
         private PlayerState RequireOtherPlayer(int? targetId, int selfId)
         {
-            if (!(targetId is int t) || t < 0 || t >= State.Players.Count || t == selfId)
+            if (!(targetId is int target) || target < 0 || target >= State.Players.Count || target == selfId)
             {
                 throw new InvalidActionException("Choose another player as the target.");
             }
-            return State.Players[t];
+            return State.Players[target];
         }
 
         private void ValidateRebrand(PlayLemonCard action, StandInstance stand)
@@ -370,13 +372,13 @@ namespace LemonadeWars.Engine.Core
 
                 case "connections":
                 {
-                    int mi = item.MarketIndex!.Value;
-                    if (mi >= State.Market.Count)
+                    int marketIndex = item.MarketIndex!.Value;
+                    if (marketIndex >= State.Market.Count)
                     {
                         return Fizzle(item, events);
                     }
-                    int bmId = State.Market[mi];
-                    State.Market.RemoveAt(mi);
+                    int bmId = State.Market[marketIndex];
+                    State.Market.RemoveAt(marketIndex);
                     if (!TryEquip(owner, bmId, item.EquipStandInstanceId, item.EquipReplaceInstanceId, events))
                     {
                         State.BlackMarketDiscard.Add(bmId);
@@ -496,12 +498,9 @@ namespace LemonadeWars.Engine.Core
                 {
                     foreach (int id in item.SelectedInstanceIds)
                     {
-                        var equipOwner = State.Players.FirstOrDefault(p =>
-                            p.PlayerId == owner.PlayerId &&
-                            (p.Turf.Equipped.Contains(id) || p.Stands.Any(s => s.Equipped.Contains(id))));
-                        if (equipOwner == null)
+                        if (!OwnsEquipped(owner, id))
                         {
-                            continue;
+                            continue; // sold out from under the play while it was contested
                         }
                         RemoveEquipped(owner, id);
                         State.BlackMarketDiscard.Add(id);
@@ -569,15 +568,15 @@ namespace LemonadeWars.Engine.Core
                 case "thats-not-fair":
                 {
                     var victim = Player(item.AttackTargetId!.Value);
-                    int eq = item.TargetEquippedInstanceId ?? -1;
-                    bool valid = eq >= 0 && OwnsEquipped(victim, eq);
+                    int equippedId = item.TargetEquippedInstanceId ?? -1;
+                    bool valid = equippedId >= 0 && OwnsEquipped(victim, equippedId);
                     if (!valid)
                     {
                         return RequestRetargetOrFizzle(item, victim, events);
                     }
-                    RemoveEquipped(victim, eq);
-                    State.BlackMarketDiscard.Add(eq);
-                    events.Add(new CardsDiscarded { PlayerId = victim.PlayerId, InstanceIds = new List<int> { eq } });
+                    RemoveEquipped(victim, equippedId);
+                    State.BlackMarketDiscard.Add(equippedId);
+                    events.Add(new CardsDiscarded { PlayerId = victim.PlayerId, InstanceIds = new List<int> { equippedId } });
                     return true;
                 }
 
@@ -620,11 +619,11 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Finders Keepers: are both the steal target and the equip destination still valid?</summary>
         private bool EquipStillValid(StackItem item, PlayerState victim, PlayerState owner)
         {
-            if (!(item.TargetEquippedInstanceId is int eq) || !OwnsEquipped(victim, eq))
+            if (!(item.TargetEquippedInstanceId is int equippedId) || !OwnsEquipped(victim, equippedId))
             {
                 return false;
             }
-            var def = Db.BlackMarket(State.BlackMarketInstances[eq].DefId);
+            var def = Db.BlackMarket(State.BlackMarketInstances[equippedId].DefId);
             try
             {
                 ValidateEquipDestination(owner, def, item.EquipStandInstanceId, item.EquipReplaceInstanceId);
@@ -652,7 +651,7 @@ namespace LemonadeWars.Engine.Core
             {
                 var owner = Player(item.OwnerId);
                 bool anyDestination = AllEquipped(victim)
-                    .Any(eq => DestinationsFor(owner, EquippedDef(eq)).Any());
+                    .Any(equippedId => DestinationsFor(owner, EquippedDef(equippedId)).Any());
                 if (!anyDestination)
                 {
                     return Fizzle(item, events);
@@ -675,17 +674,17 @@ namespace LemonadeWars.Engine.Core
                 ?? throw new InvalidActionException("The attack is no longer pending.");
             var victim = Player(item.AttackTargetId!.Value);
 
-            if (!(action.TargetEquippedInstanceId is int eq) || !OwnsEquipped(victim, eq))
+            if (!(action.TargetEquippedInstanceId is int equippedId) || !OwnsEquipped(victim, equippedId))
             {
                 throw new InvalidActionException("Choose a card equipped by the attack's current target.");
             }
-            item.TargetEquippedInstanceId = eq;
+            item.TargetEquippedInstanceId = equippedId;
             item.EquipStandInstanceId = action.EquipStandInstanceId;
             item.EquipReplaceInstanceId = action.EquipReplaceInstanceId;
 
             if (item.LemonDefId == "finders-keepers")
             {
-                var def = Db.BlackMarket(State.BlackMarketInstances[eq].DefId);
+                var def = Db.BlackMarket(State.BlackMarketInstances[equippedId].DefId);
                 ValidateEquipDestination(Player(item.OwnerId), def,
                     action.EquipStandInstanceId, action.EquipReplaceInstanceId);
             }

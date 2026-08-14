@@ -726,8 +726,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         // ------------------------------------------------------- turn cycle
-        // StartTurn, draws, Timeout handling, and sale resolution live in Game.Responses.cs;
-        // everything below flows through the interaction pump.
+        // StartTurn and sale resolution live in Game.TurnFlow.cs, draws and Timeout
+        // handling in Game.Draws.cs; everything below flows through the interaction pump.
 
         /// <summary>Setup-only draw: Timeout cards are shuffled back instead of resolving (rulebook p5).</summary>
         private void SetupDraw(PlayerState player)

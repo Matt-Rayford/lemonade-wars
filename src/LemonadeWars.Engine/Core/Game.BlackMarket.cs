@@ -408,9 +408,9 @@ namespace LemonadeWars.Engine.Core
                 {
                     TriggerSteal(victim, owner, 1, def.Name, events);
                     int? stolen = StealRandomCard(victim, owner, events);
-                    if (stolen is int stolenId2)
+                    if (stolen is int stolenId)
                     {
-                        MaybeGiveBack(owner, victim, stolenId2, decision.SourceInstanceId, events);
+                        MaybeGiveBack(owner, victim, stolenId, decision.SourceInstanceId, events);
                     }
                     break;
                 }

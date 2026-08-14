@@ -1,35 +1,9 @@
 using System.Net.WebSockets;
 using System.Text;
-using LemonadeWars.Engine.Data;
 using LemonadeWars.Protocol;
 using Newtonsoft.Json.Linq;
 
 namespace LemonadeWars.Server;
-
-/// <summary>Finds game-data/ via env var (containers) or by walking up (dev/tests).</summary>
-public static class GameDataLocator
-{
-    public static CardDatabase LoadDatabase()
-    {
-        string? configured = Environment.GetEnvironmentVariable("GAME_DATA_DIR");
-        if (!string.IsNullOrEmpty(configured))
-        {
-            return CardDatabase.Load(configured);
-        }
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            string candidate = Path.Combine(dir.FullName, "game-data");
-            if (Directory.Exists(candidate))
-            {
-                return CardDatabase.Load(candidate);
-            }
-            dir = dir.Parent;
-        }
-        throw new DirectoryNotFoundException(
-            "game-data not found; set GAME_DATA_DIR or run from within the repo.");
-    }
-}
 
 /// <summary>One connected socket: routes messages to a room until the socket closes.</summary>
 public static class ClientSession
@@ -53,6 +27,40 @@ public static class ClientSession
             ? r
             : 10;
 
+    /// <summary>Token bucket: bursts are fine, a firehose is not. Rate 0 disables.</summary>
+    private sealed class RateLimiter
+    {
+        private readonly double _ratePerSecond;
+        private readonly double _burst;
+        private double _tokens;
+        private DateTime _lastRefillUtc = DateTime.UtcNow;
+
+        public RateLimiter(double ratePerSecond)
+        {
+            _ratePerSecond = ratePerSecond;
+            _burst = ratePerSecond * 3;
+            _tokens = _burst;
+        }
+
+        public bool TryTake()
+        {
+            if (_ratePerSecond <= 0)
+            {
+                return true;
+            }
+            var now = DateTime.UtcNow;
+            _tokens = Math.Min(_burst,
+                _tokens + (now - _lastRefillUtc).TotalSeconds * _ratePerSecond);
+            _lastRefillUtc = now;
+            if (_tokens < 1)
+            {
+                return false;
+            }
+            _tokens -= 1;
+            return true;
+        }
+    }
+
     public static async Task RunAsync(WebSocket socket, RoomManager rooms,
         PlayerRegistry players, ConnectionRegistry connections)
     {
@@ -60,11 +68,7 @@ public static class ClientSession
         Room? room = null;
         PlayerRegistry.Player? identity = null;
         int hellos = 0;
-        // Token bucket: bursts are fine, a firehose is not.
-        double rate = RatePerSecond;
-        double burst = rate * 3;
-        double tokens = burst;
-        DateTime lastRefill = DateTime.UtcNow;
+        var limiter = new RateLimiter(RatePerSecond);
         try
         {
             while (socket.State == WebSocketState.Open)
@@ -75,17 +79,10 @@ public static class ClientSession
                     break;
                 }
 
-                if (rate > 0)
+                if (!limiter.TryTake())
                 {
-                    var now = DateTime.UtcNow;
-                    tokens = Math.Min(burst, tokens + (now - lastRefill).TotalSeconds * rate);
-                    lastRefill = now;
-                    if (tokens < 1)
-                    {
-                        await SendErrorAsync(connection, "Too many messages — slow down.");
-                        continue;
-                    }
-                    tokens -= 1;
+                    await SendErrorAsync(connection, "Too many messages — slow down.");
+                    continue;
                 }
 
                 JObject message;
