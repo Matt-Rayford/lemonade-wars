@@ -360,6 +360,122 @@ namespace LemonadeWars.Engine.Tests
                 me.Stands.First(st => st.InstanceId == pick.TargetStandInstanceId).StandTypeId);
         }
 
+        // ------------------------------------------------- tantrum discipline
+
+        /// <summary>Bury every copy of the defs from ALL hands, then note who holds what.</summary>
+        private static void StripAllHands(Game game, params string[] defIds)
+        {
+            var s = game.State;
+            foreach (var p in s.Players)
+            {
+                var strip = p.Hand.Where(id => defIds.Contains(s.LemonInstances[id].DefId)).ToList();
+                foreach (int id in strip)
+                {
+                    p.Hand.Remove(id);
+                    s.LemonDeck.Add(id);
+                }
+            }
+        }
+
+        /// <summary>GiveCard, but returns the instance id that landed in the hand.</summary>
+        private static int Hold(Game game, int playerId, string defId)
+        {
+            GiveCard(game, playerId, defId);
+            return game.State.Players[playerId].Hand[^1];
+        }
+
+        [Fact]
+        public void BystanderTantrumsAreSpiteAndGetPassed()
+        {
+            var game = ReadyToAct(31, 3);
+            var s = game.State;
+            int a = s.ActivePlayer;
+            int c = (a + 2) % 3;
+            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
+            int plan = Hold(game, a, "market-forecasting");
+            int tantrum = Hold(game, c, "tantrum");
+            s.Players[c].LemonLordKept.Clear(); // no Friendly Fran / Expert Whiner noise
+            s.Players[a].BraggingRights = 0;
+            s.Players[a].FirstDibsClaimed.Clear();
+
+            // A plays a plan that touches nobody; C is the only armed responder.
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = plan });
+            Assert.Contains(c, s.AwaitingResponse);
+
+            var spite = new RespondToWindow { PlayerId = c, CardInstanceId = tantrum };
+            Assert.True(MoveFilters.ObjectivelyWasted(game, c, spite));
+            Assert.IsType<PassWindow>(new GreedyBot().Choose(game, c));
+
+            // The same play from a player one VP short of ending the game IS worth
+            // the card — the leader-block must survive the spite filter.
+            s.Players[a].BraggingRights = 2;
+            Assert.False(MoveFilters.ObjectivelyWasted(game, c, spite));
+            Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, c));
+        }
+
+        [Fact]
+        public void TantrumStillCancelsAttacksOnTheBot()
+        {
+            var game = ReadyToAct(32, 3);
+            var s = game.State;
+            int a = s.ActivePlayer;
+            int b = (a + 1) % 3;
+            int c = (a + 2) % 3;
+            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
+            int attack = Hold(game, a, "hoa-violation");
+            int tantrumB = Hold(game, b, "tantrum");
+            int tantrumC = Hold(game, c, "tantrum");
+            s.Players[b].LemonLordKept.Clear();
+            s.Players[c].LemonLordKept.Clear();
+            s.Players[c].Money = 10;
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = c });
+
+            // The target defends itself — never filtered, and greedy plays it.
+            var defend = new RespondToWindow { PlayerId = c, CardInstanceId = tantrumC };
+            Assert.False(MoveFilters.ObjectivelyWasted(game, c, defend));
+            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, c));
+            Assert.Equal(tantrumC, pick.CardInstanceId);
+
+            // The bystander tantruming an attack on someone ELSE is spite.
+            var spite = new RespondToWindow { PlayerId = b, CardInstanceId = tantrumB };
+            Assert.True(MoveFilters.ObjectivelyWasted(game, b, spite));
+            Assert.IsType<PassWindow>(new GreedyBot().Choose(game, b));
+        }
+
+        [Fact]
+        public void CounterTantrumProtectsTheBotsOwnPlay()
+        {
+            var game = ReadyToAct(33, 3);
+            var s = game.State;
+            int a = s.ActivePlayer;
+            int b = (a + 1) % 3;
+            int c = (a + 2) % 3;
+            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
+            int plan = Hold(game, a, "market-forecasting");
+            int tantrumA = Hold(game, a, "tantrum");
+            int tantrumB = Hold(game, b, "tantrum");
+            int tantrumC = Hold(game, c, "tantrum");
+            foreach (var p in s.Players)
+            {
+                p.LemonLordKept.Clear();
+            }
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = plan });
+            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = tantrumB });
+
+            // A counter-tantrums to revive its own play: worthwhile, and greedy takes it.
+            var counter = new RespondToWindow { PlayerId = a, CardInstanceId = tantrumA };
+            Assert.False(MoveFilters.ObjectivelyWasted(game, a, counter));
+            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, a));
+            Assert.Equal(tantrumA, pick.CardInstanceId);
+
+            // The third player has no stake in B's tantrum — cancelling it is spite.
+            var spite = new RespondToWindow { PlayerId = c, CardInstanceId = tantrumC };
+            Assert.True(MoveFilters.ObjectivelyWasted(game, c, spite));
+            Assert.IsType<PassWindow>(new GreedyBot().Choose(game, c));
+        }
+
         [Fact]
         public void BotFactoryMapsLevels()
         {

@@ -114,7 +114,11 @@ namespace LemonadeWars.Engine.Ai
         public GameAction Choose(Game game, int playerId)
         {
             var moves = game.LegalMovesFor(playerId);
-            if (moves.Count > 1 && _rng.Next(100) < BlunderRate * 100)
+            // Response windows are exempt from blunders: a randomly thrown Tantrum
+            // against a play that never touched the bot reads as malice, not as an
+            // easy opponent — and it double-feeds the Whiniest Baby fine.
+            bool isWindow = moves.Any(m => m is PassWindow || m is RespondToWindow);
+            if (!isWindow && moves.Count > 1 && _rng.Next(100) < BlunderRate * 100)
             {
                 return moves[_rng.Next(moves.Count)];
             }

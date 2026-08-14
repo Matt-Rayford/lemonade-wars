@@ -160,9 +160,16 @@ namespace LemonadeWars.Unity
         /// A fresh die. The title names WHAT the roll is for — a Night Shifts die must never
         /// read like the turn sale, or Out of Stock gets spent on the wrong roll.
         /// </summary>
-        public void Enqueue(string rollerName, int value, bool isYou, RollPurpose purpose)
+        public void Enqueue(string rollerName, int value, bool isYou, RollPurpose purpose,
+            string standName = null)
         {
-            EnqueueRoll(RollTitle(rollerName, isYou, purpose), value);
+            string title = RollTitle(rollerName, isYou, purpose);
+            if (purpose == RollPurpose.TradeWinds && standName != null)
+            {
+                // Stand-scoped roll: say WHICH stand, or it reads like a table-wide sale.
+                title = $"{title.TrimEnd('.')} — {standName.ToUpperInvariant()} ONLY";
+            }
+            EnqueueRoll(title, value);
         }
 
         private static string RollTitle(string rollerName, bool isYou, RollPurpose purpose)

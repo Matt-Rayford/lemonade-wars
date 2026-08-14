@@ -1190,6 +1190,7 @@ namespace LemonadeWars.Engine.Core
                 PlayerId = rollerId,
                 Value = State.PendingRoll.Value,
                 Purpose = purpose,
+                StandInstanceId = standInstanceId,
             });
         }
 

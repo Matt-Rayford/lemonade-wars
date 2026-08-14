@@ -191,6 +191,23 @@ namespace LemonadeWars.Unity
         private bool _lordFanHasBaby;
         private RectTransform _marketRow;
 
+        /// <summary>Market-row twin of SuppressWhinyBaby, per card: while true for an
+        /// instance id, that Black Market card renders as an EMPTY placeholder (same
+        /// size, so the shelf never reflows) — a refilled card appears only when the
+        /// purchase drift delivers and the app lifts the hold (see LemonadeWarsApp).
+        /// Keyed by instance id, not slot, so batched buys that shift the row still
+        /// hide exactly the cards the viewer has not been shown.</summary>
+        public System.Func<int, bool> MarketCardHidden;
+        /// <summary>Shelf cells by market slot index — flight-origin anchors; includes
+        /// suppressed placeholder cells so a slot's spot is known while empty.</summary>
+        private readonly Dictionary<int, RectTransform> _marketSlotAnchors =
+            new Dictionary<int, RectTransform>();
+        /// <summary>Stand-supply piles by stand type id — flight-origin anchors.</summary>
+        private readonly Dictionary<string, RectTransform> _supplyAnchors =
+            new Dictionary<string, RectTransform>();
+        /// <summary>The Bragging Rights shelf cell, null while sold out.</summary>
+        private RectTransform _braggingAnchor;
+
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
         private static readonly Color[] BadgeColors =
         {
@@ -437,9 +454,11 @@ namespace LemonadeWars.Unity
         /// <summary>
         /// Dim everything but the board, float the taken card centered in the market
         /// band, and wait for a click on one of your real stands (or the turf).
+        /// An optional caption floats above the card ("Word of Mouth — choose a
+        /// stand to sell") for picks whose card art alone doesn't say what's asked.
         /// </summary>
         public void BeginEquipTargeting(Texture2D texture, ISet<int?> validTargets,
-            System.Action<int?> onPick, System.Action onCancel)
+            System.Action<int?> onPick, System.Action onCancel, string caption = null)
         {
             const float width = 190f;
             const float height = 266f;
@@ -466,7 +485,20 @@ namespace LemonadeWars.Unity
             var shadow = frame.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0, 0, 0, 0.6f);
             shadow.effectDistance = new Vector2(0, -6f);
+            frame.gameObject.SetActive(texture != null); // no white slab for art-less picks
             _targetingCardBottom = anchor + new Vector2(0, -height * 0.5f);
+
+            if (!string.IsNullOrEmpty(caption))
+            {
+                var label = UiKit.CreateText(_targetingCardHost, caption, 22,
+                    TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f));
+                label.raycastTarget = false;
+                var labelRect = (RectTransform)label.transform;
+                labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+                labelRect.pivot = new Vector2(0.5f, 0f);
+                labelRect.sizeDelta = new Vector2(760f, 34f);
+                labelRect.anchoredPosition = anchor + new Vector2(0, height * 0.5f + 12f);
+            }
 
             _targetingRoot.SetAsLastSibling();
             _targetingRoot.gameObject.SetActive(true);
@@ -1097,6 +1129,9 @@ namespace LemonadeWars.Unity
             UiKit.AddClick(scrollGo, CloseDiscardViewer);
             var scroll = scrollGo.GetComponent<ScrollRect>();
             scroll.horizontal = false;
+            // Raw wheel deltas are tiny (~0.1/tick): the default sensitivity of 1
+            // crawls. ~50px per tick moves a meaningful slice of a 392px card row.
+            scroll.scrollSensitivity = 50f;
 
             var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
             viewportGo.transform.SetParent(scrollGo.transform, false);
@@ -1458,6 +1493,11 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_marketRow);
             _marketCells.Clear();
+            // Everything in the row is being destroyed — drop the flight anchors too
+            // (RenderSupply repopulates the supply/bragging ones right after).
+            _marketSlotAnchors.Clear();
+            _supplyAnchors.Clear();
+            _braggingAnchor = null;
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
             BuildDiscardPile(view, blackMarket: false);
@@ -1470,9 +1510,48 @@ namespace LemonadeWars.Unity
             for (int i = 0; i < view.Market.Count; i++)
             {
                 var card = view.Market[i];
+                if (MarketCardHidden?.Invoke(card.InstanceId) == true)
+                {
+                    // A purchase drift is mid-air: hold this slot visually empty so
+                    // the refill pops in when the flight delivers, not instantly.
+                    BuildEmptyMarketCell(i);
+                    continue;
+                }
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
                 BuildMarketCell(i, texture);
             }
+        }
+
+        /// <summary>
+        /// Placeholder for a suppressed market slot: same layout footprint as a card
+        /// cell (the shelf must not reflow), drawn as a faint empty socket.
+        /// </summary>
+        private void BuildEmptyMarketCell(int marketIndex)
+        {
+            const float width = 154f;
+            const float height = 216f;
+
+            var cell = new GameObject("EmptySlot", typeof(RectTransform), typeof(LayoutElement));
+            cell.transform.SetParent(_marketRow, false);
+            var cellElement = cell.GetComponent<LayoutElement>();
+            cellElement.preferredWidth = width + 8;
+            cellElement.preferredHeight = height + 4;
+            cellElement.flexibleWidth = 0;
+            cellElement.flexibleHeight = 0;
+
+            var socket = UiKit.CreatePanel(cell.transform, "Socket", new Color(0, 0, 0, 0.30f));
+            socket.GetComponent<Image>().sprite = UiSprites.RoundedRect;
+            socket.GetComponent<Image>().type = Image.Type.Sliced;
+            socket.GetComponent<Image>().raycastTarget = false;
+            // Card cells hang their card from the cell's bottom edge — match exactly,
+            // so socket and card occupy the same pixels across the swap.
+            socket.anchorMin = new Vector2(0.5f, 0f);
+            socket.anchorMax = new Vector2(0.5f, 0f);
+            socket.pivot = new Vector2(0.5f, 0f);
+            socket.sizeDelta = new Vector2(width, height);
+            socket.anchoredPosition = Vector2.zero;
+
+            _marketSlotAnchors[marketIndex] = (RectTransform)cell.transform;
         }
 
         /// <summary>
@@ -1582,6 +1661,7 @@ namespace LemonadeWars.Unity
             drag.DragStarted = () => OnMarketDragStart?.Invoke(marketIndex);
             drag.DragEnded = () => OnMarketDragEnd?.Invoke();
             _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
+            _marketSlotAnchors[marketIndex] = (RectTransform)cell.transform;
         }
 
         private void RenderBoard(PlayerView view)
@@ -1625,11 +1705,14 @@ namespace LemonadeWars.Unity
             }
             // Game over: everyone's secret Lemon Lords are revealed (FinishedLords is
             // empty until then), so they join the stack — click a rival's bar and their
-            // lords are right there with the rest of their points. Unmet lords show too
-            // (the reveal is half the fun); the caption sticks to VP actually scored.
+            // lords are right there with the rest of their points. Only MET lords join:
+            // an unmet lord in the VP stack reads as points that were never scored.
             foreach (var lord in owner.FinishedLords)
             {
-                vpTextures.Add(_art.Title(lord.TitleId));
+                if (lord.Met)
+                {
+                    vpTextures.Add(_art.Title(lord.TitleId));
+                }
             }
             int scoredVp = owner.InGameVictoryPoints + owner.FinishedLords.Count(l => l.Met);
             RectTransform vpCell;
@@ -1682,27 +1765,39 @@ namespace LemonadeWars.Unity
 
         private void RenderHand(PlayerView view, MoveGroups groups)
         {
-            int count = view.Hand.Count;
             // The deck sits at the right end of the fan as a card-shaped slot, so
             // drawing reads as taking a card rather than pressing a bar button.
             bool canDraw = CanDrawLemon?.Invoke() == true;
 
+            // While the Whiniest Baby "drew 2, keep 1" overlay is up, the fresh
+            // draws live in the OVERLAY only: showing them in the fan underneath
+            // reads as cards you already own (a phantom Finders Keepers fooled a
+            // real playtest). Hide exactly the decision's eligible instances — the
+            // kept card joins the fan when the decision resolves.
+            var babyDiscard = view.MyDecisions.FirstOrDefault(d =>
+                d.Kind == DecisionKind.WhiniestBabyDiscard && d.EligibleCardIds != null);
+            var hiddenIds = babyDiscard?.EligibleCardIds;
+
             // Respect the player's own arrangement (drag a card sideways to move it);
             // cards we haven't seen yet — fresh draws — join on the right.
             var hand = view.Hand
+                .Where(c => hiddenIds == null || !hiddenIds.Contains(c.InstanceId))
                 .OrderBy(c =>
                 {
                     int index = _handOrder.IndexOf(c.InstanceId);
                     return index < 0 ? int.MaxValue : index;
                 })
                 .ToList();
+            int count = hand.Count;
 
             // Skip the rebuild when nothing the hand shows has changed (bot turns
             // re-render constantly): tearing the fan down mid-hover drops the raised
             // card and kills an open preview for no reason. The signature covers the
-            // order, each card's move count (bindings bake it in), the draw slot, and
-            // the band width the layout was computed against.
+            // order, each card's move count (bindings bake it in), the draw slot, the
+            // band width the layout was computed against, and the hidden-draw count
+            // (so the fan re-renders the moment the Whiniest Baby decision resolves).
             var signatureBuilder = new StringBuilder(canDraw ? "draw|" : "|");
+            signatureBuilder.Append("h").Append(hiddenIds?.Count ?? 0).Append('|');
             signatureBuilder.Append(Mathf.RoundToInt(_handHost.rect.width)).Append('|');
             foreach (var card in hand)
             {
@@ -2431,6 +2526,33 @@ namespace LemonadeWars.Unity
                 new Vector3(startX + slot * spacing, peek - height + height / 2f, 0));
         }
 
+        /// <summary>
+        /// World position of a Black Market slot on the shelf — purchase-drift origin.
+        /// Valid for card AND suppressed-placeholder cells; null when the slot does not
+        /// exist (market shrank with an empty deck). Forces the row's layout, because
+        /// effects resolve origins the same frame the shelf is rebuilt, before the
+        /// layout group has placed its children.
+        /// </summary>
+        public Vector3? MarketSlotWorld(int index) =>
+            _marketSlotAnchors.TryGetValue(index, out var cell) ? CellCenterWorld(cell) : null;
+
+        /// <summary>World position of a stand-supply pile on the shelf.</summary>
+        public Vector3? StandSupplyWorld(string standTypeId) =>
+            _supplyAnchors.TryGetValue(standTypeId, out var cell) ? CellCenterWorld(cell) : null;
+
+        /// <summary>World position of the Bragging Rights shelf card; null once sold out.</summary>
+        public Vector3? BraggingShelfWorld() => CellCenterWorld(_braggingAnchor);
+
+        private Vector3? CellCenterWorld(RectTransform cell)
+        {
+            if (cell == null) // also true for a destroyed cell mid-teardown
+            {
+                return null;
+            }
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_marketRow);
+            return cell.TransformPoint(cell.rect.center);
+        }
+
         /// <summary>Appends to the market row — call after RenderMarket (which clears it).</summary>
         private void RenderSupply(PlayerView view, CardDatabase db, MoveGroups groups)
         {
@@ -2470,6 +2592,7 @@ namespace LemonadeWars.Unity
             cellElement.preferredHeight = height + 4;
             cellElement.flexibleWidth = 0;
             cellElement.flexibleHeight = 0;
+            _braggingAnchor = (RectTransform)cell.transform;
 
             var liftGo = new GameObject("Lift", typeof(RectTransform));
             liftGo.transform.SetParent(cell.transform, false);
@@ -2934,6 +3057,7 @@ namespace LemonadeWars.Unity
                 _preview.SetDragging(false);
                 HideInsertPreview();
             };
+            _supplyAnchors[standTypeId] = (RectTransform)cell.transform;
         }
 
         /// <summary>Called every frame by the app while a supply stand is being dragged.</summary>

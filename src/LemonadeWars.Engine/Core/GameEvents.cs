@@ -106,6 +106,8 @@ namespace LemonadeWars.Engine.Core
         /// Travels as a camelCase string ("nightShifts") via the wire's enum converter.
         /// </summary>
         public RollPurpose Purpose { get; set; }
+        /// <summary>Trade Winds only: the single stand this roll applies to (null = not stand-scoped).</summary>
+        public int? StandInstanceId { get; set; }
         public override string ToString() => $"P{PlayerId} rolled a {Value} ({Purpose})";
     }
 

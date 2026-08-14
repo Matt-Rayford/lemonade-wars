@@ -393,12 +393,27 @@ namespace LemonadeWars.Engine.Ai
                     {
                         return 60 - franBrake; // cancel an attack on us
                     }
-                    if (stackTop.Kind == StackItemKind.BlackMarketPurchase)
+                    // Counter-tantrum: cancelling the tantrum that cancelled OUR play.
+                    if (stackTop.LemonDefId == "tantrum" && stackTop.RespondingToItemId is int prevId &&
+                        s.ResponseStack.Any(it => it.ItemId == prevId && it.OwnerId == me.PlayerId))
                     {
-                        var def = game.Db.BlackMarket(s.BlackMarketInstances[stackTop.BmInstanceId!.Value].DefId);
-                        return (def.Cost >= 6 ? 30 : 6) - franBrake;
+                        return 55 - franBrake;
                     }
-                    return 6 - franBrake;
+                    // A player one VP from triggering the end: deny them anything big.
+                    if (s.Players[stackTop.OwnerId].InGameVictoryPoints >=
+                        game.Db.Config.VictoryPointsToTriggerEnd - 1)
+                    {
+                        if (stackTop.Kind == StackItemKind.BlackMarketPurchase)
+                        {
+                            var def = game.Db.BlackMarket(s.BlackMarketInstances[stackTop.BmInstanceId!.Value].DefId);
+                            return (def.Cost >= 6 ? 30 : 12) - franBrake;
+                        }
+                        return 25 - franBrake;
+                    }
+                    // A play that doesn't touch us: burning a tantrum (and feeding the
+                    // Whiniest Baby fine) on it is spite, not strategy — passing (10) wins.
+                    // Expert Whiner is the exception: played tantrums ARE its VP condition.
+                    return me.LemonLordKept.Contains("expert-whiner") ? 12 : 2 - franBrake;
                 }
                 case "tag-youre-it":
                     return stackTop?.AttackTargetId == me.PlayerId ? 65 : 5;
@@ -726,9 +741,54 @@ namespace LemonadeWars.Engine.Ai
                     return WastedMoneyAttack(game, play);
                 case BuyBlackMarket bm:
                     return WastedPlacement(game, playerId, bm);
+                case RespondToWindow respond:
+                    return PointlessTantrum(game, playerId, respond);
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// A tantrum aimed at a play that neither hurts the responder nor blocks a player
+        /// about to trigger the end of the game. Legal — the rules let ANY player tantrum
+        /// any tantrummable play (rulebook p11) — but strictly bad value: it spends a card,
+        /// grows the responder's tantrum pile toward the Whiniest Baby ($3-per-tantrum
+        /// Timeout fine), and buys them nothing. Cancelling an attack on yourself, counter-
+        /// tantruming to revive your own play, and denying a 2-VP player all stay in.
+        /// </summary>
+        public static bool PointlessTantrum(Game game, int playerId, RespondToWindow respond)
+        {
+            var s = game.State;
+            if (respond.EquippedInstanceId != null || s.ResponseStack.Count == 0 ||
+                !s.LemonInstances.TryGetValue(respond.CardInstanceId, out var instance) ||
+                instance.DefId != "tantrum")
+            {
+                return false; // not a tantrum response — no opinion
+            }
+            var top = s.ResponseStack[s.ResponseStack.Count - 1];
+            // Cancelling an attack on yourself is the tantrum's day job.
+            if (top.AttackTargetId == playerId)
+            {
+                return false;
+            }
+            // Counter-tantrum: cancelling this tantrum revives the responder's own play.
+            if (top.LemonDefId == "tantrum" && top.RespondingToItemId is int prevId &&
+                s.ResponseStack.Any(it => it.ItemId == prevId && it.OwnerId == playerId))
+            {
+                return false;
+            }
+            // A player one VP from triggering the end: denying them anything is worth a card.
+            if (s.Players[top.OwnerId].InGameVictoryPoints >=
+                game.Db.Config.VictoryPointsToTriggerEnd - 1)
+            {
+                return false;
+            }
+            // Expert Whiner WANTS played tantrums; spite is that lord's whole strategy.
+            if (s.Players[playerId].LemonLordKept.Contains("expert-whiner"))
+            {
+                return false;
+            }
+            return true;
         }
 
         /// <summary>
