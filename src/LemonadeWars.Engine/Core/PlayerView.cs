@@ -58,12 +58,21 @@ namespace LemonadeWars.Engine.Core
         public RollPurpose? PendingRollPurpose { get; set; }
         /// <summary>Who threw the pending die.</summary>
         public int? PendingRollerId { get; set; }
+        /// <summary>Trade Winds only: the single stand this roll applies to (null = not stand-scoped).</summary>
+        public int? PendingRollStandInstanceId { get; set; }
         /// <summary>Top of the response stack, when a window is open.</summary>
         public StackTopInfo? StackTop { get; set; }
         /// <summary>The viewer's own pending decisions, with the payloads their UI needs.</summary>
         public List<DecisionInfo> MyDecisions { get; set; } = new List<DecisionInfo>();
         /// <summary>A money steal against the viewer awaits a Profit Share response.</summary>
         public bool TheftOnMe { get; set; }
+        /// <summary>Who robbed the viewer, when TheftOnMe.</summary>
+        public int? TheftAttackerId { get; set; }
+        /// <summary>How much was stolen, when TheftOnMe.</summary>
+        public int? TheftAmount { get; set; }
+        /// <summary>What Profit Share would claw back right now (half rounded up,
+        /// capped by what the attacker still holds), when TheftOnMe.</summary>
+        public int? TheftRecoverable { get; set; }
         public List<int> Winners { get; set; } = new List<int>();
 
         /// <summary>One player's public board.</summary>
@@ -156,6 +165,11 @@ namespace LemonadeWars.Engine.Core
         {
             var viewer = Player(viewerId);
 
+            PendingTheftResponse? TheftOnViewer(int id) =>
+                State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == id
+                    ? State.TheftQueue[0]
+                    : null;
+
             PlayerView.CardInfo Lemon(int id) => new PlayerView.CardInfo
             {
                 InstanceId = id,
@@ -215,7 +229,13 @@ namespace LemonadeWars.Engine.Core
                 PendingRollValue = State.PendingRoll?.Value,
                 PendingRollPurpose = State.PendingRoll?.Purpose,
                 PendingRollerId = State.PendingRoll?.RollerId,
+                PendingRollStandInstanceId = State.PendingRoll?.StandInstanceId,
                 TheftOnMe = State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == viewerId,
+                TheftAttackerId = TheftOnViewer(viewerId)?.AttackerId,
+                TheftAmount = TheftOnViewer(viewerId)?.AmountStolen,
+                TheftRecoverable = TheftOnViewer(viewerId) is PendingTheftResponse t
+                    ? System.Math.Min((t.AmountStolen + 1) / 2, State.Players[t.AttackerId].Money)
+                    : (int?)null,
                 MyDecisions = State.PendingDecisions
                     .Where(d => d.PlayerId == viewerId)
                     .Select(d => new PlayerView.DecisionInfo

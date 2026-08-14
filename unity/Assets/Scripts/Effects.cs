@@ -47,6 +47,23 @@ namespace LemonadeWars.Unity
             public int Amount;           // coin flights: floaters at both ends on arrival
             public int Count = 1;
         }
+        /// <summary>A shelf purchase: the bought card's art lifts out of its slot and
+        /// drifts away, fading — so "someone took that card" is visible instead of the
+        /// row just mutating. Like ClaimFx it announces a state change, so it is NOT
+        /// dropped by CancelPendingReveals, and its OnDelivered must always fire.</summary>
+        private sealed class PurchaseFx : Fx
+        {
+            public Texture2D Art;
+            /// <summary>Small line under the drifting card (the buyer's name); null = none.</summary>
+            public string Caption;
+            /// <summary>Resolved when the effect STARTS (layout settles between queue
+            /// and start). Null result = nothing on screen to lift from: deliver
+            /// instantly with no motion.</summary>
+            public System.Func<Vector3?> Origin;
+            /// <summary>Fires exactly once when the drift ends (or the fx is skipped /
+            /// cleared) — the moment a suppressed refill slot may show its new card.</summary>
+            public System.Action OnDelivered;
+        }
 
         private readonly RectTransform _layer;        // floaters + flights, no scrim
         private readonly RectTransform _revealRoot;   // dim scrim + card + title
@@ -177,6 +194,22 @@ namespace LemonadeWars.Unity
             });
         }
 
+        /// <summary>Drift-and-fade a purchased card's art out of its shelf slot. The
+        /// origin is a func because layout may not have settled at queue time; a null
+        /// origin at start skips the motion but still delivers.</summary>
+        public void QueuePurchase(Texture2D art, string caption, System.Func<Vector3?> origin,
+            System.Action onDelivered = null)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new PurchaseFx
+            {
+                Art = art,
+                Caption = caption,
+                Origin = origin,
+                OnDelivered = onDelivered,
+            });
+        }
+
         /// <summary>
         /// The viewer is about to answer this play in a response modal — the modal tells
         /// the story itself, so drop any queued reveal instead of double-billing it.
@@ -229,6 +262,22 @@ namespace LemonadeWars.Unity
         /// <summary>Drop everything (screen change, autopilot), including live sprites.</summary>
         public void Clear()
         {
+            // The completion-callback law, queued half: effects that gate persistent UI
+            // (a suppressed shelf slot, a hidden lord card) must deliver even when the
+            // theatre is torn down before they start, or the suppression never lifts.
+            // The ACTIVE one delivers via EndActive() below; these never started.
+            foreach (var fx in _queue)
+            {
+                switch (fx)
+                {
+                    case ClaimFx claim:
+                        claim.OnDelivered?.Invoke();
+                        break;
+                    case PurchaseFx purchase:
+                        purchase.OnDelivered?.Invoke();
+                        break;
+                }
+            }
             _queue.Clear();
             _busyUntil = 0f;
             EndActive();
@@ -303,6 +352,9 @@ namespace LemonadeWars.Unity
                     break;
                 case ClaimFx claim:
                     StartClaim(claim);
+                    break;
+                case PurchaseFx purchase:
+                    StartPurchase(purchase);
                     break;
                 case ToastFx toast:
                     SpawnToast(toast.Text);
@@ -415,6 +467,81 @@ namespace LemonadeWars.Unity
                     Object.Destroy(chip.gameObject); // skip-click: no orphaned flight
                 }
                 Deliver(); // skip still delivers — the card must never stay hidden
+            };
+        }
+
+        // --------------------------------------------------------- purchases
+
+        /// <summary>
+        /// The bought card's art lifts out of its shelf slot, drifts diagonally down-left
+        /// (toward the buyers' side of the table) while swelling slightly, and fades out.
+        /// Blocking, so back-to-back bot purchases play one at a time; the busy window
+        /// covers the whole drift, and delivery fires exactly once on EVERY exit path
+        /// (natural end, skip, Clear) — a suppressed refill slot depends on it.
+        /// </summary>
+        private void StartPurchase(PurchaseFx purchase)
+        {
+            bool delivered = false;
+            void Deliver()
+            {
+                if (!delivered)
+                {
+                    delivered = true;
+                    purchase.OnDelivered?.Invoke();
+                }
+            }
+
+            var world = purchase.Origin?.Invoke();
+            if (world == null || purchase.Art == null)
+            {
+                Deliver(); // nothing on screen to lift from: no motion, no busy window
+                return;
+            }
+
+            const float width = 154f;   // market card size: it IS the card leaving
+            const float height = 216f;
+            const float duration = 0.7f;
+
+            var image = UiKit.CreateCardImage(_layer, purchase.Art, width, height);
+            var chip = (RectTransform)image.transform.parent;
+            foreach (var graphic in chip.GetComponentsInChildren<UnityEngine.UI.Graphic>())
+            {
+                graphic.raycastTarget = false;
+            }
+            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
+            chip.pivot = new Vector2(0.5f, 0.5f);
+            chip.sizeDelta = new Vector2(width, height);
+            chip.anchoredPosition = _layer.InverseTransformPoint(world.Value);
+            chip.SetAsLastSibling(); // over the shelf card now shifted into this slot
+
+            if (!string.IsNullOrEmpty(purchase.Caption))
+            {
+                // Buyer's name rides under the card; child of the chip, so the drift's
+                // CanvasGroup fades it in lockstep.
+                var label = UiKit.CreateText(chip, purchase.Caption, 20,
+                    TextAnchor.MiddleCenter, ToastColor);
+                label.raycastTarget = false;
+                label.fontStyle = TMPro.FontStyles.Bold;
+                UiKit.AddTextShadow(label);
+                var labelRect = (RectTransform)label.transform;
+                labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0f);
+                labelRect.pivot = new Vector2(0.5f, 1f);
+                labelRect.sizeDelta = new Vector2(320f, 30f);
+                labelRect.anchoredPosition = new Vector2(0, -8f);
+            }
+
+            var motion = chip.gameObject.AddComponent<PurchaseDrift>();
+            motion.Duration = duration;
+            motion.OnDone = Deliver;
+
+            _busyUntil = Time.time + duration;
+            _endActive = () =>
+            {
+                if (chip != null)
+                {
+                    Object.Destroy(chip.gameObject); // skip: no orphaned drift
+                }
+                Deliver(); // skip still delivers — the refill must never stay hidden
             };
         }
 
@@ -627,6 +754,51 @@ namespace LemonadeWars.Unity
             position.y += ArcHeight * 4f * t * (1f - t);
             _rect.anchoredPosition = position;
             transform.localScale = Vector3.one * Mathf.Lerp(1f, EndScale, eased);
+        }
+    }
+
+    /// <summary>
+    /// A purchased card leaving its shelf slot: eased drift diagonally down-left,
+    /// slight swell, fade out through the back half, then self-destruct. OnDone fires
+    /// only on the natural end — early teardown is the owner's job (EndActive).
+    /// </summary>
+    public sealed class PurchaseDrift : MonoBehaviour
+    {
+        public Vector2 Drift = new Vector2(-200f, -150f);
+        public float Duration = 0.7f;
+        public System.Action OnDone;
+
+        private RectTransform _rect;
+        private CanvasGroup _group;
+        private Vector2 _from;
+        private bool _started;
+        private float _elapsed;
+
+        private void Awake()
+        {
+            _rect = (RectTransform)transform;
+            _group = gameObject.AddComponent<CanvasGroup>();
+            _group.blocksRaycasts = false;
+        }
+
+        private void Update()
+        {
+            if (!_started)
+            {
+                _started = true;
+                _from = _rect.anchoredPosition; // set by the spawner after Awake
+            }
+            _elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(_elapsed / Duration);
+            float eased = 1f - (1f - t) * (1f - t); // fast lift, gentle settle
+            _rect.anchoredPosition = _from + Drift * eased;
+            transform.localScale = Vector3.one * (1f + 0.12f * eased);
+            _group.alpha = t < 0.45f ? 1f : 1f - (t - 0.45f) / 0.55f;
+            if (t >= 1f)
+            {
+                OnDone?.Invoke();
+                Destroy(gameObject);
+            }
         }
     }
 

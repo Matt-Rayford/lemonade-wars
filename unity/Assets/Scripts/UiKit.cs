@@ -447,6 +447,9 @@ namespace LemonadeWars.Unity
             scrollGo.GetComponent<Image>().color = new Color(0, 0, 0, 0.25f);
             var scroll = scrollGo.GetComponent<ScrollRect>();
             scroll.horizontal = false;
+            // Raw wheel deltas are tiny (~0.1/tick): the default sensitivity of 1
+            // crawls. ~50px per tick is roughly one option row per notch.
+            scroll.scrollSensitivity = 50f;
 
             var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
             viewportGo.transform.SetParent(scrollGo.transform, false);
@@ -516,6 +519,8 @@ namespace LemonadeWars.Unity
             scrollGo.GetComponent<Image>().color = new Color(0, 0, 0, 0.15f);
             var scroll = scrollGo.GetComponent<ScrollRect>();
             scroll.vertical = false;
+            // Same wheel scaling as CreateScrollList — default 1 barely moves.
+            scroll.scrollSensitivity = 50f;
 
             var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
             viewportGo.transform.SetParent(scrollGo.transform, false);

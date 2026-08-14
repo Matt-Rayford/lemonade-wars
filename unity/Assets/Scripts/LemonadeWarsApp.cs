@@ -82,6 +82,24 @@ namespace LemonadeWars.Unity
         private int _autoForcedPlayRevision = -1;
         private bool _wasMyTurn;
 
+        // ----- purchase theatre bookkeeping (see HandleMarketRefilled) -----
+        // The Black Market row as the viewer last SAW it (seeded per render, advanced
+        // by MarketRefilled events mid-batch). MarketRefilled carries only the new id
+        // list, so this is how a refill diff recovers which card left which slot.
+        private List<PlayerView.CardInfo> _marketSnap;
+        // Stand-supply top shapes as last rendered: the copy a StandPurchased took.
+        private Dictionary<string, Shape> _supplyTopSnap;
+        // Refilled market cards the viewer has NOT been shown yet: each renders as an
+        // empty slot until the purchase drift that exposed it delivers. Every drift
+        // delivery removes its id exactly once (including skip/Clear — the
+        // EffectsPlayer guarantees delivery on every exit path).
+        private readonly HashSet<int> _hiddenMarketIds = new HashSet<int>();
+        // Who last took something for money (MoneyChanged < 0) or off the market
+        // (BlackMarketPurchased): MarketRefilled has no buyer field, but one of those
+        // always precedes it in the same event burst — Pay() for purchases, TryEquip's
+        // event for free takes like Connections. Caption-only; never load-bearing.
+        private int _lastSpenderId = -1;
+
         private PlayerView View => _session?.View;
 
         private void Start()
@@ -190,6 +208,9 @@ namespace LemonadeWars.Unity
                 }
             };
             _table.OnBoardViewChanged = () => _renderedRevision = -1;
+            // A refilled market card renders as an empty slot while the purchase drift
+            // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
+            _table.MarketCardHidden = instanceId => _hiddenMarketIds.Contains(instanceId);
             _table.SetVisible(false);
 
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
@@ -510,6 +531,13 @@ namespace LemonadeWars.Unity
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhinyBaby = false; // a dropped mid-flight claim must not hide it forever
             _table.SuppressSpoiledRotten = false;
+            // Same law for the shelf: stale holds from a previous game would keep
+            // market slots empty forever (ids can collide across games), and a stale
+            // snapshot would diff garbage.
+            _hiddenMarketIds.Clear();
+            _marketSnap = null;
+            _supplyTopSnap = null;
+            _lastSpenderId = -1;
             _renderedRevision = -1;
             _modalRevision = -1;
             _wasMyTurn = false;
@@ -541,7 +569,8 @@ namespace LemonadeWars.Unity
                 // deliberately wait behind.
                 Sfx.Play(Sfx.SaleRoll);
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
-                    roll.Purpose);
+                    roll.Purpose,
+                    roll.StandInstanceId is int standId ? StandName(standId) : null);
                 // Start collecting this roll's earnings for the "you earned" recap.
                 _saleEarnings = new List<string>();
                 _saleTotal = 0;
@@ -568,6 +597,12 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is MoneyChanged money)
             {
+                if (money.Amount < 0)
+                {
+                    // Remember who paid: the MarketRefilled that follows a purchase
+                    // carries no buyer, but Pay() always precedes it in the burst.
+                    _lastSpenderId = money.PlayerId;
+                }
                 _fx.QueueMoney(money.PlayerId, money.Amount);
                 if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
                 {
@@ -588,9 +623,22 @@ namespace LemonadeWars.Unity
             {
                 Sfx.Play(Sfx.TitleClaim);
             }
-            else if (gameEvent is BraggingRightsPurchased brag && brag.PlayerId == _session.Seat)
+            else if (gameEvent is BraggingRightsPurchased brag)
             {
-                Sfx.Play(Sfx.TitleClaim); // a title claim first, a purchase second
+                if (brag.PlayerId == _session.Seat)
+                {
+                    Sfx.Play(Sfx.TitleClaim); // a title claim first, a purchase second
+                }
+                else
+                {
+                    _fx.QueueSound(Sfx.CashRegister);
+                }
+                // Which shelf card was bought: $16 base, +$2 per sale (mirrors the
+                // shelf's own index-from-price math in TableView.RenderSupply).
+                var bragArt = _art.BraggingRights((brag.Price - 16) / 2)
+                    ?? _art.Back("braggingRights");
+                _fx.QueuePurchase(bragArt, PurchaseCaption(brag.PlayerId),
+                    () => _table.BraggingShelfWorld());
             }
             else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
             {
@@ -622,14 +670,32 @@ namespace LemonadeWars.Unity
                         _renderedRevision = -1;
                     });
             }
-            else if (gameEvent is BlackMarketPurchased bought && bought.PlayerId == _session.Seat)
+            else if (gameEvent is BlackMarketPurchased bought)
             {
-                // Queued, so the register rings alongside the "-$X" floater.
-                _fx.QueueSound(Sfx.CashRegister);
+                // No theatre here: this fires when the EQUIP completes — post-tantrum-
+                // window for in-game buys, never if cancelled. The card visibly leaves
+                // the shelf at MarketRefilled below, so the register and the drift are
+                // keyed there. But for free takes (Connections) this precedes the
+                // refill and is the only event naming the taker — remember them.
+                _lastSpenderId = bought.PlayerId;
             }
-            else if (gameEvent is StandPurchased standBought && standBought.PlayerId == _session.Seat)
+            else if (gameEvent is MarketRefilled refilled)
             {
+                HandleMarketRefilled(refilled);
+            }
+            else if (gameEvent is StandPurchased standBought)
+            {
+                // Queued, so the register rings alongside the "-$X" floater. The pile's
+                // next card may surface instantly (that's the pile revealing itself);
+                // the drift shows WHOSE stand left the shelf.
                 _fx.QueueSound(Sfx.CashRegister);
+                var standArt = _supplyTopSnap != null &&
+                    _supplyTopSnap.TryGetValue(standBought.StandTypeId, out var topShape)
+                        ? _art.Stand(standBought.StandTypeId, topShape)
+                        : _art.Stand(standBought.StandTypeId);
+                string typeId = standBought.StandTypeId;
+                _fx.QueuePurchase(standArt, PurchaseCaption(standBought.PlayerId),
+                    () => _table.StandSupplyWorld(typeId));
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -702,6 +768,80 @@ namespace LemonadeWars.Unity
                     $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED{byWhat}!");
             }
         }
+
+        // ------------------------------------------------- purchase theatre
+
+        /// <summary>
+        /// The moment a card visibly leaves the Black Market shelf. Diffing the refill's
+        /// id list against the last-seen row recovers which card left which slot (the
+        /// engine removes at the slot and APPENDS the refill, so the row shifts left and
+        /// the new card is the last slot). For each departed card: drift its art out of
+        /// its old slot, and hold the newly-appeared slot empty until the drift lands.
+        /// A paid full-row refresh (RefreshedByPlayerId set) announces itself already.
+        /// </summary>
+        private void HandleMarketRefilled(MarketRefilled refilled)
+        {
+            var oldSnap = _marketSnap;
+            var newIds = refilled.Market;
+            // Advance the snapshot first (carrying known art forward), so a second
+            // purchase in the same batched burst diffs against THIS refill's row.
+            _marketSnap = newIds
+                .Select(id => oldSnap?.FirstOrDefault(c => c.InstanceId == id)
+                    ?? new PlayerView.CardInfo { InstanceId = id, DefId = null })
+                .ToList();
+            if (refilled.RefreshedByPlayerId != null || oldSnap == null)
+            {
+                return; // paid sweep, or no baseline yet (fresh join): no per-card fx
+            }
+
+            // Cards now on the shelf that the viewer has not been shown yet.
+            var freshIds = newIds.Where(id => !oldSnap.Any(c => c.InstanceId == id)).ToList();
+
+            int taken = 0;
+            for (int slot = 0; slot < oldSnap.Count; slot++)
+            {
+                var card = oldSnap[slot];
+                if (newIds.Contains(card.InstanceId))
+                {
+                    continue; // still on the shelf
+                }
+                // Pair the k-th departed card with the k-th fresh card (1:1 in practice).
+                int freshId = taken < freshIds.Count ? freshIds[taken] : -1;
+                taken++;
+                var art = card.DefId == null
+                    ? null // refilled and re-bought inside one burst: art never seen
+                    : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                if (art == null)
+                {
+                    continue; // nothing to fly — leave the refill instant (status quo)
+                }
+                if (freshId >= 0)
+                {
+                    _hiddenMarketIds.Add(freshId);
+                }
+                int originSlot = slot;   // geometric spot the departed card occupied
+                int revealId = freshId;  // capture per-flight, not per-loop
+                _fx.QueueSound(Sfx.CashRegister);
+                _fx.QueuePurchase(art, PurchaseCaption(_lastSpenderId),
+                    () => _table.MarketSlotWorld(originSlot),
+                    () => ReleaseMarketCard(revealId));
+            }
+        }
+
+        /// <summary>Drift delivery: let the hidden refill card show itself. Fires
+        /// exactly once per flight on every path (landing, skip, effects Clear).</summary>
+        private void ReleaseMarketCard(int instanceId)
+        {
+            _hiddenMarketIds.Remove(instanceId); // -1 (no paired refill) is a no-op
+            _renderedRevision = -1;              // surface the refilled card now
+        }
+
+        /// <summary>Buyer's name under the drifting card; null for your own buys (you
+        /// just dragged it — the name would be noise).</summary>
+        private string PurchaseCaption(int playerId) =>
+            playerId >= 0 && playerId != _session.Seat
+                ? NameOf(playerId).ToUpperInvariant()
+                : null;
 
         private string LemonName(string defId)
         {
@@ -1002,6 +1142,15 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
+        /// Like <see cref="RollPurposeName"/>, but names the one stand a stand-scoped
+        /// roll pays out — a bare "Trade Winds roll" reads as if every stand sells.
+        /// </summary>
+        private string RollScopeName(RollPurpose? purpose, int? standInstanceId) =>
+            purpose == RollPurpose.TradeWinds && standInstanceId is int id
+                ? $"Trade Winds — {StandName(id)} only"
+                : RollPurposeName(purpose);
+
+        /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log
         /// (individual money ticks, window bookkeeping) or already folded into the
         /// line above (a run of draws grows its own line in place).
@@ -1043,7 +1192,8 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
                 case SaleRolled rolled:
                     return $"{NameOf(rolled.PlayerId)} rolls a {rolled.Value}" +
-                           (RollPurposeName(rolled.Purpose) is string why ? $" ({why})" : "");
+                           (RollScopeName(rolled.Purpose, rolled.StandInstanceId) is string why
+                               ? $" ({why})" : "");
                 case DieRerolled reroll:
                     return $"{NameOf(reroll.ByPlayerId)} plays Out of Stock — reroll: {reroll.NewValue}";
                 case RollModified modified:
@@ -1359,11 +1509,26 @@ namespace LemonadeWars.Unity
                 .Where(m => m.DiscardedLemonInstanceId != null).Cast<GameAction>().ToList();
             var equipSteals = all.OfType<PlayLemonCard>()
                 .Where(m => m.TargetEquippedInstanceId != null).Cast<GameAction>().ToList();
+            var ownStandPlays = all.OfType<PlayLemonCard>()
+                .Where(m => m.TargetStandInstanceId != null &&
+                            m.TargetEquippedInstanceId == null).Cast<GameAction>().ToList();
             direct = all
                 .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
-                            !equipSteals.Contains(m)).ToList();
+                            !equipSteals.Contains(m) && !ownStandPlays.Contains(m)).ToList();
 
             var options = new List<Prompt.Option>();
+            if (ownStandPlays.Count > 0)
+            {
+                // Doorbuster Sale / Rebrand: the target is one of YOUR stands, so
+                // pick it on the real board (Word of Mouth's mechanism) instead of
+                // reading "stand #2" off a text row.
+                var byStand = ownStandPlays.Cast<PlayLemonCard>()
+                    .GroupBy(m => m.TargetStandInstanceId)
+                    .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+                options.Add(new Prompt.Option("Choose a stand on your board...",
+                    () => BeginOwnStandPick(cardArt, $"{cardName} — choose a stand", byStand,
+                        onCancel: onBack ?? (() => { }))));
+            }
             if (bmTakes.Count > 0)
             {
                 options.Add(new Prompt.Option("Take a discarded Black Market card...",
@@ -1779,6 +1944,50 @@ namespace LemonadeWars.Unity
                 new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
 
+        /// <summary>
+        /// Route a "choose one of your stands" choice to the REAL board: snap home,
+        /// dim everything but your row, and let the click land on the stand itself —
+        /// sale numbers, tucked upgrades and earnings are exactly what the choice is
+        /// decided by. Shared by the Word of Mouth decision and by hand plays whose
+        /// variants differ by own-stand target (Doorbuster Sale, Rebrand). A stand
+        /// with several variants (Rebrand's new types) gets a follow-up page.
+        /// </summary>
+        private void BeginOwnStandPick(Texture2D art, string caption,
+            Dictionary<int?, List<GameAction>> byStand, System.Action onCancel)
+        {
+            void PickStand(int? standId)
+            {
+                var atStand = byStand[standId];
+                if (atStand.Count == 1)
+                {
+                    Submit(atStand[0]);
+                }
+                else
+                {
+                    _prompt.Show(caption,
+                        art != null ? new[] { art } : new Texture2D[0],
+                        ToOptions(atStand), showCancel: true);
+                }
+            }
+            if (byStand.Count == 1 && byStand.Values.First().Count == 1)
+            {
+                // One stand, one way: a board pick would be a dead click.
+                Submit(byStand.Values.First()[0]);
+                return;
+            }
+            // The stands are YOURS: if the board was on a rival, snap home first
+            // (synchronously — the targeting layer must open over the board it
+            // points at, and a later render would dismiss it).
+            if (_table.ViewedBoardPlayer >= 0)
+            {
+                _table.ViewedBoardPlayer = -1;
+                _renderedRevision = -1;
+                RenderIfChanged();
+            }
+            _table.BeginEquipTargeting(art, new HashSet<int?>(byStand.Keys),
+                PickStand, onCancel, caption);
+        }
+
         private void OnMarketDragStart(int marketIndex)
         {
             _preview.SetDragging(true);
@@ -1852,6 +2061,12 @@ namespace LemonadeWars.Unity
                     return HandArt(respond.CardInstanceId);
                 case UseTurnAbility ability:
                     return EquippedArt(ability.EquippedInstanceId);
+                case PlayLemonCard play when play.EquipReplaceInstanceId is int replaced:
+                    // Replace variants differ only by which of YOUR cards gets
+                    // trashed: show that card, not the (identical) incoming one.
+                    return EquippedArt(replaced);
+                case BuyBlackMarket buy when buy.ReplaceInstanceId is int replaced:
+                    return EquippedArt(replaced);
                 case PlayLemonCard play when play.TargetEquippedInstanceId is int loot:
                     // Steal variants: show the LOOT, not the (identical) attack card.
                     return EquippedArt(loot);
@@ -1937,6 +2152,20 @@ namespace LemonadeWars.Unity
                 return;
             }
             _renderedRevision = revision;
+
+            // Purchase-theatre baseline: the shelf as the viewer now sees it. Later
+            // MarketRefilled/StandPurchased events diff against these to know which
+            // card left which slot (the events alone don't say). Engine truth, NOT
+            // presentation state — a slot held visually empty is still snapshotted.
+            _marketSnap = View.Market
+                .Select(c => new PlayerView.CardInfo
+                {
+                    InstanceId = c.InstanceId,
+                    DefId = c.DefId,
+                    Shape = c.Shape,
+                })
+                .ToList();
+            _supplyTopSnap = new Dictionary<string, Shape>(View.SupplyTopShapes);
 
             var groups = CurrentGroups();
 
@@ -2102,7 +2331,8 @@ namespace LemonadeWars.Unity
             }
             else if (View.PendingRollValue is int roll)
             {
-                string what = RollPurposeName(View.PendingRollPurpose) ?? "Sale";
+                string what = RollScopeName(View.PendingRollPurpose, View.PendingRollStandInstanceId)
+                    ?? "Sale";
                 banner = $"{what.ToUpperInvariant()} ROLL: {roll}";
             }
             else if (View.Stage == GameStage.ChoosingLemonLords)
@@ -2278,6 +2508,10 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            if (TryShowStandPick(groups))
+            {
+                return;
+            }
             if (TryShowPicker())
             {
                 return;
@@ -2329,7 +2563,7 @@ namespace LemonadeWars.Unity
             {
                 if (!(move is PlayLemonCard play))
                 {
-                    options.Add(new Prompt.Option(_session.LabelFor(move),
+                    options.Add(new Prompt.Option(ModalOptionLabel(move),
                         () => Submit(move), ArtForMove(move)));
                     continue;
                 }
@@ -2362,6 +2596,30 @@ namespace LemonadeWars.Unity
                 }
             }
             return options;
+        }
+
+        /// <summary>
+        /// LabelFor, with the theft window's numbers baked into the buttons: the
+        /// Profit Share option says what it claws back, Pass says what it forfeits —
+        /// the choice reads off the buttons alone. Everything else passes through.
+        /// </summary>
+        private string ModalOptionLabel(GameAction move)
+        {
+            if (View.TheftOnMe && View.StackTop == null)
+            {
+                if (move is RespondToWindow respond && View.TheftRecoverable is int back &&
+                    View.Hand.FirstOrDefault(c => c.InstanceId == respond.CardInstanceId)?.DefId
+                        == "profit-share")
+                {
+                    return $"Play Profit Share — take ${back} back";
+                }
+                if (move is PassWindow && View.TheftAmount is int lost)
+                {
+                    string thief = View.TheftAttackerId is int robber ? NameOf(robber) : "the thief";
+                    return $"Pass — {thief} keeps the ${lost}";
+                }
+            }
+            return _session.LabelFor(move);
         }
 
         /// <summary>Second page of a blur-modal free play: this card's targets, with
@@ -2456,6 +2714,47 @@ namespace LemonadeWars.Unity
             var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
             _table.BeginPlayerPick(art, new HashSet<int>(byVictim.Keys),
                 picked => Submit(byVictim[picked]));
+            return true;
+        }
+
+        /// <summary>
+        /// Word of Mouth's "which stand sells?" aims at the real stands on the
+        /// board — sale numbers and tucked upgrades in full view — instead of a
+        /// text list over a blurred table.
+        /// </summary>
+        private bool TryShowStandPick(MoveGroups groups)
+        {
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null || decision.Kind != DecisionKind.WordOfMouthStand)
+            {
+                return false;
+            }
+            var byStand = new Dictionary<int?, List<GameAction>>();
+            foreach (var move in groups.ModalMoves)
+            {
+                if (move is SubmitAbilityChoice choice && choice.StandInstanceId is int stand)
+                {
+                    if (!byStand.TryGetValue(stand, out var list))
+                    {
+                        byStand[stand] = list = new List<GameAction>();
+                    }
+                    list.Add(move);
+                }
+            }
+            if (byStand.Count == 0)
+            {
+                return false;
+            }
+            var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
+            // The choice is mandatory, so a click on empty felt re-arms on the next
+            // tick (the variant page's Back rewind) rather than cancelling.
+            BeginOwnStandPick(art, "Word of Mouth — choose a stand to sell", byStand,
+                onCancel: () =>
+                {
+                    _modalRevision = -1;
+                    _modalSignature = "";
+                    _renderedRevision = -1;
+                });
             return true;
         }
 
@@ -2656,13 +2955,20 @@ namespace LemonadeWars.Unity
             {
                 // Name the roll unless it is the ordinary turn sale — the common case
                 // stays short, the surprising ones say what they are.
-                return RollPurposeName(View.PendingRollPurpose) is string why
+                return RollScopeName(View.PendingRollPurpose, View.PendingRollStandInstanceId)
+                        is string why
                     ? $"{why} roll: the die shows {roll} — respond?"
                     : $"The die shows {roll} — respond?";
             }
             if (View.TheftOnMe)
             {
-                return "You were robbed — Profit Share?";
+                // Name the thief and the numbers: "$4 stolen, $2 back" IS the
+                // decision, so it belongs in the headline.
+                string thief = View.TheftAttackerId is int robber ? NameOf(robber) : "Someone";
+                string stolen = View.TheftAmount is int amount ? $"${amount}" : "money";
+                return View.TheftRecoverable is int back && back > 0
+                    ? $"{thief} stole {stolen} from you — play Profit Share to take ${back} back?"
+                    : $"{thief} stole {stolen} from you — Profit Share?";
             }
             return "Your choice";
         }
