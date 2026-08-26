@@ -133,18 +133,26 @@ namespace LemonadeWars.Unity
                 var cards = EquippedCardInfos(victim, victimMoves);
                 // That's Not Fair! trashes the card; Finders Keepers takes it.
                 bool trashes = TargetsForDiscardOnly(victimMoves);
-                string verb = trashes ? "DISCARD" : "TAKE";
-                _table.OpenDiscardPicker(
-                    $"{cardName.ToUpperInvariant()}: {verb} FROM {NameOf(victim).ToUpperInvariant()}",
-                    cards, blackMarket: true,
-                    c => _db.BlackMarket(c.DefId).Name,
+                // The pick happens on the victim's REAL board: which upgrade sits on
+                // which stand often decides the take, so the tucked cards themselves
+                // are the targets. Arm BEFORE the snap render — the retained aim
+                // rides through it and keeps MaybeShowModal stood down.
+                _table.BeginEquippedCardPick(cardArt,
+                    new HashSet<int>(byEquipped.Keys),
                     equippedId =>
                     {
                         var picked = cards.First(c => c.InstanceId == equippedId);
                         ResolveEquipDestination(byEquipped[equippedId],
                             _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
                     },
-                    onBack: ShowVictims, verb: verb);
+                    onCancel: ShowVictims,
+                    $"{cardName} — {(trashes ? "discard" : "take")} a card from {NameOf(victim)}'s board");
+                if (_table.ViewedBoardPlayer != victim)
+                {
+                    _table.ViewedBoardPlayer = victim;
+                    _renderedRevision = -1;
+                    RenderIfChanged();
+                }
             }
 
             ShowVictims();
@@ -473,17 +481,17 @@ namespace LemonadeWars.Unity
                 pickDestination(byDest.Keys.First());
                 return;
             }
-            // The destinations are YOUR stands: if the steal was aimed on the victim's
-            // board, snap home first (synchronously — the targeting layer must open
-            // over the board it points at, and a later render would dismiss it).
+            // The destinations are YOUR stands: arm first, THEN snap home if the view
+            // is on a rival's board — the retained aim rides through the synchronous
+            // render, which also keeps MaybeShowModal stood down during it.
+            _table.BeginEquipTargeting(texture,
+                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
             if (_table.ViewedBoardPlayer >= 0)
             {
                 _table.ViewedBoardPlayer = -1;
                 _renderedRevision = -1;
                 RenderIfChanged();
             }
-            _table.BeginEquipTargeting(texture,
-                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
 
         /// <summary>
@@ -517,17 +525,17 @@ namespace LemonadeWars.Unity
                 Submit(byStand.Values.First()[0]);
                 return;
             }
-            // The stands are YOURS: if the board was on a rival, snap home first
-            // (synchronously — the targeting layer must open over the board it
-            // points at, and a later render would dismiss it).
+            // The stands are YOURS: arm first, THEN snap home if the board was on a
+            // rival — the retained aim rides through the synchronous render, which
+            // also keeps MaybeShowModal stood down during it.
+            _table.BeginEquipTargeting(art, new HashSet<int?>(byStand.Keys),
+                PickStand, onCancel, caption);
             if (_table.ViewedBoardPlayer >= 0)
             {
                 _table.ViewedBoardPlayer = -1;
                 _renderedRevision = -1;
                 RenderIfChanged();
             }
-            _table.BeginEquipTargeting(art, new HashSet<int?>(byStand.Keys),
-                PickStand, onCancel, caption);
         }
 
         private void OnMarketDragStart(int marketIndex)

@@ -146,12 +146,26 @@ namespace LemonadeWars.Unity
                 // every valid target ends it — silently, so no cancel callback fires
                 // and the modal pipeline can re-offer the choice.
                 bool anyValidTarget = false;
-                foreach (var (id, _, _) in _dropCells)
+                if (_targetingEquipValid != null)
                 {
-                    if (_targetingValid.Contains(id))
+                    foreach (var (id, _, _) in _equipCells)
                     {
-                        anyValidTarget = true;
-                        break;
+                        if (_targetingEquipValid.Contains(id))
+                        {
+                            anyValidTarget = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var (id, _, _) in _dropCells)
+                    {
+                        if (_targetingValid.Contains(id))
+                        {
+                            anyValidTarget = true;
+                            break;
+                        }
                     }
                 }
                 if (!anyValidTarget)
