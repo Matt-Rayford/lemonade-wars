@@ -260,5 +260,23 @@ namespace LemonadeWars.Unity
                 CloseDiscardViewer();
             }
         }
+
+        /// <summary>
+        /// Silently drop the pick overlays a CHANGED modal context is about to
+        /// replace. Unlike <see cref="CancelOverlays"/> this never invokes cancel
+        /// callbacks — those reopen the flow being replaced. Attack aiming is left
+        /// alone: it is hand-armed, not modal-owned.
+        /// </summary>
+        public void DismissModalOverlays()
+        {
+            if (_targetingPick != null)
+            {
+                EndEquipTargeting();
+            }
+            if (_discardOverlay.gameObject.activeSelf)
+            {
+                CloseDiscardViewer();
+            }
+        }
     }
 }

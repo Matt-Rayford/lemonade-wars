@@ -9,6 +9,10 @@ namespace LemonadeWars.Unity
     // taken card floating up top and a dashed arrow to the hovered cell.
     public sealed partial class TableView
     {
+        /// <summary>True while the aim-at-your-stands layer is up — the modal pipeline
+        /// stands down on it exactly like an open prompt (see MaybeShowModal).</summary>
+        public bool EquipTargetingActive => _targetingPick != null;
+
         private RectTransform _targetingRoot;
         private RectTransform _targetingCardHost;
         private RectTransform _targetingCopiesHost;

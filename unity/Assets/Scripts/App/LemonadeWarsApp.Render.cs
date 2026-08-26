@@ -41,15 +41,16 @@ namespace LemonadeWars.Unity
             // auto-passes players who become ineligible when a window recomputes, and
             // others' responses can resolve the whole stack. Window prompts have no
             // Cancel, so a stale one soft-locks the player: dismiss it.
-            if (_autoModalOpen && (_prompt.IsOpen || _picker.IsOpen || _table.DiscardPickerOpen) &&
+            if (_autoModalOpen &&
+                (_prompt.IsOpen || _picker.IsOpen ||
+                 _table.DiscardPickerOpen || _table.EquipTargetingActive) &&
                 (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
             {
                 _prompt.Hide();
                 _picker.Hide();
-                if (_table.DiscardPickerOpen)
-                {
-                    _table.CancelOverlays(); // a grid serving the dissolved choice would submit dead moves
-                }
+                // Silent: a stale grid/aim would submit dead moves, and its cancel
+                // callback would reopen the dissolved flow.
+                _table.DismissModalOverlays();
                 _autoModalOpen = false;
                 _modalSignature = "";
             }

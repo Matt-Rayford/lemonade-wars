@@ -164,6 +164,22 @@ namespace LemonadeWars.Unity
             // Hand size is targeting intel: fewer cards = fewer possible reactions.
             AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
             AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
+            // The Whiniest Baby's tantrum icon visibly bawls: two fat tears over the
+            // eyes, drawn on the icon's exact rect. Held back while the title-claim
+            // animation is still mid-flight, like the lord fan.
+            if (view.WhiniestBabyHolder == playerId && !SuppressWhiniestBaby)
+            {
+                var tearsGo = new GameObject("BabyTears", typeof(RectTransform), typeof(Image));
+                tearsGo.transform.SetParent(stats, false);
+                var tearsRect = (RectTransform)tearsGo.transform;
+                tearsRect.anchorMin = tearsRect.anchorMax = new Vector2(0f, 0.5f);
+                tearsRect.sizeDelta = new Vector2(36f, 36f);
+                tearsRect.anchoredPosition = new Vector2(168f + 18f, 0f); // icon center
+                var tearsImage = tearsGo.GetComponent<Image>();
+                tearsImage.sprite = UiSprites.BabyTears;
+                tearsImage.type = Image.Type.Simple;
+                tearsImage.raycastTarget = false;
+            }
 
             // Yellow rim on whoever's board the table currently displays.
             if (isViewedBoard)

@@ -41,8 +41,14 @@ namespace LemonadeWars.Unity
             _equipCells.Clear(); // strips live on the board's tucked cards
             if (_targetingPick != null)
             {
-                // The board is being rebuilt under the targeting layer: dismiss it.
-                EndEquipTargeting();
+                // The board is rebuilding under the aim layer: KEEP aiming (a pacing
+                // revision must not eject the player mid-pick). Hover resets so the
+                // next tick re-binds glow/arrow to the fresh cells; validity is
+                // re-checked at the end of this render once the new cells exist.
+                _targetingHover = null;
+                _targetingHoverAny = false;
+                UiKit.Clear(_targetingCopiesHost);
+                UiKit.Clear(_targetingArrowHost);
             }
             _dropGlows.Clear();
             _dropCells.Clear();
@@ -130,6 +136,27 @@ namespace LemonadeWars.Unity
                 {
                     MakeDropTarget(cell, stand.InstanceId, standTexture);
                     _standCells.Add(cell);
+                }
+            }
+
+            if (_targetingPick != null)
+            {
+                // A retained aim only makes sense while its targets are on screen: a
+                // rebuild that swapped to a rival's board (no drop cells) or removed
+                // every valid target ends it — silently, so no cancel callback fires
+                // and the modal pipeline can re-offer the choice.
+                bool anyValidTarget = false;
+                foreach (var (id, _, _) in _dropCells)
+                {
+                    if (_targetingValid.Contains(id))
+                    {
+                        anyValidTarget = true;
+                        break;
+                    }
+                }
+                if (!anyValidTarget)
+                {
+                    EndEquipTargeting();
                 }
             }
         }

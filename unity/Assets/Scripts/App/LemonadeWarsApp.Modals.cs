@@ -53,7 +53,7 @@ namespace LemonadeWars.Unity
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
             bool surfaceOpen = _prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen ||
-                _table.DiscardPickerOpen;
+                _table.DiscardPickerOpen || _table.EquipTargetingActive;
             if (surfaceOpen && signature == _modalSignature)
             {
                 _modalRevision = revision;
@@ -65,11 +65,12 @@ namespace LemonadeWars.Unity
             }
             _modalRevision = revision;
             _modalSignature = signature;
-            if (_table.DiscardPickerOpen)
+            if (_table.DiscardPickerOpen || _table.EquipTargetingActive)
             {
-                // The choice this grid was serving changed under it — close the stale
-                // grid before the fresh modal replaces it.
-                _table.CancelOverlays();
+                // The choice this grid/aim was serving changed under it — drop the
+                // stale surface (silently: its cancel callback would reopen it)
+                // before the fresh modal replaces it.
+                _table.DismissModalOverlays();
             }
             if (TryAutoForcedPlay(groups, revision))
             {
