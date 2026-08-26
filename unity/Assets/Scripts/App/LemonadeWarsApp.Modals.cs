@@ -52,17 +52,25 @@ namespace LemonadeWars.Unity
             // screen, leave it alone.
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
-            if ((_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen) && signature == _modalSignature)
+            bool surfaceOpen = _prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen ||
+                _table.DiscardPickerOpen;
+            if (surfaceOpen && signature == _modalSignature)
             {
                 _modalRevision = revision;
                 return;
             }
-            if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen))
+            if (_modalRevision == revision && surfaceOpen)
             {
                 return;
             }
             _modalRevision = revision;
             _modalSignature = signature;
+            if (_table.DiscardPickerOpen)
+            {
+                // The choice this grid was serving changed under it — close the stale
+                // grid before the fresh modal replaces it.
+                _table.CancelOverlays();
+            }
             if (TryAutoForcedPlay(groups, revision))
             {
                 return;

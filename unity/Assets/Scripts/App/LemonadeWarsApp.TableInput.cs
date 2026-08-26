@@ -414,8 +414,11 @@ namespace LemonadeWars.Unity
             var byCard = takes.Cast<PlayLemonCard>()
                 .GroupBy(m => (blackMarket ? m.DiscardedBmInstanceId : m.DiscardedLemonInstanceId).Value)
                 .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
-            var pool = (blackMarket ? View.BlackMarketDiscard : View.LemonDiscard)
-                .Where(c => byCard.ContainsKey(c.InstanceId)).ToList();
+            // The whole pile, not just the takeable copies: a hidden card reads as a
+            // bug when the player has counted the discards. Untakeable copies (a
+            // reaction with nothing to react to, a Black Market card with no legal
+            // destination) render dimmed with the reason instead.
+            var pool = (blackMarket ? View.BlackMarketDiscard : View.LemonDiscard).ToList();
             string verb = blackMarket ? "TAKE" : "TAKE AND PLAY";
 
             _table.OpenDiscardPicker(
@@ -430,7 +433,10 @@ namespace LemonadeWars.Unity
                         : _art.Lemon(picked.DefId);
                     ResolveEquipDestination(byCard[instanceId], texture);
                 },
-                onBack: onBack, verb: verb);
+                onBack: onBack, verb: verb,
+                disabledReason: c => byCard.ContainsKey(c.InstanceId)
+                    ? null
+                    : blackMarket ? "NOWHERE TO EQUIP IT" : "CAN'T BE PLAYED NOW");
         }
 
         /// <summary>
