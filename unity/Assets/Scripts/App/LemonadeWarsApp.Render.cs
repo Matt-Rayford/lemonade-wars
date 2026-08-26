@@ -18,6 +18,14 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            // Hold renders while the player drags from the shelf: a rebuild would
+            // destroy the drag source under the cursor, cancelling the drag (and,
+            // before DragSource.OnDisable existed, leaking the ghost). The revision
+            // stays unconsumed, so the render fires the frame the drag ends.
+            if (_table != null && _table.HasLiveShelfDrag)
+            {
+                return;
+            }
             int revision = _session.Revision;
             if (revision == _renderedRevision)
             {

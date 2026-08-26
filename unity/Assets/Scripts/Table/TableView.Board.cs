@@ -341,7 +341,12 @@ namespace LemonadeWars.Unity
             _validDropTargets.Clear();
             foreach (var (_, glow) in _dropGlows)
             {
-                glow.SetActive(false);
+                // Reachable from DragSource.OnDisable during a re-render teardown,
+                // when these glows may already be destroyed.
+                if (glow != null)
+                {
+                    glow.SetActive(false);
+                }
             }
         }
 

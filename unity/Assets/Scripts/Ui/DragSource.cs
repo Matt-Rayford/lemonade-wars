@@ -88,6 +88,25 @@ namespace LemonadeWars.Unity
             DragEnded?.Invoke();
         }
 
+        private void OnDisable()
+        {
+            // A shelf re-render (bot purchase, flight delivery) can destroy this source
+            // mid-drag, and UGUI never delivers OnEndDrag to a destroyed object — the
+            // ghost is parented to the canvas root, so without this it floats forever.
+            // No SetHover here: the lift target is being torn down with us.
+            if (!Dragging)
+            {
+                return;
+            }
+            Dragging = false;
+            if (_ghost != null)
+            {
+                Destroy(_ghost.gameObject);
+                _ghost = null;
+            }
+            DragEnded?.Invoke();
+        }
+
         private void SetHover(bool on)
         {
             if (GlowInner != null)
