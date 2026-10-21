@@ -37,6 +37,20 @@ namespace LemonadeWars.Engine.Ai
             return best;
         }
 
+        /// <summary>
+        /// Every legal move, best-first by the greedy score (stable: ties keep the
+        /// engine's enumeration order). EasyBot samples from the top of this list.
+        /// </summary>
+        public List<GameAction> Ranked(Game game, int playerId)
+        {
+            var moves = game.LegalMovesFor(playerId);
+            return moves
+                .Select(move => (Move: move, Score: Score(game, playerId, move)))
+                .OrderByDescending(scored => scored.Score)
+                .Select(scored => scored.Move)
+                .ToList();
+        }
+
         private static double Score(Game game, int playerId, GameAction move)
         {
             var s = game.State;
@@ -468,6 +482,10 @@ namespace LemonadeWars.Engine.Ai
         private static double ScoreAbilityChoice(Game game, PlayerState me, SubmitAbilityChoice choice)
         {
             var s = game.State;
+            if (choice.Decline)
+            {
+                return 5; // a free steal beats passing, whoever the victim
+            }
             if (choice.TargetPlayerId is int victimId)
             {
                 var victim = s.Players[victimId];

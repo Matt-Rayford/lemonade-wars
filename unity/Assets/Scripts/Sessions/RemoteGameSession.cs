@@ -114,6 +114,18 @@ namespace LemonadeWars.Unity
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 
+        /// <summary>
+        /// Deliberate exit: tells the server to free the seat (a dropped socket keeps
+        /// it for a token rejoin), and closes only once that message is on the wire —
+        /// Dispose cancels in-flight sends, so the order matters.
+        /// </summary>
+        public void Leave()
+        {
+            byte[] payload = Encoding.UTF8.GetBytes(
+                JsonConvert.SerializeObject(new { type = "leave_room" }, WireCodec.Settings));
+            _ = SendPayloadAsync(payload).ContinueWith(_ => Dispose());
+        }
+
         /// <summary>The viewer's own ready flag, from the latest room snapshot.</summary>
         public bool MyReady =>
             Room.Seats.FirstOrDefault(s => s.Seat == Room.YourSeat)?.Ready == true;

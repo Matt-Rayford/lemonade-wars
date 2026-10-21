@@ -21,6 +21,8 @@ namespace LemonadeWars.Protocol
         public const string StartGame = "start_game";
         public const string Action = "action";
         public const string ListGames = "list_games";
+        /// <summary>Deliberate exit — frees a lobby seat; a dropped socket keeps it for a token rejoin.</summary>
+        public const string LeaveRoom = "leave_room";
 
         // server -> client
         public const string Welcome = "welcome";

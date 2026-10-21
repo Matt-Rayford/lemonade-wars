@@ -61,6 +61,9 @@ namespace LemonadeWars.Unity
         private readonly TMP_Text _lobbyStatus;
         private readonly TMP_Text _menuStatus;
         private readonly TMP_Text _serverStatus;
+
+        private static readonly Color ReadyGreen = new Color(0.45f, 0.85f, 0.45f);
+        private static readonly Color NotReadyRed = new Color(0.90f, 0.32f, 0.32f);
         private readonly TMP_Text _readyLabel;
         private readonly RectTransform _hostControls;
         private bool _myReady;
@@ -169,6 +172,9 @@ namespace LemonadeWars.Unity
             var codeRect = (RectTransform)_codeInput.transform;
             UiKit.Anchor(codeRect, new Vector2(0.37f, 0.46f), new Vector2(0.63f, 0.58f));
             _codeInput.characterLimit = 5;
+            // Room codes are upper-case letters; typed or pasted, each character lands
+            // upper-cased so what you see is exactly what the server will look up.
+            _codeInput.onValidateInput += (text, index, added) => char.ToUpperInvariant(added);
             var codeText = _codeInput.textComponent;
             codeText.fontSize = 52;
             codeText.alignment = TextAlignmentOptions.Center;
@@ -180,7 +186,7 @@ namespace LemonadeWars.Unity
 
             var joinActions = CreateButtonRow(_joinRoot, "JoinActions",
                 new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.38f));
-            UiKit.CreateButton(joinActions, "< Back", 20, () => ShowMenu(""));
+            UiKit.CreateButton(joinActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(joinActions, "Join", 20,
                 () => OnJoin?.Invoke(_serverInput.text, DisplayName,
                     _codeInput.text.Trim().ToUpperInvariant()));
@@ -195,7 +201,7 @@ namespace LemonadeWars.Unity
 
             var soloActions = CreateButtonRow(_soloRoot, "SoloActions",
                 new Vector2(0.30f, 0.05f), new Vector2(0.70f, 0.13f));
-            UiKit.CreateButton(soloActions, "< Back", 20, () => ShowMenu(""));
+            UiKit.CreateButton(soloActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(soloActions, "Start game", 20,
                 () => OnStartSolo?.Invoke(_soloBots.ToList()));
             _soloRoot.gameObject.SetActive(false);
@@ -209,7 +215,7 @@ namespace LemonadeWars.Unity
 
             var gamesActions = CreateButtonRow(_gamesRoot, "GamesActions",
                 new Vector2(0.34f, 0.05f), new Vector2(0.66f, 0.13f));
-            UiKit.CreateButton(gamesActions, "< Back", 20, () => OnGamesBack?.Invoke());
+            UiKit.CreateButton(gamesActions, "Back", 20, () => OnGamesBack?.Invoke());
             UiKit.CreateButton(gamesActions, "Refresh", 20, () => OnGamesRefresh?.Invoke());
             _gamesRoot.gameObject.SetActive(false);
 
@@ -223,7 +229,7 @@ namespace LemonadeWars.Unity
             // Everyone: ready toggle + leave. Host additionally: start.
             var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls",
                 new Vector2(0.30f, 0.145f), new Vector2(0.70f, 0.225f));
-            UiKit.CreateButton(everyoneControls, "< Back", 20, () => OnLeave?.Invoke());
+            UiKit.CreateButton(everyoneControls, "Back", 20, () => OnLeave?.Invoke());
             var readyButton = UiKit.CreateButton(everyoneControls,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<TMP_Text>();
@@ -358,7 +364,7 @@ namespace LemonadeWars.Unity
         private void RefreshSoloSeats()
         {
             UiKit.Clear(_soloSeatList);
-            AddSeatRow(_soloSeatList, $"1. {DisplayName}   <- you", null);
+            AddSeatRow(_soloSeatList, $"1. {DisplayName}", null, isYou: true);
             for (int i = 0; i < _soloBots.Count; i++)
             {
                 int index = i;
@@ -411,10 +417,10 @@ namespace LemonadeWars.Unity
             }
             foreach (var s in room.Seats)
             {
+                // Readiness is the dot at the row's right edge, and "you" is the row's
+                // yellow tint — neither is a word in the label.
                 string label = $"{s.Seat + 1}. {s.Name}" +
-                    (s.Ready ? "   READY" : s.IsBot ? "" : "   ...") +
-                    (s.IsBot || s.Connected ? "" : "  (disconnected)") +
-                    (s.Seat == room.YourSeat ? "   <- you" : "");
+                    (s.IsBot || s.Connected ? "" : "  (disconnected)");
                 int seatIndex = s.Seat;
                 string level = s.IsBot ? (string.IsNullOrEmpty(s.BotLevel) ? "medium" : s.BotLevel) : null;
                 AddSeatRow(_lobbySeatList, label,
@@ -422,14 +428,16 @@ namespace LemonadeWars.Unity
                     level,
                     isHost && s.IsBot
                         ? () => OnSetBotLevel?.Invoke(seatIndex, NextLevel(level))
-                        : (System.Action)null);
+                        : (System.Action)null,
+                    ready: s.IsBot ? (bool?)null : s.Ready, // bots are always ready: no dot
+                    isYou: s.Seat == room.YourSeat);
             }
             if (isHost && room.Seats.Count > 0 && room.Seats.Count < MaxSeats)
             {
                 UiKit.CreateButton(_lobbySeatList, "+ Add bot", 18, () => OnAddBot?.Invoke());
             }
 
-            _readyLabel.text = myReady ? "READY! (click to undo)" : "READY UP";
+            _readyLabel.text = myReady ? "UNREADY" : "READY UP";
             _lobbyStatus.text = status ?? "";
             _hostControls.gameObject.SetActive(isHost);
         }
@@ -482,9 +490,16 @@ namespace LemonadeWars.Unity
         /// difficulty chip to its left: clickable (cycles easy/medium/hard) when
         /// onCycleLevel is provided, informational otherwise.
         /// </summary>
+        /// <summary>
+        /// One lobby row. <paramref name="ready"/> draws the status dot at the right
+        /// edge (green ready, red not); null = no dot (solo seats, the games list).
+        /// </summary>
         private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
-            string botLevel = null, System.Action onCycleLevel = null)
+            string botLevel = null, System.Action onCycleLevel = null, bool? ready = null,
+            bool isYou = false)
         {
+            // The dot owns the rightmost 26px; chip and remove button shift left of it.
+            float dotInset = ready != null ? 26f : 0f;
             var row = new GameObject("SeatRow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
             row.transform.SetParent(list, false);
             var background = row.GetComponent<Image>();
@@ -492,10 +507,41 @@ namespace LemonadeWars.Unity
             background.type = Image.Type.Sliced;
             background.color = new Color(0, 0, 0, 0.30f);
             row.GetComponent<LayoutElement>().minHeight = 48;
+            if (isYou)
+            {
+                // Your seat wears the same yellow rim as your player bar on the table.
+                var rimGo = new GameObject("YouRim", typeof(RectTransform), typeof(Image));
+                rimGo.transform.SetParent(row.transform, false);
+                UiKit.Anchor((RectTransform)rimGo.transform, Vector2.zero, Vector2.one,
+                    new Vector2(-2, -2), new Vector2(2, 2));
+                var rim = rimGo.GetComponent<Image>();
+                rim.sprite = UiSprites.RoundedOutline;
+                rim.type = Image.Type.Sliced;
+                rim.color = UiKit.ButtonColor;
+                rim.raycastTarget = false;
+            }
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(16, 2), new Vector2(botLevel != null ? -182 : -56, -2));
+                new Vector2(16, 2), new Vector2((botLevel != null ? -182 : -56) - dotInset, -2));
+
+            if (ready is bool isReady)
+            {
+                var dotGo = new GameObject("ReadyDot", typeof(RectTransform), typeof(Image));
+                dotGo.transform.SetParent(row.transform, false);
+                var dotRect = (RectTransform)dotGo.transform;
+                dotRect.anchorMin = dotRect.anchorMax = new Vector2(1f, 0.5f);
+                dotRect.pivot = new Vector2(1f, 0.5f);
+                // 16px = exactly 1/8 of the 128px circle: a whole mip level, no blend.
+                dotRect.sizeDelta = new Vector2(16f, 16f);
+                dotRect.anchoredPosition = new Vector2(-9f, 0);
+                var dotImage = dotGo.GetComponent<Image>();
+                dotImage.sprite = UiSprites.Circle;
+                dotImage.type = Image.Type.Simple;
+                dotImage.preserveAspect = true;
+                dotImage.color = isReady ? ReadyGreen : NotReadyRed;
+                dotImage.raycastTarget = false;
+            }
 
             if (botLevel != null)
             {
@@ -505,7 +551,7 @@ namespace LemonadeWars.Unity
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
                 chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULANCE
-                chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
+                chipRect.anchoredPosition = new Vector2((onRemove != null ? -49f : -7f) - dotInset, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;
                 chipImage.type = Image.Type.Sliced;
@@ -536,7 +582,7 @@ namespace LemonadeWars.Unity
                 removeRect.anchorMin = removeRect.anchorMax = new Vector2(1f, 0.5f);
                 removeRect.pivot = new Vector2(1f, 0.5f);
                 removeRect.sizeDelta = new Vector2(36f, 36f);
-                removeRect.anchoredPosition = new Vector2(-7f, 0);
+                removeRect.anchoredPosition = new Vector2(-7f - dotInset, 0);
                 var removeImage = removeGo.GetComponent<Image>();
                 removeImage.sprite = UiSprites.RoundedRect;
                 removeImage.type = Image.Type.Sliced;
@@ -561,9 +607,7 @@ namespace LemonadeWars.Unity
         public void SetServerStatus(bool reachable, string detail)
         {
             _serverStatus.text = reachable ? "● server online" : $"○ {detail}";
-            _serverStatus.color = reachable
-                ? new Color(0.45f, 0.85f, 0.45f)
-                : new Color(0.85f, 0.55f, 0.45f);
+            _serverStatus.color = reachable ? ReadyGreen : new Color(0.85f, 0.55f, 0.45f);
         }
     }
 }

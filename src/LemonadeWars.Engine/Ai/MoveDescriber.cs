@@ -150,6 +150,10 @@ namespace LemonadeWars.Engine.Ai
                 case SkipFreePlay _:
                     return "Skip";
                 case SubmitAbilityChoice c:
+                    if (c.Decline)
+                    {
+                        return "Pass";
+                    }
                     if (c.TargetPlayerId is int v2)
                     {
                         return $"Steal from {PlayerName(v2)}";

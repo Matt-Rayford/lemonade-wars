@@ -30,6 +30,12 @@ namespace LemonadeWars.Unity
         public int Revision { get; private set; }
         public int Seat { get; }
         public bool HumanAutoplay { get; set; }
+        /// <summary>
+        /// While true, bots do not act: the app points this at its presentation
+        /// state (die tumbling, effects playing, turn banner up) so a bot never
+        /// starts its turn over a sale roll the human is still watching.
+        /// </summary>
+        public Func<bool> HoldBots;
         public event Action<GameEvent> EventEmitted;
 
         public LocalGameSession(CardDatabase db, string[] names, int humanSeat, ulong seed,
@@ -73,6 +79,10 @@ namespace LemonadeWars.Unity
 
         public void Tick()
         {
+            if (HoldBots != null && HoldBots())
+            {
+                return;
+            }
             // A search bot thinks off the main thread on a SNAPSHOT; its move applies
             // here once ready — no frame hitches, no shared-state races.
             if (_pendingChoice != null)

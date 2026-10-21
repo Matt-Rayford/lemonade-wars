@@ -155,6 +155,13 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} used {SourceDefId} -> {NewValue}";
     }
 
+    public sealed class AbilityDeclined : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string DefId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId} passed on {DefId}";
+    }
+
     public sealed class AbilityTriggered : GameEvent
     {
         public int PlayerId { get; set; }
@@ -171,8 +178,16 @@ namespace LemonadeWars.Engine.Core
         public string DefId { get; set; } = "";
         /// <summary>Victim, when the card is an attack.</summary>
         public int? TargetPlayerId { get; set; }
+        /// <summary>
+        /// Responses (Tantrum, Tag, Rubber Glue): whose play or purchase this answers
+        /// and its def id, so a reveal can say "on Jeremy's Smear Campaign" without
+        /// the client reconstructing the stack. Null for plays that answer nothing.
+        /// </summary>
+        public int? RespondingToOwnerId { get; set; }
+        public string? RespondingToDefId { get; set; }
         public override string ToString() => $"P{PlayerId} played {DefId}" +
-            (TargetPlayerId != null ? $" -> P{TargetPlayerId}" : "");
+            (TargetPlayerId != null ? $" -> P{TargetPlayerId}" : "") +
+            (RespondingToDefId != null ? $" (vs P{RespondingToOwnerId}'s {RespondingToDefId})" : "");
     }
 
     public sealed class ResponseWindowOpened : GameEvent

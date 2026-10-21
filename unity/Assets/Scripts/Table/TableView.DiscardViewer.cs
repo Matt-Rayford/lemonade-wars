@@ -19,6 +19,14 @@ namespace LemonadeWars.Unity
         private GameObject _discardBackButton;
         private TMP_Text _discardTakeLabel;
         private System.Action<int> _discardOnTake;
+
+        /// <summary>
+        /// True while the grid is up in PICK mode (serving a guided take flow) — the
+        /// modal pipeline must stand down, or every pacing revision rebuilds the
+        /// "Play X" prompt over the player mid-pick. Browsing (no take) doesn't count.
+        /// </summary>
+        public bool DiscardPickerOpen =>
+            _discardOverlay.gameObject.activeSelf && _discardOnTake != null;
         private string _discardVerb = "TAKE";
         private System.Action _discardOnBack;
         private int? _discardSelectedId;
@@ -133,7 +141,7 @@ namespace LemonadeWars.Unity
             var backShadow = backGo.GetComponent<Shadow>();
             backShadow.effectColor = new Color(0, 0, 0, 0.5f);
             backShadow.effectDistance = new Vector2(0, -4f);
-            var backLabel = UiKit.CreateText(backGo.transform, "< BACK", 22,
+            var backLabel = UiKit.CreateText(backGo.transform, "BACK", 22,
                 TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
             backLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)backLabel.transform, Vector2.zero, Vector2.one);
@@ -168,19 +176,21 @@ namespace LemonadeWars.Unity
         /// </summary>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
-            System.Action<int> onTake, System.Action onBack = null, string verb = "TAKE")
+            System.Action<int> onTake, System.Action onBack = null, string verb = "TAKE",
+            System.Func<PlayerView.CardInfo, string> disabledReason = null)
         {
             _discardTitle.text = title;
             _discardVerb = verb;
             _discardOnTake = onTake;
             _discardOnBack = onBack;
-            FillDiscardGrid(cards, blackMarket, nameOf);
+            FillDiscardGrid(cards, blackMarket, nameOf, disabledReason);
             _discardBackButton.SetActive(onBack != null);
             _discardOverlay.gameObject.SetActive(true);
         }
 
         private void FillDiscardGrid(IReadOnlyList<PlayerView.CardInfo> cards, bool blackMarket,
-            System.Func<PlayerView.CardInfo, string> nameOf)
+            System.Func<PlayerView.CardInfo, string> nameOf,
+            System.Func<PlayerView.CardInfo, string> disabledReason = null)
         {
             UiKit.Clear(_discardGrid);
             _discardSelectGlows.Clear();
@@ -205,6 +215,22 @@ namespace LemonadeWars.Unity
                 UiKit.Anchor((RectTransform)image.transform.parent, Vector2.zero, Vector2.one);
 
                 _preview.Attach(image.gameObject, texture);
+
+                // The pile always shows every copy (players count it); a copy with no
+                // legal take right now stays visible but dimmed, with the reason on it.
+                string reason = disabledReason?.Invoke(card);
+                if (reason != null)
+                {
+                    image.color = new Color(0.5f, 0.5f, 0.5f, 1f);
+                    var reasonBar = UiKit.CreatePanel(cell, "DisabledReason",
+                        new Color(0f, 0f, 0f, 0.72f));
+                    UiKit.Anchor(reasonBar, new Vector2(0f, 0.42f), new Vector2(1f, 0.56f));
+                    reasonBar.GetComponent<Image>().raycastTarget = false;
+                    var reasonText = UiKit.CreateText(reasonBar, reason, 20,
+                        TextAnchor.MiddleCenter, Color.white);
+                    UiKit.Anchor((RectTransform)reasonText.transform, Vector2.zero, Vector2.one);
+                    continue;
+                }
                 if (nameOf != null)
                 {
                     int instanceId = card.InstanceId;

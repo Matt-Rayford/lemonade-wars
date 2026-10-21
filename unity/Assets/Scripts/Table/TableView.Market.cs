@@ -25,6 +25,18 @@ namespace LemonadeWars.Unity
         // Bragging Rights drag & drop (shelf card -> your VP column).
         public System.Func<bool> CanBuyBragging;
 
+        /// <summary>
+        /// True while the player drags a shelf card/stand; the app holds renders on it
+        /// (a rebuild would destroy the drag source under the cursor). The mouse check
+        /// is a failsafe: a wedged counter must never freeze rendering.
+        /// </summary>
+        public bool HasLiveShelfDrag => _liveShelfDrags > 0 && Input.GetMouseButton(0);
+        private int _liveShelfDrags;
+
+        private void ShelfDragStarted() => _liveShelfDrags++;
+
+        private void ShelfDragEnded() => _liveShelfDrags = Mathf.Max(0, _liveShelfDrags - 1);
+
         private static readonly Color GlowInnerColor = new Color(1f, 0.97f, 0.88f, 1f);
         private static readonly Color GlowOuterColor = new Color(1f, 0.96f, 0.82f, 0.80f);
 
@@ -216,8 +228,16 @@ namespace LemonadeWars.Unity
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
             drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
-            drag.DragStarted = () => OnMarketDragStart?.Invoke(marketIndex);
-            drag.DragEnded = () => OnMarketDragEnd?.Invoke();
+            drag.DragStarted = () =>
+            {
+                ShelfDragStarted();
+                OnMarketDragStart?.Invoke(marketIndex);
+            };
+            drag.DragEnded = () =>
+            {
+                ShelfDragEnded();
+                OnMarketDragEnd?.Invoke();
+            };
             _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
             _marketSlotAnchors[marketIndex] = (RectTransform)cell.transform;
         }
@@ -321,11 +341,13 @@ namespace LemonadeWars.Unity
             drag.CanAct = () => CanBuySupply?.Invoke(standTypeId) == true;
             drag.DragStarted = () =>
             {
+                ShelfDragStarted();
                 _supplyDragActive = true;
                 _preview.SetDragging(true);
             };
             drag.DragEnded = () =>
             {
+                ShelfDragEnded();
                 _supplyDragActive = false;
                 _preview.SetDragging(false);
                 HideInsertPreview();
@@ -394,6 +416,7 @@ namespace LemonadeWars.Unity
             drag.CanAct = () => CanBuyBragging?.Invoke() == true;
             drag.DragStarted = () =>
             {
+                ShelfDragStarted();
                 _preview.SetDragging(true);
                 if (_vpGlow != null)
                 {
@@ -402,6 +425,7 @@ namespace LemonadeWars.Unity
             };
             drag.DragEnded = () =>
             {
+                ShelfDragEnded();
                 _preview.SetDragging(false);
                 if (_vpGlow != null)
                 {

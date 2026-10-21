@@ -14,6 +14,8 @@ namespace LemonadeWars.Unity
         private RectTransform _pickCard;
         private ISet<int> _pickValid;
         private System.Action<int> _pickOnPick;
+        private System.Action _pickOnPass;
+        private GameObject _pickPassButton;
         private int _pickHover = -1;
         private Vector2 _pickArrowFrom;
         private Vector2 _pickArrowTo;
@@ -41,13 +43,31 @@ namespace LemonadeWars.Unity
             arrowGo.transform.SetParent(_pickRoot, false);
             _pickArrowHost = (RectTransform)arrowGo.transform;
             UiKit.Anchor(_pickArrowHost, Vector2.zero, Vector2.one);
+
+            // Optional abilities offer a way out, right under the card.
+            var pass = UiKit.CreateButton(_pickRoot, "Pass", 18, () =>
+            {
+                var onPass = _pickOnPass;
+                EndPlayerPick();
+                onPass?.Invoke();
+            }, dark: true);
+            _pickPassButton = pass.gameObject;
+            var passRect = (RectTransform)pass.transform;
+            passRect.anchorMin = passRect.anchorMax = new Vector2(0.5f, 0.55f);
+            passRect.pivot = new Vector2(0.5f, 1f);
+            passRect.sizeDelta = new Vector2(180f, 44f);
+            passRect.anchoredPosition = new Vector2(0f, -210f - 18f); // just below the card
             _pickRoot.gameObject.SetActive(false);
         }
 
-        public void BeginPlayerPick(Texture2D cardArt, ISet<int> validTargets, System.Action<int> onPick)
+        /// <param name="onPass">Declines the ability; null makes the pick mandatory (no button).</param>
+        public void BeginPlayerPick(Texture2D cardArt, ISet<int> validTargets, System.Action<int> onPick,
+            System.Action onPass = null)
         {
             _pickValid = validTargets;
             _pickOnPick = onPick;
+            _pickOnPass = onPass;
+            _pickPassButton.SetActive(onPass != null);
             _pickHover = -1;
             _pickArrowFrom = _pickArrowTo = new Vector2(float.NaN, float.NaN);
             _pickCard.GetComponent<RawImage>().texture = cardArt;
@@ -73,6 +93,7 @@ namespace LemonadeWars.Unity
             }
             _pickValid = null;
             _pickOnPick = null;
+            _pickOnPass = null;
             _pickHover = -1;
             UiKit.Clear(_pickArrowHost);
             _pickRoot.gameObject.SetActive(false);

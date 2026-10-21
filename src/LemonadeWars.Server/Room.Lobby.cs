@@ -188,15 +188,25 @@ public sealed partial class Room
             {
                 return "That seat is not a bot.";
             }
-            _seats.Remove(seat);
-            for (int i = 0; i < _seats.Count; i++)
-            {
-                _seats[i].Index = i;
-            }
+            RemoveSeat(seat);
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);
         return "";
+    }
+
+    /// <summary>
+    /// Drop a lobby seat and close the gap. Seat index IS turn order and hosthood
+    /// (seat 0), so the remaining seats renumber — a departed host hands the room
+    /// to the next seat. Lobby only: a started game never loses a seat.
+    /// </summary>
+    private void RemoveSeat(Seat seat)
+    {
+        _seats.Remove(seat);
+        for (int i = 0; i < _seats.Count; i++)
+        {
+            _seats[i].Index = i;
+        }
     }
 
     /// <summary>Toggle a human seat's ready flag in the lobby.</summary>
@@ -236,7 +246,7 @@ public sealed partial class Room
             var notReady = _seats.Where(s => !s.Ready && s.Index != requestingSeat).ToList();
             if (notReady.Count > 0)
             {
-                return "Waiting for: " + string.Join(", ", notReady.Select(s => s.Name));
+                return "Not All Players Are Ready";
             }
 
             ulong seed = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8));
@@ -264,7 +274,38 @@ public sealed partial class Room
             {
                 return;
             }
+            // A dropped socket is not a departure: the seat stays, marked offline,
+            // so the player can reclaim it with their token (see Leave for exits).
             seat.Client = null;
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
+    }
+
+    /// <summary>
+    /// A deliberate exit. In the lobby the seat is freed outright — a "disconnected"
+    /// ghost would hold a slot nobody is coming back to. Mid-game the seat only goes
+    /// offline, exactly like a drop, so the game can continue and the player rejoin.
+    /// </summary>
+    public void Leave(Connection connection)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            var seat = _seats.FirstOrDefault(s => s.Client == connection);
+            if (seat == null)
+            {
+                return;
+            }
+            if (_game == null)
+            {
+                RemoveSeat(seat);
+            }
+            else
+            {
+                seat.Client = null;
+            }
+            LastActivityUtc = DateTime.UtcNow;
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);

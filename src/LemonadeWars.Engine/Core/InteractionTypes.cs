@@ -107,6 +107,16 @@ namespace LemonadeWars.Engine.Core
         public bool CountsForRoll { get; set; }
         /// <summary>Record drawn instance ids (Whiniest Baby must discard one of them).</summary>
         public bool TrackDrawnIds { get; set; }
+        /// <summary>Every card this batch has put in the hand so far (Timeout resumes included).</summary>
+        public List<int> DrawnIds { get; } = new List<int>();
+        /// <summary>
+        /// Whispers of Fate: once the batch lands, its drawer must discard this many
+        /// OF THE DRAWN CARDS (0 = no follow-up). The decision is created then, not
+        /// when the draw is queued, because the ids do not exist yet.
+        /// </summary>
+        public int DiscardAfterCount { get; set; }
+        /// <summary>The equipped card behind <see cref="DiscardAfterCount"/>, for the decision's source.</summary>
+        public int? DiscardAfterSourceInstanceId { get; set; }
         /// <summary>What caused this batch — stamped onto every CardDrawn it produces.</summary>
         public DrawReason Reason { get; set; }
     }

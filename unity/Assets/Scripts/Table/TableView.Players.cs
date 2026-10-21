@@ -28,6 +28,7 @@ namespace LemonadeWars.Unity
         private Texture2D _vpIcon;
         private Texture2D _cashIcon;
         private Texture2D _tantrumIcon;
+        private Texture2D _hourglassIcon;
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
@@ -113,6 +114,33 @@ namespace LemonadeWars.Unity
             letter.raycastTarget = false;
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
 
+            // The table is waiting on this player — their turn, a reaction window,
+            // a discard, a lord pick — so their badge greys out under the hourglass.
+            // Several can wait at once (a window open to everyone); each gets one.
+            if (view.ActingPlayers.Contains(playerId) && !isMe)
+            {
+                var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
+                shadeGo.transform.SetParent(badgeGo.transform, false);
+                UiKit.Anchor((RectTransform)shadeGo.transform, Vector2.zero, Vector2.one);
+                var shade = shadeGo.GetComponent<Image>();
+                shade.sprite = UiSprites.Circle;
+                shade.type = Image.Type.Simple;
+                shade.preserveAspect = true;
+                var grey = ModalBackdrop.Tint;
+                shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
+                shade.raycastTarget = false;
+
+                var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
+                    typeof(HourglassMotion));
+                glassGo.transform.SetParent(badgeGo.transform, false);
+                var glassRect = (RectTransform)glassGo.transform;
+                glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
+                glassRect.sizeDelta = new Vector2(28f, 28f); // 50% of the badge; the motion scales from here
+                var glass = glassGo.GetComponent<RawImage>();
+                glass.texture = _hourglassIcon;
+                glass.raycastTarget = false;
+            }
+
             // Victory points: a crown per VP, arcing over the portrait left-to-right —
             // frees the stat row below for the money/hand/tantrum counts. Met Lemon
             // Lords count once revealed (FinishedLords is empty until game end), so
@@ -164,6 +192,22 @@ namespace LemonadeWars.Unity
             // Hand size is targeting intel: fewer cards = fewer possible reactions.
             AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
             AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
+            // The Whiniest Baby's tantrum icon visibly bawls: two fat tears over the
+            // eyes, drawn on the icon's exact rect. Held back while the title-claim
+            // animation is still mid-flight, like the lord fan.
+            if (view.WhiniestBabyHolder == playerId && !SuppressWhiniestBaby)
+            {
+                var tearsGo = new GameObject("BabyTears", typeof(RectTransform), typeof(Image));
+                tearsGo.transform.SetParent(stats, false);
+                var tearsRect = (RectTransform)tearsGo.transform;
+                tearsRect.anchorMin = tearsRect.anchorMax = new Vector2(0f, 0.5f);
+                tearsRect.sizeDelta = new Vector2(36f, 36f);
+                tearsRect.anchoredPosition = new Vector2(168f + 18f, 0f); // icon center
+                var tearsImage = tearsGo.GetComponent<Image>();
+                tearsImage.sprite = UiSprites.BabyTears;
+                tearsImage.type = Image.Type.Simple;
+                tearsImage.raycastTarget = false;
+            }
 
             // Yellow rim on whoever's board the table currently displays.
             if (isViewedBoard)

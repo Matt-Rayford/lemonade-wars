@@ -52,17 +52,26 @@ namespace LemonadeWars.Unity
             // screen, leave it alone.
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
-            if ((_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen) && signature == _modalSignature)
+            bool surfaceOpen = _prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen ||
+                _table.DiscardPickerOpen || _table.EquipTargetingActive;
+            if (surfaceOpen && signature == _modalSignature)
             {
                 _modalRevision = revision;
                 return;
             }
-            if (_modalRevision == revision && (_prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen))
+            if (_modalRevision == revision && surfaceOpen)
             {
                 return;
             }
             _modalRevision = revision;
             _modalSignature = signature;
+            if (_table.DiscardPickerOpen || _table.EquipTargetingActive)
+            {
+                // The choice this grid/aim was serving changed under it — drop the
+                // stale surface (silently: its cancel callback would reopen it)
+                // before the fresh modal replaces it.
+                _table.DismissModalOverlays();
+            }
             if (TryAutoForcedPlay(groups, revision))
             {
                 return;
@@ -208,7 +217,7 @@ namespace LemonadeWars.Unity
                 guided[0].OnPick(); // a lone guided flow — skip the one-button page
                 return;
             }
-            var options = new List<Prompt.Option> { new Prompt.Option("< Back", back) };
+            var options = new List<Prompt.Option> { new Prompt.Option("Back", back) };
             options.AddRange(guided);
             options.AddRange(direct.Select(v => new Prompt.Option(
                 _session.LabelFor(v),
@@ -264,11 +273,16 @@ namespace LemonadeWars.Unity
                 return true; // already aiming this decision
             }
             var byVictim = new Dictionary<int, GameAction>();
+            GameAction decline = null;
             foreach (var move in groups.ModalMoves)
             {
                 if (move is SubmitAbilityChoice choice && choice.TargetPlayerId is int victim)
                 {
                     byVictim[victim] = move;
+                }
+                else if (move is SubmitAbilityChoice pass && pass.Decline)
+                {
+                    decline = move;
                 }
             }
             if (byVictim.Count == 0)
@@ -277,7 +291,8 @@ namespace LemonadeWars.Unity
             }
             var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
             _table.BeginPlayerPick(art, new HashSet<int>(byVictim.Keys),
-                picked => Submit(byVictim[picked]));
+                picked => Submit(byVictim[picked]),
+                onPass: decline != null ? () => Submit(decline) : null);
             return true;
         }
 
@@ -393,11 +408,34 @@ namespace LemonadeWars.Unity
                 }
 
                 case DecisionKind.AbilityDiscard:
-                    pool = View.Hand.ToList();
-                    required = decision.RequiredCount;
-                    title = WithSourcePrefix(decision, $"discard {required} card(s)");
-                    accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
+                {
+                    // Whispers of Fate: "drew 2, discard 1 of them" — restricted to the
+                    // fresh draws and phrased as the Whiniest Baby keep-pick.
+                    pool = decision.EligibleCardIds != null
+                        ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
+                        : View.Hand.ToList();
+                    int keepCount = pool.Count - decision.RequiredCount;
+                    if (decision.EligibleCardIds != null && keepCount > 0)
+                    {
+                        required = keepCount;
+                        title = WithSourcePrefix(decision, keepCount == 1
+                            ? "pick 1 new card to keep"
+                            : $"pick {keepCount} new cards to keep");
+                        var drawnPool = pool;
+                        accept = keptIds => Submit(new SubmitAbilityChoice
+                        {
+                            CardInstanceIds = drawnPool.Select(c => c.InstanceId)
+                                .Where(id => !keptIds.Contains(id)).ToList(),
+                        });
+                    }
+                    else
+                    {
+                        required = decision.RequiredCount;
+                        title = WithSourcePrefix(decision, $"discard {required} card(s)");
+                        accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
+                    }
                     break;
+                }
 
                 case DecisionKind.AbilityPickCard:
                     pool = View.RevealedHand ?? new List<PlayerView.CardInfo>();
@@ -513,6 +551,12 @@ namespace LemonadeWars.Unity
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
                     : $"{NameOf(top.OwnerId)} played {cardName}";
+                if (!string.IsNullOrEmpty(top.TakenDefId))
+                {
+                    // Connections / Reduce and Reuse / Reverse Engineer: a tantrum
+                    // decision hinges on WHAT they are reaching for.
+                    what += $", taking {CardName(top.TakenDefId)}";
+                }
                 return $"{what} — respond?";
             }
             if (View.PendingRollValue is int roll)
@@ -579,6 +623,13 @@ namespace LemonadeWars.Unity
                 {
                     // Show what the steal is aimed at, right next to the attack.
                     cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
+                if (!string.IsNullOrEmpty(top.TakenDefId))
+                {
+                    // Connections / Reduce and Reuse / Reverse Engineer: the card being taken.
+                    cards.Add(top.TakenIsLemon
+                        ? _art.Lemon(top.TakenDefId)
+                        : _art.BlackMarket(top.TakenDefId, top.TakenShape ?? Shape.Square));
                 }
                 if (!string.IsNullOrEmpty(top.RespondingToDefId))
                 {
