@@ -399,15 +399,26 @@ namespace LemonadeWars.Engine.Core
             BumpRevision();
             if (item.Kind == StackItemKind.LemonPlay)
             {
+                var answered = item.RespondingToItemId is int answeredId
+                    ? State.ResponseStack.FirstOrDefault(s => s.ItemId == answeredId)
+                    : null;
                 events.Add(new LemonCardPlayed
                 {
                     PlayerId = item.OwnerId,
                     InstanceId = item.LemonInstanceId ?? 0,
                     DefId = item.LemonDefId,
                     TargetPlayerId = item.AttackTargetId,
+                    RespondingToOwnerId = answered?.OwnerId,
+                    RespondingToDefId = answered == null ? null : StackItemDefId(answered),
                 });
             }
         }
+
+        /// <summary>The card a stack item IS: the bought Black Market card, or the played Lemon card.</summary>
+        private string StackItemDefId(StackItem item) =>
+            item.Kind == StackItemKind.BlackMarketPurchase
+                ? State.BlackMarketInstances[item.BmInstanceId!.Value].DefId
+                : item.LemonDefId;
 
         /// <summary>Resolve the top stack item. Returns false if resolution paused on a decision.</summary>
         private bool ResolveTopItem(List<GameEvent> events)

@@ -22,6 +22,13 @@ namespace LemonadeWars.Unity
         private sealed class MoneyFx : Fx { public int PlayerId; public int Amount; }
         private sealed class SoundFx : Fx { public string Name; }
         private sealed class ToastFx : Fx { public string Text; }
+        /// <summary>
+        /// How long a revealed card holds centered. Playtest verdict: 1.7s read as
+        /// "barely a second" for a card played on you — the title AND the art both
+        /// need reading. Claims (Whiniest Baby) set their own, shorter hold.
+        /// </summary>
+        private const float RevealHoldSeconds = 2.0f;
+
         private sealed class RevealFx : Fx
         {
             public Texture2D Art;
@@ -404,7 +411,7 @@ namespace LemonadeWars.Unity
             shadow.effectDistance = new Vector2(0, -6f);
 
             _revealRoot.gameObject.SetActive(true);
-            _busyUntil = Time.time + 1.7f;
+            _busyUntil = Time.time + RevealHoldSeconds;
             _endActive = () => _revealRoot.gameObject.SetActive(false);
         }
 

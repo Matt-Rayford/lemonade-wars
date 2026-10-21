@@ -370,10 +370,17 @@ namespace LemonadeWars.Unity
                 .ToList();
             string winners = string.Join(" & ", View.Winners.Select(NameOf));
             string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
+            // Two real exits instead of a lone "Cancel": look the final boards over,
+            // or head back to the menu.
             _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
                 new List<Texture2D>(),
                 rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
-                showCancel: true);
+                showCancel: false,
+                footer: new[]
+                {
+                    new Prompt.Option("Return to Board", () => { }),
+                    new Prompt.Option("Leave Game", () => BackToMenu("")),
+                });
         }
     }
 }
