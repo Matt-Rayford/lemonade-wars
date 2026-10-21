@@ -184,6 +184,8 @@ namespace LemonadeWars.Engine.Core
     {
         /// <summary>AbilityVictim: who to steal from.</summary>
         public int? TargetPlayerId { get; set; }
+        /// <summary>AbilityVictim: pass on the optional ability instead of choosing a victim.</summary>
+        public bool Decline { get; set; }
         /// <summary>AbilityPickCard / AbilityGiveBack / AbilityDiscard: the chosen hand card(s).</summary>
         public List<int> CardInstanceIds { get; set; } = new List<int>();
         /// <summary>InnovationCopy: the Power Pour card to copy.</summary>

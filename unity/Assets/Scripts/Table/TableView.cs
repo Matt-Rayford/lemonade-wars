@@ -164,6 +164,7 @@ namespace LemonadeWars.Unity
                 new Vector2(8, 3), new Vector2(-8, -3));
             var barLayout = bar.GetComponent<HorizontalLayoutGroup>();
             barLayout.spacing = 8;
+            barLayout.childAlignment = TextAnchor.MiddleCenter;
             barLayout.childForceExpandHeight = true;
             barLayout.childForceExpandWidth = false;
             barLayout.childControlWidth = true;

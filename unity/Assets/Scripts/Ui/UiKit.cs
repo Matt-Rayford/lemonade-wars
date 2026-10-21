@@ -260,9 +260,11 @@ namespace LemonadeWars.Unity
         /// button vanish into its background.
         /// </param>
         /// <param name="clickSound">Clip name, or null for a button with its own audio.</param>
+        /// <param name="highlighted">The call-to-action look: lemonade-yellow at rest
+        /// (what the others only become on hover), centered label.</param>
         public static Button CreateButton(Transform parent, string label, int fontSize,
             UnityEngine.Events.UnityAction onClick, bool dark = false,
-            string clickSound = Sfx.ButtonClick)
+            string clickSound = Sfx.ButtonClick, bool highlighted = false)
         {
             var go = new GameObject("Button", typeof(RectTransform), typeof(Image), typeof(Button),
                 typeof(LayoutElement));
@@ -280,11 +282,13 @@ namespace LemonadeWars.Unity
 
             // Subtle translucent grey at rest (light text); lemonade-yellow with dark
             // text when the cursor invites it — same language as the prompt options.
-            var idleBackground = dark
-                ? new Color(0.10f, 0.12f, 0.16f, 0.94f)
+            var idleBackground = highlighted ? ButtonColor
+                : dark ? new Color(0.10f, 0.12f, 0.16f, 0.94f)
                 : new Color(0.58f, 0.61f, 0.67f, 0.32f);
-            var idleText = dark ? new Color(0.96f, 0.94f, 0.86f) : new Color(0.93f, 0.93f, 0.90f);
-            var hoverBackground = dark ? new Color(0.18f, 0.21f, 0.28f, 1f) : ButtonColor;
+            var idleText = highlighted ? ButtonTextColor
+                : dark ? new Color(0.96f, 0.94f, 0.86f) : new Color(0.93f, 0.93f, 0.90f);
+            var hoverBackground = highlighted ? new Color(1f, 0.90f, 0.32f)
+                : dark ? new Color(0.18f, 0.21f, 0.28f, 1f) : ButtonColor;
             var hoverText = dark ? ButtonColor : ButtonTextColor;
             var image = go.GetComponent<Image>();
             // Same rounded corners as the prompt options and the shelf's refresh slab —
@@ -294,7 +298,8 @@ namespace LemonadeWars.Unity
             image.pixelsPerUnitMultiplier = 14f / 10f; // ~10px corner radius
             image.color = idleBackground;
 
-            var text = CreateText(go.transform, label, fontSize, TextAnchor.MiddleLeft, idleText);
+            var text = CreateText(go.transform, label, fontSize,
+                highlighted ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, idleText);
             Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
                 new Vector2(10, 2), new Vector2(-6, -2));
 

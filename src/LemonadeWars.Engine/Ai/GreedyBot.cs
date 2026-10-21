@@ -141,6 +141,10 @@ namespace LemonadeWars.Engine.Ai
 
                 // ---- decisions ----
                 case SubmitAbilityChoice choice:
+                    if (choice.Decline)
+                    {
+                        return 5; // a free steal beats passing, whoever the victim
+                    }
                     if (choice.TargetPlayerId is int victim)
                     {
                         return 20 + s.Players[victim].Money; // rob the richest

@@ -155,6 +155,13 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} used {SourceDefId} -> {NewValue}";
     }
 
+    public sealed class AbilityDeclined : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string DefId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId} passed on {DefId}";
+    }
+
     public sealed class AbilityTriggered : GameEvent
     {
         public int PlayerId { get; set; }

@@ -242,6 +242,9 @@ namespace LemonadeWars.Engine.Core
                             TargetPlayerId = other.PlayerId,
                         });
                     }
+                    // The steal-and-swap abilities are optional: giving a card back
+                    // can cost more than the steal is worth, so the owner may pass.
+                    moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, Decline = true });
                     break;
 
                 case DecisionKind.AbilityPickCard:

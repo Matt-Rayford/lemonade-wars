@@ -130,6 +130,11 @@ namespace LemonadeWars.Engine.Core
             /// <summary>Finders Keepers / That's Not Fair: the equipped card being taken (public table info).</summary>
             public string? StolenDefId { get; set; }
             public Shape? StolenShape { get; set; }
+            /// <summary>Connections / Reduce and Reuse / Reverse Engineer: the shelf or
+            /// discard card being taken — a Lemon card when TakenIsLemon.</summary>
+            public string? TakenDefId { get; set; }
+            public Shape? TakenShape { get; set; }
+            public bool TakenIsLemon { get; set; }
             /// <summary>Responses (Tantrum/Tag/Rubber): the stack item this answers.</summary>
             public string? RespondingToDefId { get; set; }
             public int? RespondingToOwnerId { get; set; }
@@ -275,6 +280,26 @@ namespace LemonadeWars.Engine.Core
                 {
                     view.StackTop.StolenDefId = stolenInstance.DefId;
                     view.StackTop.StolenShape = stolenInstance.Shape;
+                }
+                // Takes name their loot too, so a response window can show WHAT is
+                // about to leave the shelf or the discard — not just the play.
+                if (top.MarketIndex is int shelfIndex &&
+                    shelfIndex >= 0 && shelfIndex < State.Market.Count)
+                {
+                    var shelfCard = State.BlackMarketInstances[State.Market[shelfIndex]];
+                    view.StackTop.TakenDefId = shelfCard.DefId;
+                    view.StackTop.TakenShape = shelfCard.Shape;
+                }
+                else if (top.DiscardedBmInstanceId is int discardedBm &&
+                         State.BlackMarketInstances.TryGetValue(discardedBm, out var discardedBmCard))
+                {
+                    view.StackTop.TakenDefId = discardedBmCard.DefId;
+                    view.StackTop.TakenShape = discardedBmCard.Shape;
+                }
+                else if (top.DiscardedLemonInstanceId is int discardedLemon)
+                {
+                    view.StackTop.TakenDefId = State.LemonInstances[discardedLemon].DefId;
+                    view.StackTop.TakenIsLemon = true;
                 }
                 view.StackTop.RedirectTargetId = top.RedirectTargetId;
                 // Name what a response answers, so "Dex tantrums" always says WHAT.

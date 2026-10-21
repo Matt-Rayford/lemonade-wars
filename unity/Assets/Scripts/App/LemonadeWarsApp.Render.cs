@@ -353,6 +353,16 @@ namespace LemonadeWars.Unity
                     clickSound: ownsItsSound ? null : Sfx.ButtonClick);
                 button.GetComponent<LayoutElement>().minWidth = 150;
             }
+            var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
+            if (endTurn != null && View.ActionsRemaining == 0)
+            {
+                // Out of actions: the only thing left to do goes right between the
+                // board and the hand, where the eye already is (the top-right chip
+                // stays for ending early). Silent click: the sale roll has its own sound.
+                var endButton = UiKit.CreateButton(_table.ActionBar, "End Turn & Sell", 18,
+                    () => Submit(endTurn), clickSound: null, highlighted: true);
+                endButton.GetComponent<LayoutElement>().minWidth = 240;
+            }
             if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
             {
                 // Draft visits before the mandatory stand: every move is a drag, so

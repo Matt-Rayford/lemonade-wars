@@ -273,11 +273,16 @@ namespace LemonadeWars.Unity
                 return true; // already aiming this decision
             }
             var byVictim = new Dictionary<int, GameAction>();
+            GameAction decline = null;
             foreach (var move in groups.ModalMoves)
             {
                 if (move is SubmitAbilityChoice choice && choice.TargetPlayerId is int victim)
                 {
                     byVictim[victim] = move;
+                }
+                else if (move is SubmitAbilityChoice pass && pass.Decline)
+                {
+                    decline = move;
                 }
             }
             if (byVictim.Count == 0)
@@ -286,7 +291,8 @@ namespace LemonadeWars.Unity
             }
             var art = decision.SourceInstanceId is int src ? EquippedArt(src) : null;
             _table.BeginPlayerPick(art, new HashSet<int>(byVictim.Keys),
-                picked => Submit(byVictim[picked]));
+                picked => Submit(byVictim[picked]),
+                onPass: decline != null ? () => Submit(decline) : null);
             return true;
         }
 
@@ -545,6 +551,12 @@ namespace LemonadeWars.Unity
                 string what = top.IsPurchase
                     ? $"{NameOf(top.OwnerId)} is buying {cardName}"
                     : $"{NameOf(top.OwnerId)} played {cardName}";
+                if (!string.IsNullOrEmpty(top.TakenDefId))
+                {
+                    // Connections / Reduce and Reuse / Reverse Engineer: a tantrum
+                    // decision hinges on WHAT they are reaching for.
+                    what += $", taking {CardName(top.TakenDefId)}";
+                }
                 return $"{what} — respond?";
             }
             if (View.PendingRollValue is int roll)
@@ -611,6 +623,13 @@ namespace LemonadeWars.Unity
                 {
                     // Show what the steal is aimed at, right next to the attack.
                     cards.Add(_art.BlackMarket(top.StolenDefId, top.StolenShape ?? Shape.Square));
+                }
+                if (!string.IsNullOrEmpty(top.TakenDefId))
+                {
+                    // Connections / Reduce and Reuse / Reverse Engineer: the card being taken.
+                    cards.Add(top.TakenIsLemon
+                        ? _art.Lemon(top.TakenDefId)
+                        : _art.BlackMarket(top.TakenDefId, top.TakenShape ?? Shape.Square));
                 }
                 if (!string.IsNullOrEmpty(top.RespondingToDefId))
                 {

@@ -430,6 +430,8 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(pour.PlayerId)} hits a Power Pour!";
                 case AbilityTriggered ability:
                     return $"{NameOf(ability.PlayerId)}'s {BlackMarketName(ability.DefId)} kicks in";
+                case AbilityDeclined declined:
+                    return $"{NameOf(declined.PlayerId)} passes on {BlackMarketName(declined.DefId)}";
                 case TitleClaimed title:
                     return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
                 case SaleRolled rolled:
