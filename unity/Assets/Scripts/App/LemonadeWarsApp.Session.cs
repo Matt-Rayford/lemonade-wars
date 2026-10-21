@@ -114,6 +114,7 @@ namespace LemonadeWars.Unity
                 (ulong)System.DateTime.Now.Ticks,
                 _soloBots.Select(b => b.Level).ToList());
             localSession.BotStepSeconds = LocalStepSeconds(PlayerPrefs.GetString(SpeedPref, "medium"));
+            localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen;
             _session = localSession;
             _session.EventEmitted += OnGameEvent;
             EnterGame();

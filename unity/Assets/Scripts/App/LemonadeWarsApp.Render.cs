@@ -59,10 +59,15 @@ namespace LemonadeWars.Unity
             {
                 RenderStatus();
                 RenderBanner();
-                _table.Render(View, _db, groups);
+                // A tumbling die withholds every affordance: the roll may still open
+                // a response window, and acting on the next turn before the sale
+                // resolves is exactly what the theatre exists to prevent. The die's
+                // OnFinished forces the re-render that hands them back.
+                var actionable = _dice.IsBusy ? null : groups;
+                _table.Render(View, _db, actionable);
                 _table.SetLog(_actionLog);
-                RenderActionBar(groups);
-                RenderTurnActions(groups);
+                RenderActionBar(actionable);
+                RenderTurnActions(actionable);
             }
             catch (System.Exception e)
             {
