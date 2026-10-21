@@ -6,7 +6,7 @@ namespace LemonadeWars.Engine.Ai
         public const string Easy = "easy";
         public const string Medium = "medium";
         public const string Hard = "hard";
-        /// <summary>Above hard: the same search with double the time and a wider net.</summary>
+        /// <summary>Above hard: the same planner with more worlds, a wider beam, and more time.</summary>
         public const string Wambulance = "wambulance";
 
         public static string Normalize(string? level)
@@ -27,15 +27,18 @@ namespace LemonadeWars.Engine.Ai
             switch (Normalize(level))
             {
                 case Easy: return new EasyBot(seed);
-                // Tournament-tuned: at ~750ms the wider search dominates both the old
-                // 300ms/14x14 config AND a same-budget ISMCTS (see tools/BotArena;
-                // "ismcts" and "pimc+" remain as arena levels for future A/Bs).
-                case Hard: return new SearchBot(seed, budgetMs: 750, maxCandidates: 18, maxWorlds: 30);
-                // The wambulance: 1.12x over three HARD bots in the arena. Truncated
-                // ISMCTS only ever TIED this config at equal budget — flat keeps the
-                // crown until someone builds tree reuse.
-                case Wambulance: return new SearchBot(seed, budgetMs: 1400, maxCandidates: 24, maxWorlds: 50);
-                default: return new GreedyBot();
+                // Hard and the wambulance are the planner judging every line from the
+                // start of its NEXT turn (sale roll + a greedy turn by every rival) over
+                // more sampled worlds. Arena, 150 games vs three medium bots: 1.15x for
+                // this config; the flat-search hard it replaces had fallen to 0.80x once
+                // medium learned to plan. See tools/BotArena for the levels kept for A/Bs.
+                case Hard:
+                    return new PlannerBot(seed, PlannerConfig.Hard);
+                case Wambulance:
+                    return new PlannerBot(seed, PlannerConfig.Wambulance);
+                // Medium plans its turn on a determinized copy; the greedy policy it
+                // replaced lives on as Easy's brain and every search's rollout policy.
+                default: return new PlannerBot(seed, PlannerConfig.Medium);
             }
         }
     }

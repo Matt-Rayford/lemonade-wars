@@ -34,12 +34,14 @@ namespace LemonadeWars.Engine.Ai
         private const int RolloutActionCap = 1200;
         private const int MaxNodeBreadth = 16;
         private const int MinIterations = 2;
+        private const double EvaluatorScale = 250;
 
         private readonly DeterministicRng _rng;
         private readonly GreedyBot _policy = new GreedyBot();
         private readonly int _budgetMs;
         private readonly int _maxIterations;
         private readonly int _rolloutDepth;
+        private readonly PositionEvaluator? _evaluator;
 
         /// <param name="rolloutDepth">
         /// Actions per rollout before cutting to the static evaluation. Full-game
@@ -47,13 +49,18 @@ namespace LemonadeWars.Engine.Ai
         /// iterations fit a budget; truncating buys the tree an order of magnitude
         /// more iterations at the cost of leaning on the heuristic eval.
         /// </param>
+        /// <param name="evaluator">
+        /// When set, truncated games are rewarded by this evaluator (squashed to [0,1])
+        /// instead of the built-in standing formula.
+        /// </param>
         public IsmctsBot(ulong seed, int budgetMs = 300, int maxIterations = int.MaxValue,
-            int rolloutDepth = int.MaxValue)
+            int rolloutDepth = int.MaxValue, PositionEvaluator? evaluator = null)
         {
             _rng = new DeterministicRng(seed);
             _budgetMs = budgetMs;
             _maxIterations = maxIterations;
             _rolloutDepth = rolloutDepth;
+            _evaluator = evaluator;
         }
 
         public GameAction Choose(Game game, int playerId)
@@ -206,7 +213,7 @@ namespace LemonadeWars.Engine.Ai
                 path.Add(chosen);
             }
 
-            Backpropagate(path, TerminalRewards(world, players, steps));
+            Backpropagate(path, Rewards(world, players, steps));
         }
 
         private double[] Rollout(Game world, int players, int stepsSoFar)
@@ -225,7 +232,7 @@ namespace LemonadeWars.Engine.Ai
                 steps++;
                 world.Apply(_policy.Choose(world, acting[0]));
             }
-            return TerminalRewards(world, players, steps);
+            return Rewards(world, players, steps);
         }
 
         /// <summary>
@@ -234,6 +241,21 @@ namespace LemonadeWars.Engine.Ai
         /// (in-game VP + met Lemon Lords), money, and board income as a proxy for
         /// the future, squashed to [0,1] against the strongest rival.
         /// </summary>
+        private double[] Rewards(Game world, int players, int steps)
+        {
+            if (_evaluator == null || world.State.Stage == GameStage.Finished)
+            {
+                return TerminalRewards(world, players, steps);
+            }
+            var rewards = new double[players];
+            for (int p = 0; p < players; p++)
+            {
+                // Logistic squash: ±EvaluatorScale points is a decisive position.
+                rewards[p] = 1.0 / (1.0 + Math.Exp(-_evaluator.Evaluate(world, p) / EvaluatorScale));
+            }
+            return rewards;
+        }
+
         private static double[] TerminalRewards(Game world, int players, int steps)
         {
             var state = world.State;

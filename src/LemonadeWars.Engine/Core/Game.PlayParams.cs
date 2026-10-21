@@ -153,7 +153,7 @@ namespace LemonadeWars.Engine.Core
                     foreach (int lemonId in State.LemonDiscard)
                     {
                         var lemonDef = Db.Lemon(State.LemonInstances[lemonId].DefId);
-                        if (lemonDef.Type != LemonCardType.Plan && lemonDef.Type != LemonCardType.Attack)
+                        if (!IsReverseEngineerable(lemonDef))
                         {
                             continue;
                         }
@@ -308,5 +308,14 @@ namespace LemonadeWars.Engine.Core
             }
             return results;
         }
+
+        /// <summary>
+        /// Plans and attacks can be recovered and played at once — except another
+        /// Reverse Engineer: with two copies in the game, each one recovering the other
+        /// is a forced-play chain that never ends (an all-bot table looped on it).
+        /// </summary>
+        private static bool IsReverseEngineerable(LemonCardDef def) =>
+            (def.Type == LemonCardType.Plan || def.Type == LemonCardType.Attack) &&
+            def.Id != "reverse-engineer";
     }
 }

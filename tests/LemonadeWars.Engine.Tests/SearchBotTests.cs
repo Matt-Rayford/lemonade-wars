@@ -4,6 +4,7 @@ using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using Newtonsoft.Json;
 using Xunit;
+using static LemonadeWars.Engine.Tests.BotScenario;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -183,83 +184,6 @@ namespace LemonadeWars.Engine.Tests
 
         // ------------------------------------------------- value-blind attack rigs
 
-        private static int _rigId = 9100;
-
-        /// <summary>Deal through setup and the first draw, stopping in the active player's Play phase.</summary>
-        private static Game ReadyToAct(ulong seed, int players)
-        {
-            var names = new[] { "Ana", "Ben", "Cal", "Dee" }.Take(players).ToArray();
-            var game = Game.Create(TestData.Db, names, seed);
-            foreach (var p in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
-                });
-            }
-            while (game.State.Stage == GameStage.InitialBuys)
-            {
-                int buyer = game.State.InitialBuyQueue[0];
-                game.Apply(new InitialBuyStand { PlayerId = buyer, StandTypeId = "bargain" });
-                game.Apply(new InitialBuyEnd { PlayerId = buyer });
-            }
-            var warmup = new GreedyBot();
-            while (game.State.Phase != TurnPhase.Play && game.State.Stage != GameStage.Finished)
-            {
-                game.Apply(warmup.Choose(game, game.ActingPlayers()[0]));
-            }
-            return game;
-        }
-
-        /// <summary>Move one instance of a lemon def into the player's hand, from wherever it is.</summary>
-        private static void GiveCard(Game game, int playerId, string defId)
-        {
-            var s = game.State;
-            int Find(List<int> zone) => zone.FirstOrDefault(id => s.LemonInstances[id].DefId == defId);
-
-            int found = Find(s.LemonDeck);
-            if (found != 0)
-            {
-                s.LemonDeck.Remove(found);
-            }
-            else if ((found = Find(s.LemonDiscard)) != 0)
-            {
-                s.LemonDiscard.Remove(found);
-            }
-            else
-            {
-                foreach (var p in s.Players)
-                {
-                    found = Find(p.Hand);
-                    if (found != 0)
-                    {
-                        p.Hand.Remove(found);
-                        break;
-                    }
-                }
-            }
-            Assert.NotEqual(0, found);
-            s.Players[playerId].Hand.Add(found);
-        }
-
-        /// <summary>Bury the player's hand at the bottom of the deck, then deal them one named card.</summary>
-        private static void StripToOneCard(Game game, int playerId, string defId)
-        {
-            var hand = game.State.Players[playerId].Hand;
-            game.State.LemonDeck.AddRange(hand);
-            hand.Clear();
-            GiveCard(game, playerId, defId);
-        }
-
-        private static void AddStand(PlayerState player, string typeId) =>
-            player.Stands.Add(new StandInstance
-            {
-                InstanceId = _rigId++,
-                StandTypeId = typeId,
-                Shape = LemonadeWars.Engine.Data.Shape.Circle,
-            });
-
         [Fact]
         public void MoneyAttacksChaseTheVictimWhoCanActuallyPay()
         {
@@ -362,28 +286,6 @@ namespace LemonadeWars.Engine.Tests
 
         // ------------------------------------------------- tantrum discipline
 
-        /// <summary>Bury every copy of the defs from ALL hands, then note who holds what.</summary>
-        private static void StripAllHands(Game game, params string[] defIds)
-        {
-            var s = game.State;
-            foreach (var p in s.Players)
-            {
-                var strip = p.Hand.Where(id => defIds.Contains(s.LemonInstances[id].DefId)).ToList();
-                foreach (int id in strip)
-                {
-                    p.Hand.Remove(id);
-                    s.LemonDeck.Add(id);
-                }
-            }
-        }
-
-        /// <summary>GiveCard, but returns the instance id that landed in the hand.</summary>
-        private static int Hold(Game game, int playerId, string defId)
-        {
-            GiveCard(game, playerId, defId);
-            return game.State.Players[playerId].Hand[^1];
-        }
-
         [Fact]
         public void BystanderTantrumsAreSpiteAndGetPassed()
         {
@@ -480,13 +382,13 @@ namespace LemonadeWars.Engine.Tests
         public void BotFactoryMapsLevels()
         {
             Assert.IsType<EasyBot>(BotFactory.Create("easy", 1));
-            Assert.IsType<GreedyBot>(BotFactory.Create("medium", 1));
-            Assert.IsType<SearchBot>(BotFactory.Create("hard", 1));
-            Assert.IsType<SearchBot>(BotFactory.Create("wambulance", 1));
+            Assert.IsType<PlannerBot>(BotFactory.Create("medium", 1));
+            Assert.IsType<PlannerBot>(BotFactory.Create("hard", 1));
+            Assert.IsType<PlannerBot>(BotFactory.Create("wambulance", 1));
             Assert.Equal("wambulance", BotFactory.Normalize(" WAMBULANCE "));
             Assert.Equal("wambulance", BotFactory.Normalize("wambulence")); // legacy spelling from persisted rooms
-            Assert.IsType<GreedyBot>(BotFactory.Create(null, 1));
-            Assert.IsType<GreedyBot>(BotFactory.Create("HARD??", 1));
+            Assert.IsType<PlannerBot>(BotFactory.Create(null, 1));
+            Assert.IsType<PlannerBot>(BotFactory.Create("HARD??", 1));
             Assert.Equal("hard", BotFactory.Normalize(" Hard "));
         }
     }

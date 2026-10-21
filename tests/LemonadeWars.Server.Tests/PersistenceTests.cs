@@ -153,7 +153,12 @@ public class PersistenceTests
             _cts.Cancel();
             try
             {
-                await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                // Send our close frame without waiting for the server's: the receive loop
+                // being cancelled above races CloseAsync for that frame, and when the loop
+                // swallows it CloseAsync waits forever (the suite hung on this once bot
+                // turns got slow enough for an update to land right before disposal).
+                using var closeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "", closeTimeout.Token);
             }
             catch
             {

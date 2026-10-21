@@ -12,11 +12,14 @@ namespace LemonadeWars.Engine.Ai
             NullValueHandling = NullValueHandling.Include,
         };
 
+        /// <summary>Full deep copy; the fast path every search clones through.</summary>
+        public static GameState CloneState(GameState state) => GameStateCloner.Clone(state);
+
         /// <summary>
-        /// Full deep copy via JSON round-trip. GameState is pure serializable data by
-        /// design, so this cannot silently miss a field the way a hand-written copy can.
+        /// The reference copy: a JSON round-trip cannot miss a field, so the tests hold
+        /// the hand-written cloner to it across whole games.
         /// </summary>
-        public static GameState CloneState(GameState state) =>
+        public static GameState CloneStateViaJson(GameState state) =>
             JsonConvert.DeserializeObject<GameState>(
                 JsonConvert.SerializeObject(state, Settings), Settings)!;
 

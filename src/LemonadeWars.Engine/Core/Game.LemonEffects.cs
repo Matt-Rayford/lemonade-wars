@@ -201,10 +201,10 @@ namespace LemonadeWars.Engine.Core
                             throw new InvalidActionException("Reverse Engineer: choose a card from the Lemon discard (or draw 2).");
                         }
                         var recovered = Db.Lemon(State.LemonInstances[discardedLemonId].DefId);
-                        if (recovered.Type != LemonCardType.Plan && recovered.Type != LemonCardType.Attack)
+                        if (!IsReverseEngineerable(recovered))
                         {
                             throw new InvalidActionException(
-                                "Reverse Engineer: only plans and attacks can be played immediately.");
+                                "Reverse Engineer: only plans and attacks (other than Reverse Engineer) can be played immediately.");
                         }
                     }
                     break;

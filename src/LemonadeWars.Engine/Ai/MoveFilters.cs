@@ -52,8 +52,9 @@ namespace LemonadeWars.Engine.Ai
             {
                 return false;
             }
-            // Counter-tantrum: cancelling this tantrum revives the responder's own play.
-            if (top.LemonDefId == "tantrum" && top.RespondingToItemId is int prevId &&
+            // Counter-tantrum: cancelling this tantrum revives the responder's own play —
+            // and cancelling a Tag / Rubber-Glue keeps the responder's own attack on course.
+            if (top.RespondingToItemId is int prevId &&
                 s.ResponseStack.Any(it => it.ItemId == prevId && it.OwnerId == playerId))
             {
                 return false;
