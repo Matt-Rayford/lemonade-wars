@@ -201,7 +201,10 @@ namespace LemonadeWars.Engine.Ai
                 case "reduce-and-reuse":
                     return 36;
                 case "reverse-engineer":
-                    return play.DrawInstead ? 24 : 32;
+                    // Recovering is worth what the recovered card is worth to us.
+                    return play.DrawInstead || !(play.DiscardedLemonInstanceId is int recoveredId)
+                        ? 24
+                        : 22 + CardValue(game, me, recoveredId) * 2;
                 case "rummage-sale":
                     return 6; // usually better to keep upgrades
                 case "rebrand":

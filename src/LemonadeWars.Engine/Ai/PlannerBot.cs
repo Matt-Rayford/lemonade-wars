@@ -22,32 +22,25 @@ namespace LemonadeWars.Engine.Ai
         private const int InnerBeam = 2;
         private const int SettleActionCap = 80;
         private const int LookaheadActionCap = 160;
+        private const int EvaluatorRivalMaxCandidates = 14;
         private const double OrderingTieBreak = 1e-4;
 
         private readonly DeterministicRng _rng;
         private readonly PositionEvaluator _evaluator;
         private readonly GreedyBot _rivalPolicy = new GreedyBot();
-        private readonly int _budgetMs;
-        private readonly int _worlds;
-        private readonly int _rootBeam;
-        private readonly bool _roundLookahead;
+        private readonly PlannerConfig _config;
 
-        /// <param name="worlds">Determinizations averaged per decision; more worlds, steadier reads on hidden cards.</param>
-        /// <param name="rootBeam">How many opening moves are followed to the end of the turn.</param>
-        /// <param name="roundLookahead">
-        /// Judge each line at the start of the planner's NEXT turn — after its sale roll
-        /// and a greedy turn by every rival — instead of at the end of this one, so the
-        /// race and the rivals' answers are priced in. Several times the cost.
-        /// </param>
-        public PlannerBot(ulong seed, int budgetMs = 150, int worlds = 2, EvaluationWeights? weights = null,
-            int rootBeam = DefaultRootBeam, bool roundLookahead = false)
+        public PlannerBot(ulong seed, PlannerConfig? config = null, EvaluationWeights? weights = null)
         {
             _rng = new DeterministicRng(seed);
             _evaluator = new PositionEvaluator(weights);
-            _budgetMs = budgetMs;
-            _worlds = Math.Max(1, worlds);
-            _rootBeam = Math.Max(1, rootBeam);
-            _roundLookahead = roundLookahead;
+            _config = config ?? PlannerConfig.Medium;
+        }
+
+        /// <summary>Convenience for the common knobs; the arena builds full configs itself.</summary>
+        public PlannerBot(ulong seed, int budgetMs, int worlds = 2, EvaluationWeights? weights = null)
+            : this(seed, new PlannerConfig { BudgetMs = budgetMs, Worlds = Math.Max(1, worlds) }, weights)
+        {
         }
 
         public GameAction Choose(Game game, int playerId)
@@ -87,11 +80,12 @@ namespace LemonadeWars.Engine.Ai
             var stopwatch = Stopwatch.StartNew();
             var totals = new double[candidates.Count];
             var samples = new int[candidates.Count];
-            for (int world = 0; world < _worlds; world++)
+            int worlds = Math.Max(1, _config.Worlds);
+            for (int world = 0; world < worlds; world++)
             {
                 var sampled = SearchTools.CloneState(game.State);
                 SearchTools.Determinize(sampled, playerId, _rng);
-                long deadline = _budgetMs * (world + 1) / _worlds;
+                long deadline = _config.BudgetMs * (world + 1) / worlds;
                 var values = RootValues(game.Db, sampled, playerId, candidates, stopwatch, deadline);
                 for (int i = 0; i < candidates.Count; i++)
                 {
@@ -137,7 +131,7 @@ namespace LemonadeWars.Engine.Ai
                 values[i] = steps[i].Value;
             }
 
-            foreach (int i in TopIndices(values, _rootBeam))
+            foreach (int i in TopIndices(values, Math.Max(1, _config.RootBeam)))
             {
                 if (stopwatch.ElapsedMilliseconds > deadlineMs)
                 {
@@ -196,18 +190,35 @@ namespace LemonadeWars.Engine.Ai
 
         /// <summary>
         /// Worth of a settled position. With round lookahead the turn is ended on a copy,
-        /// every rival plays a greedy turn, and the position is judged when the planner
-        /// is back on the clock — the sale die rolls once per world, so lines within a
-        /// world are compared on the same roll.
+        /// every rival plays a turn, and the position is judged when the planner is back
+        /// on the clock. The first sample keeps the world's own roll, so lines within a
+        /// world are compared on the same die; extra samples re-seed it, trading time
+        /// for a steadier read on a chance node (sparse sampling, not one draw).
         /// </summary>
         private double Leaf(Game world, int playerId)
         {
-            if (!_roundLookahead || world.State.Stage == GameStage.InitialBuys ||
+            if (!_config.RoundLookahead || world.State.Stage == GameStage.InitialBuys ||
                 world.State.Stage == GameStage.Finished)
             {
                 return _evaluator.Evaluate(world, playerId);
             }
-            var future = Game.FromState(world.Db, SearchTools.CloneState(world.State));
+            int samples = Math.Max(1, _config.RollSamples);
+            double total = 0;
+            for (int sample = 0; sample < samples; sample++)
+            {
+                var future = Game.FromState(world.Db, SearchTools.CloneState(world.State));
+                if (sample > 0)
+                {
+                    future.State.RngState ^= 0x9E3779B97F4A7C15UL * (ulong)sample;
+                }
+                total += PlayOutRound(future, world, playerId);
+            }
+            return total / samples;
+        }
+
+        /// <summary>End the planner's turn and let the table play until it is back on the clock.</summary>
+        private double PlayOutRound(Game future, Game fallback, int playerId)
+        {
             try
             {
                 if (CanKeepActing(future, playerId))
@@ -221,18 +232,62 @@ namespace LemonadeWars.Engine.Ai
                                     future.State.PendingDecisions.All(d => d.PlayerId != actor);
                     future.Apply(inWindow
                         ? new PassWindow { PlayerId = actor }
-                        : _rivalPolicy.Choose(future, actor));
+                        : RivalMove(future, actor));
                 }
             }
             catch (InvalidActionException)
             {
-                return _evaluator.Evaluate(world, playerId);
+                return _evaluator.Evaluate(fallback, playerId);
             }
             catch (InvalidOperationException)
             {
-                return _evaluator.Evaluate(world, playerId);
+                return _evaluator.Evaluate(fallback, playerId);
             }
             return _evaluator.Evaluate(future, playerId);
+        }
+
+        /// <summary>
+        /// A rival's move inside the lookahead: greedy by default; with evaluator rivals,
+        /// its Play-phase actions are the one-ply best by the shared evaluator from the
+        /// rival's own seat (windows and decisions stay greedy — they are cheap and
+        /// already sensible).
+        /// </summary>
+        private GameAction RivalMove(Game world, int rival)
+        {
+            if (!_config.EvaluatorRivals || !CanKeepActing(world, rival))
+            {
+                return _rivalPolicy.Choose(world, rival);
+            }
+            var candidates = Candidates(world, rival, world.LegalMovesFor(rival));
+            if (candidates.Count > EvaluatorRivalMaxCandidates)
+            {
+                return _rivalPolicy.Choose(world, rival);
+            }
+            GameAction best = candidates[0];
+            double bestValue = double.NegativeInfinity;
+            foreach (var move in candidates)
+            {
+                var trial = Game.FromState(world.Db, SearchTools.CloneState(world.State));
+                try
+                {
+                    trial.Apply(move);
+                }
+                catch (InvalidActionException)
+                {
+                    continue;
+                }
+                if (!Settle(trial, rival))
+                {
+                    continue;
+                }
+                double value = _evaluator.Evaluate(trial, rival);
+                if (value > bestValue)
+                {
+                    bestValue = value;
+                    best = move;
+                }
+            }
+            return best;
         }
 
         private static bool BackOnTheClock(Game world, int playerId) =>
@@ -362,12 +417,12 @@ namespace LemonadeWars.Engine.Ai
         /// victim roughly in proportion to hand size; anything else is only worth a
         /// rival's Tantrum when it would hand the planner the game.
         /// </summary>
-        private static double CancelChance(Game world, int playerId)
+        private double CancelChance(Game world, int playerId)
         {
             var s = world.State;
-            if (s.ResponseStack.Count == 0 || s.Players.Count < 2)
+            if (_config.SampledReactions || s.ResponseStack.Count == 0 || s.Players.Count < 2)
             {
-                return 0;
+                return 0; // sampled rivals answer for themselves; the worlds carry the risk
             }
             var top = s.ResponseStack[s.ResponseStack.Count - 1];
             if (top.OwnerId != playerId || top.LemonDefId == "apologize")
@@ -383,9 +438,10 @@ namespace LemonadeWars.Engine.Ai
 
         /// <summary>
         /// Run the interaction to quiescence: rivals pass every window (their risk is
-        /// priced separately) and answer decisions greedily; the planner itself passes
-        /// windows and answers its own decisions greedily, since re-planning inside a
-        /// plan would be unaffordable. Returns false if the world wedged.
+        /// priced separately) — or, with sampled reactions, answer from their sampled
+        /// hands — and answer decisions greedily; the planner itself passes windows and
+        /// answers its own decisions greedily, since re-planning inside a plan would be
+        /// unaffordable. Returns false if the world wedged.
         /// </summary>
         private bool Settle(Game world, int playerId)
         {
@@ -414,7 +470,8 @@ namespace LemonadeWars.Engine.Ai
                     }
                     bool inWindow = s.AwaitingResponse.Contains(actor) &&
                                     s.PendingDecisions.All(d => d.PlayerId != actor);
-                    world.Apply(inWindow
+                    bool passes = inWindow && (actor == playerId || !_config.SampledReactions);
+                    world.Apply(passes
                         ? new PassWindow { PlayerId = actor }
                         : _rivalPolicy.Choose(world, actor));
                 }

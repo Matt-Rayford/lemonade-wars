@@ -13,7 +13,7 @@ namespace LemonadeWars.Engine.Tests
     /// </summary>
     public class PlannerBotTests
     {
-        private static PlannerBot QuickPlanner(ulong seed = 1) => new PlannerBot(seed, budgetMs: 60, worlds: 1);
+        private static PlannerBot QuickPlanner(ulong seed = 1) => new PlannerBot(seed, new PlannerConfig { BudgetMs = 60, Worlds = 1 });
 
         [Fact]
         public void PlannerFinishesAFullGameAgainstGreedy()
@@ -28,6 +28,34 @@ namespace LemonadeWars.Engine.Tests
             GameRunner.PlayOut(game, bots);
             Assert.Equal(GameStage.Finished, game.State.Stage);
             Assert.NotEmpty(game.State.Winners);
+        }
+
+        [Fact]
+        public void EveryResearchOptionSurvivesAFullGame()
+        {
+            // Sampled reactions, averaged rolls, and evaluator-driven rivals all run
+            // extra engine code inside plans; a wedge in any of them would surface as a
+            // stalled or thrown game rather than a weak move.
+            var config = new PlannerConfig
+            {
+                BudgetMs = 40,
+                Worlds = 2,
+                RootBeam = 3,
+                RoundLookahead = true,
+                SampledReactions = true,
+                RollSamples = 2,
+                EvaluatorRivals = true,
+            };
+            var game = Game.Create(TestData.Db, new[] { "Wam", "G1", "G2", "G3" }, 2468);
+            var bots = new Dictionary<int, IBot>
+            {
+                [0] = new PlannerBot(3, config),
+                [1] = new GreedyBot(),
+                [2] = new GreedyBot(),
+                [3] = new GreedyBot(),
+            };
+            GameRunner.PlayOut(game, bots);
+            Assert.Equal(GameStage.Finished, game.State.Stage);
         }
 
         [Fact]

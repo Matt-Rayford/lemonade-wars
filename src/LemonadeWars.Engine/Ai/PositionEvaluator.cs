@@ -1,34 +1,30 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
-using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
     /// Static evaluation of a position from one player's seat: how good is this state
-    /// for me, relative to my rivals? One scale for everything — VP, titles in
-    /// progress, cash, board income, hand — so that plans built from different move
-    /// types compare honestly, which a per-move score table never managed.
+    /// for me, relative to my rivals? Each player's worth is a dot product of
+    /// <see cref="PositionFeatures"/> and <see cref="EvaluationWeights"/>; the result
+    /// is my worth minus a soft maximum over the rivals — the log-odds of winning
+    /// under a conditional-logit model, which is exactly what the arena fits the
+    /// weights to. One scale for everything, so that plans built from different move
+    /// types compare honestly.
     /// </summary>
     public sealed class PositionEvaluator
     {
-        private static readonly HashSet<string> ReactionDefIds = new HashSet<string>
-        {
-            "tantrum", "tag-youre-it", "im-rubber-youre-glue",
-        };
-        private const int TimeoutHandLimit = 10;
-        private const int MaxCountedReactions = 2;
-
         public EvaluationWeights Weights { get; }
+        private readonly double[] _vector;
 
         public PositionEvaluator(EvaluationWeights? weights = null)
         {
             Weights = weights ?? EvaluationWeights.Default;
+            _vector = Weights.ToVector();
         }
 
-        /// <summary>My score minus a blend of the strongest rival and the rest of the field.</summary>
+        /// <summary>My worth minus the soft maximum of my rivals' worth.</summary>
         public double Evaluate(Game game, int viewerId)
         {
             var state = game.State;
@@ -38,54 +34,31 @@ namespace LemonadeWars.Engine.Ai
             }
             double horizon = RemainingRounds(game);
             double mine = 0;
-            double bestRival = double.MinValue;
-            double fieldTotal = 0;
-            int rivals = 0;
+            var rivals = new double[state.Players.Count - 1];
+            int rivalCount = 0;
             foreach (var player in state.Players)
             {
                 double score = PlayerScore(game, player, viewerId, horizon);
                 if (player.PlayerId == viewerId)
                 {
                     mine = score;
-                    continue;
                 }
-                rivals++;
-                fieldTotal += score;
-                bestRival = Math.Max(bestRival, score);
+                else
+                {
+                    rivals[rivalCount++] = score;
+                }
             }
-            if (rivals == 0)
-            {
-                return mine;
-            }
-            double field = fieldTotal / rivals;
-            return mine - Weights.Rival * bestRival - Weights.Field * field;
+            return rivalCount == 0 ? mine : mine - SoftMax(rivals, rivalCount, Weights.RivalTemperature);
         }
 
         /// <summary>Absolute worth of one player's position; public so tests can probe terms.</summary>
         public double PlayerScore(Game game, PlayerState player, int viewerId, double horizon)
         {
-            var w = Weights;
-            bool lateGame = ThreatAssessment.IsNearGameEnd(game);
-            double score = player.InGameVictoryPoints * w.VictoryPoint;
-            score += LordsValue(game, player, viewerId);
-            score += DibsValue(game, player);
-            score += player.Money * (lateGame ? w.MoneyLate : w.Money);
-            score += BraggingReach(game, player);
-            score += ThreatAssessment.ExpectedIncomePerRoll(game, player) * w.IncomePerRound * horizon;
-            score += HandValue(game, player);
-            score += BoardValue(game, player);
-            score -= player.TantrumPile.Count * w.TantrumInPile * (WantsTantrums(game, player) ? 0 : 1);
-            if (game.State.WhiniestBabyHolder == player.PlayerId && !player.LemonLordKept.Contains("expert-whiner"))
+            var features = PositionFeatures.Extract(game, player, viewerId, horizon);
+            double score = 0;
+            for (int i = 0; i < features.Length; i++)
             {
-                score -= w.WhiniestBaby;
-            }
-            if (game.State.SpoiledRottenHolder == player.PlayerId)
-            {
-                score += w.SpoiledRotten;
-            }
-            if (player.Turf.TrapInstanceId != null)
-            {
-                score -= w.Trapped;
+                score += features[i] * _vector[i];
             }
             return score;
         }
@@ -105,86 +78,24 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Kept lords are secret: the viewer scores their own picks, and every rival is
-        /// scored on the average of what they were dealt (each dealt title is kept with
-        /// probability kept/dealt) — the same guess a human can make from the setup.
+        /// temperature * log(sum(exp(score / temperature))): the best rival's score when
+        /// one rival dominates, a little more when several are close behind.
         /// </summary>
-        private double LordsValue(Game game, PlayerState player, int viewerId)
+        private static double SoftMax(double[] scores, int count, double temperature)
         {
-            IReadOnlyList<string> titles = player.LemonLordKept;
-            double weight = 1.0;
-            if (player.PlayerId != viewerId && player.LemonLordDealt.Count > 0)
+            double t = Math.Max(1e-6, temperature);
+            double best = double.MinValue;
+            for (int i = 0; i < count; i++)
             {
-                titles = player.LemonLordDealt;
-                weight = (double)Math.Max(1, player.LemonLordKept.Count) / player.LemonLordDealt.Count;
+                best = Math.Max(best, scores[i]);
             }
-            double value = 0;
-            foreach (string lordId in titles)
+            double sum = 0;
+            for (int i = 0; i < count; i++)
             {
-                double progress = TitleProgress.LemonLord(game, player, lordId);
-                value += progress >= 1
-                    ? Weights.LordMet
-                    : progress * progress * Weights.LordProgress;
+                sum += Math.Exp((scores[i] - best) / t);
             }
-            return value * weight;
+            return best + t * Math.Log(sum);
         }
-
-        private double DibsValue(Game game, PlayerState player)
-        {
-            double value = 0;
-            foreach (string titleId in game.State.FirstDibsRow)
-            {
-                double progress = TitleProgress.FirstDibs(game, player, titleId);
-                value += progress * progress * Weights.DibsProgress;
-            }
-            return value;
-        }
-
-        private double BraggingReach(Game game, PlayerState player)
-        {
-            var prices = game.Db.Supporting.BraggingRightsPrices;
-            int sold = game.State.BraggingRightsSold;
-            if (sold >= prices.Count)
-            {
-                return 0;
-            }
-            double reach = Math.Min(1.0, player.Money / (double)prices[sold]);
-            return reach * reach * Weights.BraggingReach;
-        }
-
-        private double HandValue(Game game, PlayerState player)
-        {
-            int reactions = 0;
-            foreach (int id in player.Hand)
-            {
-                if (ReactionDefIds.Contains(game.State.LemonInstances[id].DefId))
-                {
-                    reactions++;
-                }
-            }
-            double value = player.Hand.Count * Weights.CardInHand
-                + Math.Min(reactions, MaxCountedReactions) * Weights.ReactionInHand;
-            // A Timeout draw forces discards above the limit; a hoarder lord changes the sign.
-            if (player.Hand.Count > TimeoutHandLimit - 1 && !player.LemonLordKept.Contains("hoarder"))
-            {
-                value -= (player.Hand.Count - (TimeoutHandLimit - 1)) * Weights.HandOverflow;
-            }
-            return value;
-        }
-
-        private double BoardValue(Game game, PlayerState player)
-        {
-            double value = player.Stands.Count * Weights.Stand;
-            foreach (var def in TitleProgress.EquippedDefs(game, player))
-            {
-                value += Weights.UpgradeBase + def.Cost * Weights.UpgradeCost;
-            }
-            return value;
-        }
-
-        private static bool WantsTantrums(Game game, PlayerState player) =>
-            player.LemonLordKept.Contains("expert-whiner") ||
-            (game.State.FirstDibsRow.Contains("cranky-pants") && player.TantrumPile.Count < 3);
 
         /// <summary>Finished games are judged on the result alone, with a VP-margin gradient.</summary>
         private static double FinalResult(Game game, int viewerId)

@@ -28,7 +28,7 @@ internal static class TuneMode
         nameof(EvaluationWeights.CardInHand), nameof(EvaluationWeights.ReactionInHand),
         nameof(EvaluationWeights.DibsProgress), nameof(EvaluationWeights.LordProgress),
         nameof(EvaluationWeights.LordMet), nameof(EvaluationWeights.UpgradeBase),
-        nameof(EvaluationWeights.Stand), nameof(EvaluationWeights.Rival),
+        nameof(EvaluationWeights.Stand), nameof(EvaluationWeights.RivalTemperature),
         nameof(EvaluationWeights.BraggingReach), nameof(EvaluationWeights.TantrumInPile),
     };
 

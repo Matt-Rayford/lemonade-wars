@@ -33,12 +33,12 @@ namespace LemonadeWars.Engine.Ai
                 // this config; the flat-search hard it replaces had fallen to 0.80x once
                 // medium learned to plan. See tools/BotArena for the levels kept for A/Bs.
                 case Hard:
-                    return new PlannerBot(seed, budgetMs: 1500, worlds: 6, rootBeam: 6, roundLookahead: true);
+                    return new PlannerBot(seed, PlannerConfig.Hard);
                 case Wambulance:
-                    return new PlannerBot(seed, budgetMs: 2500, worlds: 10, rootBeam: 8, roundLookahead: true);
+                    return new PlannerBot(seed, PlannerConfig.Wambulance);
                 // Medium plans its turn on a determinized copy; the greedy policy it
                 // replaced lives on as Easy's brain and every search's rollout policy.
-                default: return new PlannerBot(seed, budgetMs: 150, worlds: 2);
+                default: return new PlannerBot(seed, PlannerConfig.Medium);
             }
         }
     }

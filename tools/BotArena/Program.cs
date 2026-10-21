@@ -19,12 +19,25 @@ using LemonadeWars.BotArena;
 // --flags-only keeps just the flagged lines and the per-turn standings.
 //   dotnet run -c Release --project tools/BotArena -- replay <path.jsonl> [level] [--flags-only]
 //
+// Learn: fit the evaluator's weights to self-play outcomes (conditional logit), iterating
+// so the next batch of games is played with the weights just learned.
+//   dotnet run -c Release --project tools/BotArena -- learn <games> <iterations> [out-dir]
+//
 // Tune: self-play coordinate descent over the planner's evaluation weights.
 //   dotnet run -c Release --project tools/BotArena -- tune <games> <players> <rounds> [budgetMs] [out.json]
 //
 // Record: play one all-greedy game and write it in the room-log format (a replay fixture;
 // replay it at level "greedy" for a zero-DIFF baseline).
 //   dotnet run -c Release --project tools/BotArena -- record <out.jsonl> <seed> [players]
+
+if (args.Length > 0 && args[0] == "learn")
+{
+    LearnMode.Run(
+        games: int.Parse(args[1]),
+        iterations: int.Parse(args[2]),
+        outDir: args.Length > 3 ? args[3] : "learned-weights");
+    return;
+}
 
 if (args.Length > 0 && args[0] == "tune")
 {
