@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/LemonadeWars.Engine/LemonadeWars.Engine.csproj" />
+    <ProjectReference Include="../../src/LemonadeWars.Protocol/LemonadeWars.Protocol.csproj" />
   </ItemGroup>
 
 </Project>

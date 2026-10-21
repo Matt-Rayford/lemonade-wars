@@ -7,13 +7,27 @@ namespace LemonadeWars.BotArena;
 internal static class ArenaTools
 {
     /// <summary>
-    /// Arena-only levels beyond the shipped difficulties: "random", raw "ismcts",
+    /// Arena-only levels beyond the shipped difficulties: "random", bare "greedy" (the
+    /// pre-planner medium), "planner" at an explicit budget, "planner:&lt;weights.json&gt;"
+    /// (a tuner output file), the planner's wide / lookahead variants, raw "ismcts",
     /// truncated-rollout "wam", and pimc variants at explicit configs — kept for A/Bs
     /// against whatever BotFactory currently ships.
     /// </summary>
     public static IBot MakeBot(string level, ulong seed, int budgetMs) =>
-        level == "random"
+        level.StartsWith("planner:", StringComparison.Ordinal)
+            ? new PlannerBot(seed, budgetMs, weights: WeightsFrom(level.Substring("planner:".Length)))
+        : level == "random"
             ? new RandomBot(seed)
+            : level == "greedy"
+                ? new GreedyBot()
+            : level == "planner"
+                ? new PlannerBot(seed, budgetMs)
+            : level == "planner+"
+                ? new PlannerBot(seed, budgetMs, worlds: 6, rootBeam: 8)
+            : level == "planner-la"
+                ? new PlannerBot(seed, budgetMs, worlds: 3, rootBeam: 6, roundLookahead: true)
+            : level == "planner-la6"
+                ? new PlannerBot(seed, budgetMs, worlds: 6, rootBeam: 6, roundLookahead: true)
             : level == "ismcts"
                 ? new IsmctsBot(seed, budgetMs)
                 : level == "wam"
@@ -26,6 +40,11 @@ internal static class ArenaTools
                                 ? new SearchBot(seed, budgetMs)
                                 // "hard"/"wambulance" etc: exactly as shipped, own budgets.
                                 : (IBot)BotFactory.Create(level, seed);
+
+    /// <summary>A weights file as the tuner writes it, for A/B runs before baking values in.</summary>
+    private static EvaluationWeights WeightsFrom(string path) =>
+        Newtonsoft.Json.JsonConvert.DeserializeObject<EvaluationWeights>(File.ReadAllText(path))
+        ?? throw new InvalidDataException($"no weights in {path}");
 
     public static CardDatabase LoadDatabase()
     {
