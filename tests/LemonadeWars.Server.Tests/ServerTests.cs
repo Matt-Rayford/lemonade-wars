@@ -191,7 +191,7 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         // Starting before everyone readies is rejected.
         await host.SendAsync(new { type = "start_game" });
         var refused = await host.NextOfTypeAsync("error");
-        Assert.Contains("Waiting for", (string)refused["message"]!);
+        Assert.Contains("Not All Players Are Ready", (string)refused["message"]!);
 
         foreach (var guest in guests)
         {
@@ -264,6 +264,25 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
             Assert.Equal(2, ((JArray)rejoin["seats"]!).Count);
             Assert.Equal(token, (string)rejoin["token"]!);
         }
+    }
+
+    [Fact]
+    public async Task LeaveRoomMessageFreesTheLobbySeat()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.SendAsync(new { type = "create_room", name = "Host" });
+        var room = await host.NextOfTypeAsync("room");
+        string code = (string)room["code"]!;
+
+        await using var guest = await TestClient.ConnectAsync(_factory);
+        await guest.SendAsync(new { type = "join_room", code, name = "Guest" });
+        await guest.NextOfTypeAsync("room");
+        var withGuest = await host.NextOfTypeAsync("room");
+        Assert.Equal(2, ((JArray)withGuest["seats"]!).Count);
+
+        await guest.SendAsync(new { type = "leave_room" });
+        var afterLeave = await host.NextOfTypeAsync("room");
+        Assert.Single((JArray)afterLeave["seats"]!);
     }
 
     [Fact]
@@ -529,6 +548,23 @@ public class RoomSweepTests
         var seat = room.Join("Late", null, null, null!, out string error);
         Assert.Null(seat);
         Assert.Contains("expired", error);
+    }
+
+    [Fact]
+    public void LeavingALobbyFreesTheSeatAndRenumbersTheRest()
+    {
+        var manager = FreshManager();
+        var room = manager.Create();
+        var host = new Connection(new ClientWebSocket());
+        var guest = new Connection(new ClientWebSocket());
+        Assert.NotNull(room.Join("Host", null, null, host, out _));
+        Assert.NotNull(room.Join("Guest", null, null, guest, out _));
+
+        room.Leave(host);
+
+        // No ghost seat: the host is gone entirely and the guest inherits seat 0.
+        Assert.Equal(-1, room.SeatIndexOf(host));
+        Assert.Equal(0, room.SeatIndexOf(guest));
     }
 }
 

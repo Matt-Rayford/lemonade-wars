@@ -262,7 +262,7 @@ namespace LemonadeWars.Unity
             }
             string status = _remote.ConnectionError.Length > 0
                 ? _remote.ConnectionError
-                : _remote.Log.LastOrDefault(l => l.StartsWith("!")) ?? "";
+                : _remote.Log.LastOrDefault(l => l.StartsWith("!"))?.TrimStart('!', ' ') ?? "";
             _lobby.ShowLobby(_remote.Room, status, _remote.MyReady);
             SaveResume();
         }
@@ -300,7 +300,22 @@ namespace LemonadeWars.Unity
 
         private void BackToMenu(string status)
         {
-            _session?.Dispose();
+            if (_remote != null)
+            {
+                _remote.Leave(); // frees a lobby seat; disposes itself after sending
+                if (string.IsNullOrEmpty(status))
+                {
+                    // Chosen exit: nothing to resume. An error exit keeps the record
+                    // so a dropped game can be picked back up.
+                    PlayerPrefs.DeleteKey("lw_code");
+                    PlayerPrefs.DeleteKey("lw_token");
+                    PlayerPrefs.Save();
+                }
+            }
+            else
+            {
+                _session?.Dispose();
+            }
             _session = null;
             _remote = null;
             _screen = Screen.Menu;
