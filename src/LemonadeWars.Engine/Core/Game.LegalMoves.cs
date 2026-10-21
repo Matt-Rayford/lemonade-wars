@@ -267,7 +267,8 @@ namespace LemonadeWars.Engine.Core
                     break;
 
                 case DecisionKind.AbilityDiscard:
-                    foreach (var combo in CardCombos(player.Hand, decision.RequiredCount))
+                    foreach (var combo in CardCombos(
+                        decision.EligibleCardIds ?? player.Hand, decision.RequiredCount))
                     {
                         moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, CardInstanceIds = combo });
                     }

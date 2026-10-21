@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
@@ -13,7 +14,8 @@ namespace LemonadeWars.Engine.Core
         // ----------------------------------------------------- draw queue
 
         private void QueueDraws(int playerId, int count, bool countsForRoll = false,
-            bool trackDrawnIds = false, DrawReason reason = DrawReason.Effect)
+            bool trackDrawnIds = false, DrawReason reason = DrawReason.Effect,
+            int discardAfterCount = 0, int? discardAfterSourceInstanceId = null)
         {
             State.PendingDraws.Add(new PendingDraw
             {
@@ -22,6 +24,8 @@ namespace LemonadeWars.Engine.Core
                 CountsForRoll = countsForRoll,
                 TrackDrawnIds = trackDrawnIds,
                 Reason = reason,
+                DiscardAfterCount = discardAfterCount,
+                DiscardAfterSourceInstanceId = discardAfterSourceInstanceId,
             });
         }
 
@@ -36,9 +40,14 @@ namespace LemonadeWars.Engine.Core
                     entry.Count--;
                     int handBefore = player.Hand.Count;
                     bool drewCard = DrawOneCard(player, entry.Reason, events);
-                    if (entry.TrackDrawnIds && player.Hand.Count > handBefore)
+                    if (player.Hand.Count > handBefore)
                     {
-                        State.TrackedDrawnCards.Add(player.Hand[player.Hand.Count - 1]);
+                        int drawnId = player.Hand[player.Hand.Count - 1];
+                        entry.DrawnIds.Add(drawnId);
+                        if (entry.TrackDrawnIds)
+                        {
+                            State.TrackedDrawnCards.Add(drawnId);
+                        }
                     }
                     if (drewCard && entry.CountsForRoll)
                     {
@@ -55,7 +64,34 @@ namespace LemonadeWars.Engine.Core
                     }
                 }
                 State.PendingDraws.Remove(entry);
+                RaiseDiscardOfDrawn(entry, player, events);
             }
+        }
+
+        /// <summary>
+        /// "+N cards, then discard 1 of them": the discard is restricted to the cards
+        /// this batch actually delivered (a Timeout may have thinned them already), and
+        /// skipped when the deck ran dry and nothing arrived.
+        /// </summary>
+        private void RaiseDiscardOfDrawn(PendingDraw entry, PlayerState player, List<GameEvent> events)
+        {
+            if (entry.DiscardAfterCount <= 0)
+            {
+                return;
+            }
+            var eligible = entry.DrawnIds.Where(player.Hand.Contains).ToList();
+            if (eligible.Count == 0)
+            {
+                return;
+            }
+            AddDecision(new PendingDecision
+            {
+                PlayerId = player.PlayerId,
+                Kind = DecisionKind.AbilityDiscard,
+                RequiredCount = System.Math.Min(entry.DiscardAfterCount, eligible.Count),
+                SourceInstanceId = entry.DiscardAfterSourceInstanceId,
+                EligibleCardIds = eligible,
+            }, events);
         }
 
         /// <summary>Draw one card for the player. Returns false when a Timeout paused the game.</summary>

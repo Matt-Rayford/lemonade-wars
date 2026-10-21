@@ -243,6 +243,14 @@ namespace LemonadeWars.Engine.Tests
             var discard = game.State.PendingDecisions
                 .Single(d => d.Kind == DecisionKind.AbilityDiscard);
             Assert.Equal(a, discard.PlayerId);
+            // "Discard 1 OF THEM": only the two fresh draws are eligible — the two
+            // newest hand cards — and an older hand card is rejected outright.
+            Assert.Equal(new[] { player.Hand[^2], player.Hand[^1] }, discard.EligibleCardIds);
+            Assert.Throws<InvalidActionException>(() => game.Apply(new SubmitAbilityChoice
+            {
+                PlayerId = a,
+                CardInstanceIds = new List<int> { player.Hand[0] },
+            }));
             game.Apply(new SubmitAbilityChoice
             {
                 PlayerId = a,

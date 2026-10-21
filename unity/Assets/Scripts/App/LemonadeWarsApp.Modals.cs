@@ -402,11 +402,34 @@ namespace LemonadeWars.Unity
                 }
 
                 case DecisionKind.AbilityDiscard:
-                    pool = View.Hand.ToList();
-                    required = decision.RequiredCount;
-                    title = WithSourcePrefix(decision, $"discard {required} card(s)");
-                    accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
+                {
+                    // Whispers of Fate: "drew 2, discard 1 of them" — restricted to the
+                    // fresh draws and phrased as the Whiniest Baby keep-pick.
+                    pool = decision.EligibleCardIds != null
+                        ? View.Hand.Where(c => decision.EligibleCardIds.Contains(c.InstanceId)).ToList()
+                        : View.Hand.ToList();
+                    int keepCount = pool.Count - decision.RequiredCount;
+                    if (decision.EligibleCardIds != null && keepCount > 0)
+                    {
+                        required = keepCount;
+                        title = WithSourcePrefix(decision, keepCount == 1
+                            ? "pick 1 new card to keep"
+                            : $"pick {keepCount} new cards to keep");
+                        var drawnPool = pool;
+                        accept = keptIds => Submit(new SubmitAbilityChoice
+                        {
+                            CardInstanceIds = drawnPool.Select(c => c.InstanceId)
+                                .Where(id => !keptIds.Contains(id)).ToList(),
+                        });
+                    }
+                    else
+                    {
+                        required = decision.RequiredCount;
+                        title = WithSourcePrefix(decision, $"discard {required} card(s)");
+                        accept = ids => Submit(new SubmitAbilityChoice { CardInstanceIds = ids });
+                    }
                     break;
+                }
 
                 case DecisionKind.AbilityPickCard:
                     pool = View.RevealedHand ?? new List<PlayerView.CardInfo>();
