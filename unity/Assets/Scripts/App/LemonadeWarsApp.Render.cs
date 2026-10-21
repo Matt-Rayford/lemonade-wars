@@ -57,7 +57,7 @@ namespace LemonadeWars.Unity
 
             try
             {
-                RenderStatus();
+                ClearTransientStatus();
                 RenderBanner();
                 // A tumbling die withholds every affordance: the roll may still open
                 // a response window, and acting on the next turn before the sale
@@ -158,32 +158,15 @@ namespace LemonadeWars.Unity
             return $"{ActionsLabel(View.ActionsRemaining)} — the market awaits";
         }
 
-        private void RenderStatus()
+        /// <summary>
+        /// The top-left of the bar carries no game info any more — it crowded the
+        /// centered turn banner (room code, title holders, "waiting on" all live on
+        /// the player bars or in the log). It only ever shows transient diagnostics
+        /// (a render error, the [D] dump), which the next good render clears.
+        /// </summary>
+        private void ClearTransientStatus()
         {
-            // VP/cash live on your player panel now; the top-left keeps utility info.
-            var me = View.Players[View.ViewerId];
-            string status;
-            if (View.Stage == GameStage.Finished)
-            {
-                status = $"GAME OVER — winner: {string.Join(", ", View.Winners.Select(NameOf))}" +
-                         (_session is LocalGameSession ? "   [N] new game" : "");
-            }
-            else
-            {
-                // Tantrum counts moved onto the player bars, where everyone's shows.
-                status = (_session.HumanAutoplay ? "AUTOPILOT [B]" : "[B] autopilot") +
-                         (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
-                         (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
-                         (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
-                // The table is stalled on someone else: say who, so a quiet moment
-                // (their response window, their discard) never reads as a hang.
-                if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
-                {
-                    string verb = View.StackTop != null ? " to respond" : "";
-                    status += $"  |  WAITING ON {string.Join(", ", View.ActingPlayers.Select(NameOf)).ToUpperInvariant()}{verb}";
-                }
-            }
-            _statusText.text = status;
+            _statusText.text = "";
         }
 
         private void RenderBanner()
