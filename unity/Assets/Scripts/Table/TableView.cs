@@ -67,6 +67,7 @@ namespace LemonadeWars.Unity
             _vpIcon = LoadIcon("VictoryPoint.png");
             _cashIcon = LoadIcon("Cash.png");
             _tantrumIcon = LoadIcon("Tantrum.png");
+            _hourglassIcon = LoadIcon("Hourglass.png");
             Build(canvasRoot);
         }
 

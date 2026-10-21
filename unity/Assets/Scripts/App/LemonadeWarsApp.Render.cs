@@ -198,7 +198,10 @@ namespace LemonadeWars.Unity
             }
             else if (View.Stage == GameStage.ChoosingLemonLords)
             {
-                banner = "Choose your secret Lemon Lord titles";
+                // Once your picks are confirmed, the only thing left is other people.
+                banner = View.ActingPlayers.Contains(View.ViewerId)
+                    ? "Choose your secret Lemon Lord titles"
+                    : "Waiting On Everyone Else";
             }
             else if (View.Stage == GameStage.InitialBuys)
             {

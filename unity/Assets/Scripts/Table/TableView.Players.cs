@@ -28,6 +28,7 @@ namespace LemonadeWars.Unity
         private Texture2D _vpIcon;
         private Texture2D _cashIcon;
         private Texture2D _tantrumIcon;
+        private Texture2D _hourglassIcon;
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
@@ -112,6 +113,33 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, Color.white);
             letter.raycastTarget = false;
             UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+
+            // The table is waiting on this player — their turn, a reaction window,
+            // a discard, a lord pick — so their badge greys out under the hourglass.
+            // Several can wait at once (a window open to everyone); each gets one.
+            if (view.ActingPlayers.Contains(playerId) && !isMe)
+            {
+                var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
+                shadeGo.transform.SetParent(badgeGo.transform, false);
+                UiKit.Anchor((RectTransform)shadeGo.transform, Vector2.zero, Vector2.one);
+                var shade = shadeGo.GetComponent<Image>();
+                shade.sprite = UiSprites.Circle;
+                shade.type = Image.Type.Simple;
+                shade.preserveAspect = true;
+                var grey = ModalBackdrop.Tint;
+                shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
+                shade.raycastTarget = false;
+
+                var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
+                    typeof(HourglassMotion));
+                glassGo.transform.SetParent(badgeGo.transform, false);
+                var glassRect = (RectTransform)glassGo.transform;
+                glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
+                glassRect.sizeDelta = new Vector2(28f, 28f); // 50% of the badge; the motion scales from here
+                var glass = glassGo.GetComponent<RawImage>();
+                glass.texture = _hourglassIcon;
+                glass.raycastTarget = false;
+            }
 
             // Victory points: a crown per VP, arcing over the portrait left-to-right —
             // frees the stat row below for the money/hand/tantrum counts. Met Lemon

@@ -11,7 +11,8 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed class ModalBackdrop
     {
-        private static readonly Color Tint = new Color(0.42f, 0.42f, 0.48f, 1f);
+        /// <summary>The modal grey — shared with other "this is paused/not yours" shading.</summary>
+        public static readonly Color Tint = new Color(0.42f, 0.42f, 0.48f, 1f);
         private static readonly Color Fallback = new Color(0.05f, 0.05f, 0.08f, 0.92f);
 
         private readonly RawImage _image;
