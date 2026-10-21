@@ -399,15 +399,26 @@ namespace LemonadeWars.Engine.Core
             BumpRevision();
             if (item.Kind == StackItemKind.LemonPlay)
             {
+                var answered = item.RespondingToItemId is int answeredId
+                    ? State.ResponseStack.FirstOrDefault(s => s.ItemId == answeredId)
+                    : null;
                 events.Add(new LemonCardPlayed
                 {
                     PlayerId = item.OwnerId,
                     InstanceId = item.LemonInstanceId ?? 0,
                     DefId = item.LemonDefId,
                     TargetPlayerId = item.AttackTargetId,
+                    RespondingToOwnerId = answered?.OwnerId,
+                    RespondingToDefId = answered == null ? null : StackItemDefId(answered),
                 });
             }
         }
+
+        /// <summary>The card a stack item IS: the bought Black Market card, or the played Lemon card.</summary>
+        private string StackItemDefId(StackItem item) =>
+            item.Kind == StackItemKind.BlackMarketPurchase
+                ? State.BlackMarketInstances[item.BmInstanceId!.Value].DefId
+                : item.LemonDefId;
 
         /// <summary>Resolve the top stack item. Returns false if resolution paused on a decision.</summary>
         private bool ResolveTopItem(List<GameEvent> events)
@@ -480,6 +491,11 @@ namespace LemonadeWars.Engine.Core
         private void PopCancelled(StackItem item, List<GameEvent> events)
         {
             State.ResponseStack.Remove(item);
+            // The window that was open on this item dies with it. An Inflatable Decoy
+            // cancels WITHOUT pushing a new item, so nothing else would recompute the
+            // wait — and the players still listed would be shown an empty "Pass"
+            // window for a play that no longer exists.
+            State.AwaitingResponse.Clear();
             BumpRevision();
             if (item.Kind == StackItemKind.BlackMarketPurchase)
             {

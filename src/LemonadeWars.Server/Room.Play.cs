@@ -10,10 +10,19 @@ namespace LemonadeWars.Server;
 public sealed partial class Room
 {
     private const int MaxBotSteps = 20000;
+    /// <summary>
+    /// How long clients spend showing a die (tumble + settle + hold + the coin
+    /// flights behind it). Bots hold for this after any roll event, so the next
+    /// turn never starts while humans are still watching the sale resolve — the
+    /// server cannot see the animation, so it budgets for it. Skipped when the bot
+    /// delay is 0 (tests, instant rooms).
+    /// </summary>
+    private const int RollTheatreMs = 2800;
 
     /// <summary>Seats already alerted for their current wait — one nudge per turn edge.</summary>
     private readonly HashSet<int> _alertedSeats = new();
     private bool _botPumpActive;
+    private DateTime _rollTheatreUntil = DateTime.MinValue;
 
     /// <summary>Kick the bot pump (used after rehydration when a bot is up).</summary>
     public void PumpBots() => _ = EnsureBotPumpAsync();
@@ -82,6 +91,16 @@ public sealed partial class Room
         {
             for (int steps = 0; steps < MaxBotSteps; steps++)
             {
+                TimeSpan theatreLeft;
+                lock (_sync)
+                {
+                    theatreLeft = _rollTheatreUntil - DateTime.UtcNow;
+                }
+                if (theatreLeft > TimeSpan.Zero)
+                {
+                    await Task.Delay(theatreLeft);
+                }
+
                 var events = new List<GameEvent>();
                 lock (_sync)
                 {
@@ -132,6 +151,11 @@ public sealed partial class Room
             if (_game == null)
             {
                 return;
+            }
+            int delayMs = _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
+            if (delayMs > 0 && events.Any(e => e is SaleRolled || e is DieRerolled || e is RollModified))
+            {
+                _rollTheatreUntil = DateTime.UtcNow.AddMilliseconds(RollTheatreMs);
             }
             var acting = _game.ActingPlayers();
 

@@ -9,11 +9,17 @@ namespace LemonadeWars.Unity
     // taken card floating up top and a dashed arrow to the hovered cell.
     public sealed partial class TableView
     {
+        /// <summary>True while the aim-at-your-stands layer is up — the modal pipeline
+        /// stands down on it exactly like an open prompt (see MaybeShowModal).</summary>
+        public bool EquipTargetingActive => _targetingPick != null;
+
         private RectTransform _targetingRoot;
         private RectTransform _targetingCardHost;
         private RectTransform _targetingCopiesHost;
         private RectTransform _targetingArrowHost;
         private ISet<int?> _targetingValid;
+        /// <summary>Equipped-card pick mode: pickable tucked-card ids (null = stand mode).</summary>
+        private ISet<int> _targetingEquipValid;
         private System.Action<int?> _targetingPick;
         private System.Action _targetingCancel;
         private int? _targetingHover;
@@ -86,10 +92,32 @@ namespace LemonadeWars.Unity
         public void BeginEquipTargeting(Texture2D texture, ISet<int?> validTargets,
             System.Action<int?> onPick, System.Action onCancel, string caption = null)
         {
+            _targetingValid = validTargets;
+            _targetingEquipValid = null;
+            ArmTargetingLayer(texture, onPick, onCancel, caption);
+        }
+
+        /// <summary>
+        /// Same layer, aimed at a board's EQUIPPED cards instead of stand cells: the
+        /// pickable tucked cards ring-glow in place (their stand context in full
+        /// view — which upgrade sits where often decides the take), the hovered one
+        /// gets the hot ring + arrow, a click picks it. The caller views the right
+        /// board first; the aim survives re-renders like the stand variant.
+        /// </summary>
+        public void BeginEquippedCardPick(Texture2D texture, ISet<int> validEquipped,
+            System.Action<int> onPick, System.Action onCancel, string caption)
+        {
+            _targetingValid = null;
+            _targetingEquipValid = validEquipped;
+            ArmTargetingLayer(texture, id => onPick(id.Value), onCancel, caption);
+        }
+
+        private void ArmTargetingLayer(Texture2D texture,
+            System.Action<int?> onPick, System.Action onCancel, string caption)
+        {
             const float width = 190f;
             const float height = 266f;
 
-            _targetingValid = validTargets;
             _targetingPick = onPick;
             _targetingCancel = onCancel;
             _targetingHover = null;
@@ -135,6 +163,11 @@ namespace LemonadeWars.Unity
         {
             if (_targetingPick == null)
             {
+                return;
+            }
+            if (_targetingEquipValid != null)
+            {
+                TickEquippedCardPick(screenPosition);
                 return;
             }
             int? hover = null;
@@ -184,9 +217,70 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private void TickEquippedCardPick(Vector2 screenPosition)
+        {
+            int? hover = null;
+            foreach (var (id, strip, glow) in _equipCells)
+            {
+                bool valid = _targetingEquipValid.Contains(id);
+                if (glow != null)
+                {
+                    // Re-asserted every tick: a re-render rebuilds the cells with
+                    // their aim rings off, and the retained pick must light them.
+                    glow.SetActive(valid);
+                }
+                if (valid && hover == null &&
+                    RectTransformUtility.RectangleContainsScreenPoint(strip, screenPosition))
+                {
+                    hover = id;
+                }
+            }
+            bool any = hover != null;
+            if (any == _targetingHoverAny && hover == _targetingHover)
+            {
+                return;
+            }
+            _targetingHover = hover;
+            _targetingHoverAny = any;
+            UiKit.Clear(_targetingCopiesHost);
+            UiKit.Clear(_targetingArrowHost);
+            if (!any)
+            {
+                return;
+            }
+            foreach (var (id, strip, _) in _equipCells)
+            {
+                if (id == hover.Value)
+                {
+                    Vector2 local = _targetingRoot.InverseTransformPoint(
+                        strip.TransformPoint(strip.rect.center));
+                    UiKit.CreateGlow(_targetingCopiesHost,
+                        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
+                        strip.rect.width + 26, strip.rect.height + 26, DropGlowHot);
+                    var world = strip.TransformPoint(
+                        new Vector3(strip.rect.center.x, strip.rect.yMax, 0));
+                    UiKit.DrawDashedArrow(_targetingArrowHost, _targetingCardBottom,
+                        (Vector2)_targetingRoot.InverseTransformPoint(world),
+                        UiKit.ButtonColor);
+                    break;
+                }
+            }
+        }
+
         /// <summary>Dismiss the targeting layer without invoking pick or cancel.</summary>
         private void EndEquipTargeting()
         {
+            if (_targetingEquipValid != null)
+            {
+                foreach (var (_, _, glow) in _equipCells)
+                {
+                    if (glow != null)
+                    {
+                        glow.SetActive(false);
+                    }
+                }
+                _targetingEquipValid = null;
+            }
             _targetingPick = null;
             _targetingCancel = null;
             _targetingValid = null;

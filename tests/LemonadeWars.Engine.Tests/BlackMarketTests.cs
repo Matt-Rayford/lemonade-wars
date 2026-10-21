@@ -221,6 +221,48 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void VictimChoiceAbilitiesCanBeDeclined()
+        {
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+            var player = game.State.Players[a];
+            RigEquip(game, a, "juice-box-joey", player.Stands[0].InstanceId);
+            foreach (var p in game.State.Players)
+            {
+                p.Money = 20;
+            }
+
+            int holder = Seat(game, 1);
+            GiveCard(game, holder, "out-of-stock");
+            game.Apply(new EndTurn { PlayerId = a });
+            game.State.PendingRoll!.Value = 2;
+            while (game.State.AwaitingResponse.Count > 0)
+            {
+                game.Apply(new PassWindow { PlayerId = game.State.AwaitingResponse[0] });
+            }
+
+            var decision = Assert.Single(game.State.PendingDecisions);
+            Assert.Equal(DecisionKind.AbilityVictim, decision.Kind);
+            Assert.Contains(game.LegalMovesFor(a),
+                m => m is SubmitAbilityChoice choice && choice.Decline);
+
+            var events = game.Apply(new SubmitAbilityChoice { PlayerId = a, Decline = true });
+            Assert.Contains(events, e => e is AbilityDeclined);
+            Assert.Empty(game.State.PendingDecisions);
+            GameFlowTests.PassAll(game);
+
+            // Nobody was robbed: every rival still holds their $20.
+            foreach (var p in game.State.Players)
+            {
+                if (p.PlayerId != a)
+                {
+                    Assert.True(p.Money >= 20);
+                }
+            }
+        }
+
+        [Fact]
         public void WhispersOfFateDrawsTwoDiscardsOne()
         {
             var game = ReadyToPlay();
@@ -243,6 +285,14 @@ namespace LemonadeWars.Engine.Tests
             var discard = game.State.PendingDecisions
                 .Single(d => d.Kind == DecisionKind.AbilityDiscard);
             Assert.Equal(a, discard.PlayerId);
+            // "Discard 1 OF THEM": only the two fresh draws are eligible — the two
+            // newest hand cards — and an older hand card is rejected outright.
+            Assert.Equal(new[] { player.Hand[^2], player.Hand[^1] }, discard.EligibleCardIds);
+            Assert.Throws<InvalidActionException>(() => game.Apply(new SubmitAbilityChoice
+            {
+                PlayerId = a,
+                CardInstanceIds = new List<int> { player.Hand[0] },
+            }));
             game.Apply(new SubmitAbilityChoice
             {
                 PlayerId = a,

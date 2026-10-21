@@ -99,9 +99,13 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        /// <summary>Show a prompt. Pass showCancel for optional (contextual) menus.</summary>
+        /// <summary>
+        /// Show a prompt. Pass showCancel for optional (contextual) menus; pass
+        /// <paramref name="footer"/> instead for a row of named exits side by side
+        /// (the end-game "Return to Board | Leave Game"). Esc dismisses either way.
+        /// </summary>
         public void Show(string title, IReadOnlyList<Texture2D> cards,
-            IReadOnlyList<Option> options, bool showCancel)
+            IReadOnlyList<Option> options, bool showCancel, IReadOnlyList<Option> footer = null)
         {
             IsOpen = true;
             _title.text = title;
@@ -123,7 +127,7 @@ namespace LemonadeWars.Unity
 
             UiKit.Clear(_optionList);
             UiKit.Clear(_cancelHost);
-            IsCancelable = showCancel;
+            IsCancelable = showCancel || footer != null;
             // Big lists compress so more choices fit before scrolling starts.
             bool compact = options.Count > 8;
             foreach (var option in options)
@@ -139,7 +143,24 @@ namespace LemonadeWars.Unity
                     emphasized: true, option.Card, compact);
             }
             _moreHint.gameObject.SetActive(options.Count > 9);
-            if (showCancel)
+            if (footer != null)
+            {
+                var rowGo = new GameObject("FooterRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+                rowGo.transform.SetParent(_cancelHost, false);
+                UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
+                var row = rowGo.GetComponent<HorizontalLayoutGroup>();
+                row.spacing = 12;
+                row.childControlWidth = true;
+                row.childControlHeight = true;
+                row.childForceExpandWidth = true;
+                row.childForceExpandHeight = true;
+                foreach (var exit in footer)
+                {
+                    AddOptionButton((RectTransform)rowGo.transform, exit.Label, exit.OnPick,
+                        emphasized: true, null, compact: false);
+                }
+            }
+            else if (showCancel)
             {
                 var cancel = AddOptionButton(_cancelHost, "Cancel", null,
                     emphasized: false, null, compact: false);

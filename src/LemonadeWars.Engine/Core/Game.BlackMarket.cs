@@ -208,14 +208,10 @@ namespace LemonadeWars.Engine.Core
                     QueueDraws(player.PlayerId, 1, countsForRoll: true);
                     break;
                 case "whispers-of-fate":
-                    QueueDraws(player.PlayerId, 2, countsForRoll: true);
-                    AddDecision(new PendingDecision
-                    {
-                        PlayerId = player.PlayerId,
-                        Kind = DecisionKind.AbilityDiscard,
-                        RequiredCount = 1,
-                        SourceInstanceId = instanceId,
-                    }, events);
+                    // "+2 Lemon cards, then discard 1 OF THEM": the discard decision
+                    // is raised by the draw queue once the two cards exist.
+                    QueueDraws(player.PlayerId, 2, countsForRoll: true,
+                        discardAfterCount: 1, discardAfterSourceInstanceId: instanceId);
                     break;
                 case "gone-fishin":
                 case "two-bit-timmy":
@@ -330,12 +326,13 @@ namespace LemonadeWars.Engine.Core
                 case DecisionKind.AbilityDiscard: // Whispers of Fate
                 {
                     var ids = action.CardInstanceIds;
+                    var eligible = decision.EligibleCardIds ?? owner.Hand;
                     if (ids.Count != decision.RequiredCount ||
                         ids.Distinct().Count() != ids.Count ||
-                        ids.Any(id => !owner.Hand.Contains(id)))
+                        ids.Any(id => !owner.Hand.Contains(id) || !eligible.Contains(id)))
                     {
                         throw new InvalidActionException(
-                            $"Discard exactly {decision.RequiredCount} card(s) from your hand.");
+                            $"Discard exactly {decision.RequiredCount} of the cards you just drew.");
                     }
                     foreach (int id in ids)
                     {
@@ -381,8 +378,15 @@ namespace LemonadeWars.Engine.Core
 
         private void ResolveVictimChoice(PendingDecision decision, PlayerState owner, SubmitAbilityChoice action, List<GameEvent> events)
         {
-            var victim = RequireOtherPlayer(action.TargetPlayerId, owner.PlayerId);
             var def = EquippedDef(decision.SourceInstanceId!.Value);
+            if (action.Decline)
+            {
+                // Optional ability: the owner waved it off, nothing fires.
+                State.PendingDecisions.Remove(decision);
+                events.Add(new AbilityDeclined { PlayerId = owner.PlayerId, DefId = def.Id });
+                return;
+            }
+            var victim = RequireOtherPlayer(action.TargetPlayerId, owner.PlayerId);
             State.PendingDecisions.Remove(decision);
 
             switch (def.Id)

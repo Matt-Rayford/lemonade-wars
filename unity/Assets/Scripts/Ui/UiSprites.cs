@@ -14,6 +14,7 @@ namespace LemonadeWars.Unity
         private static Sprite _glowRing;
         private static Sprite _circle;
         private static Sprite _magnifier;
+        private static Sprite _babyTears;
 
         /// <summary>
         /// Anti-aliased rounded rectangle, 9-sliced so the corner radius stays constant.
@@ -54,7 +55,10 @@ namespace LemonadeWars.Unity
             {
                 if (_circle == null)
                 {
-                    _circle = Generate(128, 62f, 0f, border: 0f, pixelsPerUnit: 200f);
+                    // Mipmapped: it is shown far below its 128px (16px status dots,
+                    // 56px badges), and an unfiltered shrink turns the rim to mush.
+                    _circle = Generate(128, 62f, 0f, border: 0f, pixelsPerUnit: 200f,
+                        mipmaps: true);
                 }
                 return _circle;
             }
@@ -105,6 +109,166 @@ namespace LemonadeWars.Unity
                 }
                 return _magnifier;
             }
+        }
+
+        /// <summary>
+        /// Two fat tears hanging from the eyes — overlay for the tantrum icon when its
+        /// owner is the Whiniest Baby. Full-color (tint white). Authored in the icon's
+        /// own space: give it the icon's exact rect.
+        /// </summary>
+        public static Sprite BabyTears
+        {
+            get
+            {
+                if (_babyTears == null)
+                {
+                    _babyTears = GenerateBabyTears(256);
+                }
+                return _babyTears;
+            }
+        }
+
+        /// <summary>
+        /// Teardrops (signed-distance round-cones: a circle hulled to a tip), each
+        /// with fill, dark rim, and a highlight fleck. Drawn LARGE and shown ~36px, so
+        /// like the magnifier it supersamples and keeps mipmaps for minification.
+        /// </summary>
+        private static Sprite GenerateBabyTears(int size)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                hideFlags = HideFlags.DontSave,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+            };
+
+            var fill = new Color(0.608f, 0.863f, 1f);       // light tear blue
+            var rim = new Color(0.082f, 0.369f, 0.561f);    // deep blue edge
+            var fleck = new Color(0.918f, 0.973f, 1f);      // near-white glint
+
+            // One drop per eye, hung from the inner corners (the icon's eyes sit high;
+            // the face is tilted, so the right drop rides higher). Values are in 0-100
+            // icon space, y-down; scale multiplies the base drop (tip 11 above a
+            // radius-7 head). Sized to survive 28px minification in the player bar.
+            var drops = new (Vector2 Pos, float Scale, float RotDegrees)[]
+            {
+                (new Vector2(32f, 36f), 1.45f, -8f),
+                (new Vector2(54f, 32f), 1.45f, 8f),
+            };
+            float unit = size / 100f;
+            int count = drops.Length;
+            var heads = new Vector2[count];      // circle centers
+            var tips = new Vector2[count];
+            var radii = new float[count];
+            var flecks = new Vector2[count];
+            var fleckRadii = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                float k = drops[i].Scale * unit;
+                float rad = drops[i].RotDegrees * Mathf.Deg2Rad;
+                float cos = Mathf.Cos(rad);
+                float sin = Mathf.Sin(rad);
+                Vector2 Rotate(Vector2 v) => new Vector2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+                var origin = drops[i].Pos * unit;
+                heads[i] = origin + Rotate(new Vector2(0f, 3.5f) * k);
+                tips[i] = origin + Rotate(new Vector2(0f, -11f) * k);
+                radii[i] = 7f * k;
+                flecks[i] = origin + Rotate(new Vector2(-2.2f, 3.2f) * k);
+                fleckRadii[i] = 1.8f * k;
+            }
+
+            float rimHalfWidth = size * 0.008f;
+            const int samples = 4;
+            const float step = 1f / samples;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float sumR = 0f, sumG = 0f, sumB = 0f, sumA = 0f;
+                    for (int sy = 0; sy < samples; sy++)
+                    {
+                        for (int sx = 0; sx < samples; sx++)
+                        {
+                            // Texture rows run bottom-up; the design space is y-down.
+                            var p = new Vector2(x + (sx + 0.5f) * step,
+                                size - (y + (sy + 0.5f) * step));
+                            float d = float.MaxValue;
+                            bool inFleck = false;
+                            for (int i = 0; i < count; i++)
+                            {
+                                float di = TeardropDistance(p, heads[i], tips[i], radii[i]);
+                                if (di < d)
+                                {
+                                    d = di;
+                                }
+                                if (di < -rimHalfWidth &&
+                                    (p - flecks[i]).magnitude < fleckRadii[i])
+                                {
+                                    inFleck = true;
+                                }
+                            }
+                            if (d < -rimHalfWidth)
+                            {
+                                var c = inFleck ? fleck : fill;
+                                sumR += c.r; sumG += c.g; sumB += c.b; sumA += 1f;
+                            }
+                            else if (d < rimHalfWidth)
+                            {
+                                sumR += rim.r; sumG += rim.g; sumB += rim.b; sumA += 1f;
+                            }
+                        }
+                    }
+                    if (sumA <= 0f)
+                    {
+                        pixels[y * size + x] = new Color32(0, 0, 0, 0);
+                        continue;
+                    }
+                    // Un-premultiply: averaging RGB with transparent samples would
+                    // darken every edge toward black.
+                    pixels[y * size + x] = new Color32(
+                        (byte)(sumR / sumA * 255f),
+                        (byte)(sumG / sumA * 255f),
+                        (byte)(sumB / sumA * 255f),
+                        (byte)(sumA / (samples * samples) * 255f));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+
+            return Sprite.Create(texture, new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+        }
+
+        /// <summary>
+        /// Signed distance to a teardrop: the convex hull of a circle (center
+        /// <paramref name="head"/>, radius <paramref name="radius"/>) and the point
+        /// <paramref name="tip"/> — a round-cone tapering to zero.
+        /// </summary>
+        private static float TeardropDistance(Vector2 p, Vector2 head, Vector2 tip, float radius)
+        {
+            var axis = tip - head;
+            float height = axis.magnitude;
+            if (height < 0.0001f)
+            {
+                return (p - head).magnitude - radius;
+            }
+            var along = axis / height;
+            var local = p - head;
+            float y = Vector2.Dot(local, along);
+            float lateral = Mathf.Abs(local.x * along.y - local.y * along.x);
+            float taper = radius / height;
+            float slope = Mathf.Sqrt(Mathf.Max(0f, 1f - taper * taper));
+            float k = lateral * -taper + y * slope;
+            if (k < 0f)
+            {
+                return local.magnitude - radius;
+            }
+            if (k > slope * height)
+            {
+                return (p - tip).magnitude;
+            }
+            return lateral * slope + y * taper - radius;
         }
 
         /// <summary>
@@ -177,13 +341,13 @@ namespace LemonadeWars.Unity
         /// edge to 0 over <paramref name="falloff"/> pixels (0 = crisp 1px anti-aliased edge).
         /// </summary>
         private static Sprite Generate(int size, float radius, float falloff, float border,
-            float pixelsPerUnit = 100f, float outline = 0f)
+            float pixelsPerUnit = 100f, float outline = 0f, bool mipmaps = false)
         {
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, mipmaps)
             {
                 hideFlags = HideFlags.DontSave,
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
+                filterMode = mipmaps ? FilterMode.Trilinear : FilterMode.Bilinear,
             };
 
             float half = size / 2f;

@@ -22,6 +22,13 @@ namespace LemonadeWars.Unity
         private sealed class MoneyFx : Fx { public int PlayerId; public int Amount; }
         private sealed class SoundFx : Fx { public string Name; }
         private sealed class ToastFx : Fx { public string Text; }
+        /// <summary>
+        /// How long a revealed card holds centered. Playtest verdict: 1.7s read as
+        /// "barely a second" for a card played on you — the title AND the art both
+        /// need reading. Claims (Whiniest Baby) set their own, shorter hold.
+        /// </summary>
+        private const float RevealHoldSeconds = 2.0f;
+
         private sealed class RevealFx : Fx
         {
             public Texture2D Art;
@@ -129,10 +136,17 @@ namespace LemonadeWars.Unity
             _revealCardHost = (RectTransform)cardGo.transform;
             UiKit.Anchor(_revealCardHost, Vector2.zero, Vector2.one);
 
+            // The title hugs the card: bottom-aligned in a band that starts just above
+            // the card's top edge (card center +60, half-height 161), so the gap stays
+            // the same whether the headline fits one line or wraps to two.
             _revealTitle = UiKit.CreateText(_revealRoot, "", 40,
-                TextAnchor.MiddleCenter, Color.white);
-            UiKit.Anchor((RectTransform)_revealTitle.transform,
-                new Vector2(0.05f, 0.85f), new Vector2(0.95f, 0.96f));
+                TextAnchor.LowerCenter, Color.white);
+            var revealTitleRect = (RectTransform)_revealTitle.transform;
+            revealTitleRect.anchorMin = new Vector2(0.05f, 0.5f);
+            revealTitleRect.anchorMax = new Vector2(0.95f, 0.5f);
+            revealTitleRect.pivot = new Vector2(0.5f, 0f);
+            revealTitleRect.sizeDelta = new Vector2(0f, 110f);
+            revealTitleRect.anchoredPosition = new Vector2(0f, 60f + 161f + 14f);
             _revealTitle.raycastTarget = false;
             UiKit.AddTextShadow(_revealTitle);
 
@@ -404,7 +418,7 @@ namespace LemonadeWars.Unity
             shadow.effectDistance = new Vector2(0, -6f);
 
             _revealRoot.gameObject.SetActive(true);
-            _busyUntil = Time.time + 1.7f;
+            _busyUntil = Time.time + RevealHoldSeconds;
             _endActive = () => _revealRoot.gameObject.SetActive(false);
         }
 

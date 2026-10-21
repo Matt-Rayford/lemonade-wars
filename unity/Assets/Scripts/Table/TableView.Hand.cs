@@ -56,9 +56,11 @@ namespace LemonadeWars.Unity
             // reads as cards you already own (a phantom Finders Keepers fooled a
             // real playtest). Hide exactly the decision's eligible instances — the
             // kept card joins the fan when the decision resolves.
-            var babyDiscard = view.MyDecisions.FirstOrDefault(d =>
-                d.Kind == DecisionKind.WhiniestBabyDiscard && d.EligibleCardIds != null);
-            var hiddenIds = babyDiscard?.EligibleCardIds;
+            // Whispers of Fate's "drew 2, discard 1 of them" is the same shape.
+            var drawnPickDecision = view.MyDecisions.FirstOrDefault(d =>
+                (d.Kind == DecisionKind.WhiniestBabyDiscard || d.Kind == DecisionKind.AbilityDiscard) &&
+                d.EligibleCardIds != null);
+            var hiddenIds = drawnPickDecision?.EligibleCardIds;
 
             // Respect the player's own arrangement (drag a card sideways to move it);
             // cards we haven't seen yet — fresh draws — join on the right.

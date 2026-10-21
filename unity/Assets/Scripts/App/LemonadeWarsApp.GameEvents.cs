@@ -197,26 +197,22 @@ namespace LemonadeWars.Unity
                 _fx.QueueCardFly(_art.Back("lemon"), trade.PlayerA, trade.PlayerB, 1);
                 _fx.QueueCardFly(_art.Back("lemon"), trade.PlayerB, trade.PlayerA, 1);
             }
-            else if (gameEvent is LemonCardPlayed played &&
-                     played.TargetPlayerId is int victim)
+            else if (gameEvent is LemonCardPlayed played)
             {
                 // The clash is audible for both duelists, silent for bystanders —
                 // queued, so it waits out dice theatre instead of stinging mid-roll.
-                if (played.PlayerId == _session.Seat || victim == _session.Seat)
+                if (played.TargetPlayerId is int struck &&
+                    (played.PlayerId == _session.Seat || struck == _session.Seat))
                 {
                     _fx.QueueSound(Sfx.AttackCard);
                 }
-                if (played.PlayerId != _session.Seat)
+                if (played.PlayerId != _session.Seat && PlayRevealTitle(played) is string revealTitle)
                 {
-                    // Someone ELSE aimed an attack: one card-reveal beat naming both
-                    // sides. If a response modal is about to open for us, the window
-                    // event below cancels this — the modal tells the same story.
-                    string victimName = victim == _session.Seat
-                        ? "YOU"
-                        : NameOf(victim).ToUpperInvariant();
-                    _fx.QueueReveal(_art.Lemon(played.DefId),
-                        $"{NameOf(played.PlayerId).ToUpperInvariant()} ATTACKS {victimName} WITH " +
-                        $"{LemonName(played.DefId).ToUpperInvariant()}!");
+                    // Someone ELSE played a card at a player: one card-reveal beat
+                    // showing the card and naming both sides. If a response modal is
+                    // about to open for us, the window event below cancels this —
+                    // the modal tells the same story.
+                    _fx.QueueReveal(_art.Lemon(played.DefId), revealTitle);
                 }
             }
             else if (gameEvent is ResponseWindowOpened window &&
@@ -372,6 +368,28 @@ namespace LemonadeWars.Unity
         // --------------------------------------------------------- action log
 
         /// <summary>
+        /// The reveal headline for another player's card, or null for a plain plan
+        /// (Automation and friends change nothing at the table that needs a beat).
+        /// Attacks name the victim; responses name the card they answer.
+        /// </summary>
+        private string PlayRevealTitle(LemonCardPlayed played)
+        {
+            string by = NameOf(played.PlayerId).ToUpperInvariant();
+            string card = LemonName(played.DefId).ToUpperInvariant();
+            if (played.TargetPlayerId is int victim)
+            {
+                string victimName = victim == _session.Seat ? "YOU" : NameOf(victim).ToUpperInvariant();
+                return $"{by} ATTACKS {victimName} WITH {card}!";
+            }
+            if (played.RespondingToDefId != null && played.RespondingToOwnerId is int owner)
+            {
+                string whose = owner == _session.Seat ? "YOUR" : $"{NameOf(owner).ToUpperInvariant()}'S";
+                return $"{by} PLAYS {card} ON {whose} {CardName(played.RespondingToDefId).ToUpperInvariant()}!";
+            }
+            return _db.Lemon(played.DefId).Type == LemonCardType.Plan ? null : $"{by} PLAYS {card}!";
+        }
+
+        /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log
         /// (individual money ticks, window bookkeeping) or already folded into the
         /// line above (a run of draws grows its own line in place).
@@ -384,7 +402,10 @@ namespace LemonadeWars.Unity
                 case CardDrawn drawn: return DrawLine(drawn);
                 case LemonCardPlayed played:
                     return $"{NameOf(played.PlayerId)} plays {LemonName(played.DefId)}" +
-                           (played.TargetPlayerId is int t ? $" on {NameOf(t)}" : "");
+                           (played.TargetPlayerId is int t ? $" on {NameOf(t)}"
+                            : played.RespondingToDefId != null && played.RespondingToOwnerId is int vs
+                                ? $" on {NameOf(vs)}'s {CardName(played.RespondingToDefId)}"
+                                : "");
                 case PlayCancelled cancelled:
                     return $"{NameOf(cancelled.OwnerId)}'s {CardName(cancelled.DefId)} is cancelled" +
                         (cancelled.ByPlayerId is int by && cancelled.WithDefId != null
@@ -409,6 +430,8 @@ namespace LemonadeWars.Unity
                     return $"{NameOf(pour.PlayerId)} hits a Power Pour!";
                 case AbilityTriggered ability:
                     return $"{NameOf(ability.PlayerId)}'s {BlackMarketName(ability.DefId)} kicks in";
+                case AbilityDeclined declined:
+                    return $"{NameOf(declined.PlayerId)} passes on {BlackMarketName(declined.DefId)}";
                 case TitleClaimed title:
                     return $"{NameOf(title.PlayerId)} claims {_db.Title(title.TitleId).Name}!";
                 case SaleRolled rolled:

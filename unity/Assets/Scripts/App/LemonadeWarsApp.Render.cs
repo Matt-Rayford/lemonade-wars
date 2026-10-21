@@ -18,6 +18,14 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            // Hold renders while the player drags from the shelf: a rebuild would
+            // destroy the drag source under the cursor, cancelling the drag (and,
+            // before DragSource.OnDisable existed, leaking the ghost). The revision
+            // stays unconsumed, so the render fires the frame the drag ends.
+            if (_table != null && _table.HasLiveShelfDrag)
+            {
+                return;
+            }
             int revision = _session.Revision;
             if (revision == _renderedRevision)
             {
@@ -33,23 +41,41 @@ namespace LemonadeWars.Unity
             // auto-passes players who become ineligible when a window recomputes, and
             // others' responses can resolve the whole stack. Window prompts have no
             // Cancel, so a stale one soft-locks the player: dismiss it.
-            if (_autoModalOpen && (_prompt.IsOpen || _picker.IsOpen) &&
+            if (_autoModalOpen &&
+                (_prompt.IsOpen || _picker.IsOpen ||
+                 _table.DiscardPickerOpen || _table.EquipTargetingActive) &&
                 (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
             {
                 _prompt.Hide();
                 _picker.Hide();
+                // Silent: a stale grid/aim would submit dead moves, and its cancel
+                // callback would reopen the dissolved flow.
+                _table.DismissModalOverlays();
                 _autoModalOpen = false;
                 _modalSignature = "";
             }
 
+            // A resolved response window: the reaction panel must not outlive the
+            // stack item it was answering — and it must close BEFORE the banner is
+            // drawn, or the bar keeps narrating the old play for one more revision.
+            if (_reaction.IsOpen && !ReactionWindowDue(groups))
+            {
+                _reaction.Hide();
+            }
+
             try
             {
-                RenderStatus();
+                ClearTransientStatus();
                 RenderBanner();
-                _table.Render(View, _db, groups);
+                // A tumbling die withholds every affordance: the roll may still open
+                // a response window, and acting on the next turn before the sale
+                // resolves is exactly what the theatre exists to prevent. The die's
+                // OnFinished forces the re-render that hands them back.
+                var actionable = _dice.IsBusy ? null : groups;
+                _table.Render(View, _db, actionable);
                 _table.SetLog(_actionLog);
-                RenderActionBar(groups);
-                RenderTurnActions(groups);
+                RenderActionBar(actionable);
+                RenderTurnActions(actionable);
             }
             catch (System.Exception e)
             {
@@ -69,12 +95,6 @@ namespace LemonadeWars.Unity
                 {
                     _table.EndPlayerPick();
                 }
-            }
-            // Same for a resolved response window: the reaction panel must not
-            // outlive the stack item it was answering.
-            if (_reaction.IsOpen && !ReactionWindowDue(groups))
-            {
-                _reaction.Hide();
             }
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
@@ -140,32 +160,33 @@ namespace LemonadeWars.Unity
             return $"{ActionsLabel(View.ActionsRemaining)} — the market awaits";
         }
 
-        private void RenderStatus()
+        /// <summary>
+        /// The top-left of the bar carries no game info any more — it crowded the
+        /// centered turn banner (room code, title holders, "waiting on" all live on
+        /// the player bars or in the log). It only ever shows transient diagnostics
+        /// (a render error, the [D] dump), which the next good render clears.
+        /// </summary>
+        private void ClearTransientStatus()
         {
-            // VP/cash live on your player panel now; the top-left keeps utility info.
-            var me = View.Players[View.ViewerId];
-            string status;
-            if (View.Stage == GameStage.Finished)
+            _statusText.text = "";
+        }
+
+        /// <summary>
+        /// The players the table is blocked on, joined for the banner — when that is
+        /// not simply the active player taking an ordinary turn, not you (your own
+        /// waits are the reaction panel or a modal), and not the setup stages, which
+        /// narrate themselves. Null when nobody else is holding things up.
+        /// </summary>
+        private string WaitingOnOthers()
+        {
+            if (View.Stage == GameStage.ChoosingLemonLords || View.Stage == GameStage.InitialBuys ||
+                View.ActingPlayers.Count == 0 || View.ActingPlayers.Contains(View.ViewerId))
             {
-                status = $"GAME OVER — winner: {string.Join(", ", View.Winners.Select(NameOf))}" +
-                         (_session is LocalGameSession ? "   [N] new game" : "");
+                return null;
             }
-            else
-            {
-                // Tantrum counts moved onto the player bars, where everyone's shows.
-                status = (_session.HumanAutoplay ? "AUTOPILOT [B]" : "[B] autopilot") +
-                         (View.WhiniestBabyHolder == View.ViewerId ? "  |  WHINIEST BABY" : "") +
-                         (View.SpoiledRottenHolder == View.ViewerId ? "  |  SPOILED ROTTEN" : "") +
-                         (_remote != null ? $"  |  room {_remote.Room.Code}" : "");
-                // The table is stalled on someone else: say who, so a quiet moment
-                // (their response window, their discard) never reads as a hang.
-                if (!View.ActingPlayers.Contains(View.ViewerId) && View.ActingPlayers.Count > 0)
-                {
-                    string verb = View.StackTop != null ? " to respond" : "";
-                    status += $"  |  WAITING ON {string.Join(", ", View.ActingPlayers.Select(NameOf)).ToUpperInvariant()}{verb}";
-                }
-            }
-            _statusText.text = status;
+            bool isPlainTurn = View.StackTop == null && View.PendingRollValue == null &&
+                View.ActingPlayers.Count == 1 && View.ActingPlayers[0] == View.ActivePlayer;
+            return isPlainTurn ? null : string.Join(" & ", View.ActingPlayers.Select(NameOf));
         }
 
         private void RenderBanner()
@@ -182,6 +203,12 @@ namespace LemonadeWars.Unity
             {
                 banner = "Thanks for playing!";
             }
+            else if (WaitingOnOthers() is string holdouts)
+            {
+                // Someone else has to respond or decide before anything moves: say
+                // who (the hourglass on their bar says the same thing in pictures).
+                banner = $"Waiting on {holdouts}";
+            }
             else if (View.StackTop != null)
             {
                 // Someone's card is resolving but OUR response panel isn't open
@@ -197,7 +224,10 @@ namespace LemonadeWars.Unity
             }
             else if (View.Stage == GameStage.ChoosingLemonLords)
             {
-                banner = "Choose your secret Lemon Lord titles";
+                // Once your picks are confirmed, the only thing left is other people.
+                banner = View.ActingPlayers.Contains(View.ViewerId)
+                    ? "Choose your secret Lemon Lord titles"
+                    : "Waiting On Everyone Else";
             }
             else if (View.Stage == GameStage.InitialBuys)
             {
@@ -205,7 +235,7 @@ namespace LemonadeWars.Unity
             }
             else if (View.ActivePlayer == View.ViewerId)
             {
-                banner = $"Your turn — {View.Phase} ({ActionsLabel(View.ActionsRemaining)} left)";
+                banner = $"Your Turn ({ActionsLabel(View.ActionsRemaining)})";
             }
             else
             {
@@ -273,6 +303,13 @@ namespace LemonadeWars.Unity
         private void RenderTurnActions(MoveGroups groups)
         {
             UiKit.Clear(_turnActionRow);
+            if (View.Stage == GameStage.Finished)
+            {
+                // Back on the board after the scoreboard: the exit lives where the
+                // sale chip did, so leaving is never a hunt.
+                AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
+                return;
+            }
             if (groups == null || groups.IsModal)
             {
                 return;
@@ -288,16 +325,22 @@ namespace LemonadeWars.Unity
                 }
                 var captured = move;
                 // End Turn stays silent: the die's own roll sound covers it.
-                var button = UiKit.CreateButton(_turnActionRow, label, 16,
-                    () => Submit(captured), dark: true,
-                    clickSound: captured is EndTurn ? null : Sfx.ButtonClick);
-                var element = button.GetComponent<LayoutElement>();
-                element.minWidth = 190;
-                element.minHeight = 36;
-                var text = button.GetComponentInChildren<TMPro.TMP_Text>();
-                text.alignment = TMPro.TextAlignmentOptions.Center;
-                UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
+                AddTurnActionChip(label, () => Submit(captured),
+                    captured is EndTurn ? null : Sfx.ButtonClick);
             }
+        }
+
+        /// <summary>One dark, centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
+        private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
+        {
+            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick, dark: true,
+                clickSound: clickSound);
+            var element = button.GetComponent<LayoutElement>();
+            element.minWidth = 190;
+            element.minHeight = 36;
+            var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+            text.alignment = TMPro.TextAlignmentOptions.Center;
+            UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
 
         private void RenderActionBar(MoveGroups groups)
@@ -322,6 +365,16 @@ namespace LemonadeWars.Unity
                     _session.LabelFor(captured), 15, () => Submit(captured),
                     clickSound: ownsItsSound ? null : Sfx.ButtonClick);
                 button.GetComponent<LayoutElement>().minWidth = 150;
+            }
+            var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
+            if (endTurn != null && View.ActionsRemaining == 0)
+            {
+                // Out of actions: the only thing left to do goes right between the
+                // board and the hand, where the eye already is (the top-right chip
+                // stays for ending early). Silent click: the sale roll has its own sound.
+                var endButton = UiKit.CreateButton(_table.ActionBar, "End Turn & Sell", 18,
+                    () => Submit(endTurn), clickSound: null, highlighted: true);
+                endButton.GetComponent<LayoutElement>().minWidth = 240;
             }
             if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
             {
@@ -369,10 +422,17 @@ namespace LemonadeWars.Unity
                 .ToList();
             string winners = string.Join(" & ", View.Winners.Select(NameOf));
             string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
+            // Two real exits instead of a lone "Cancel": look the final boards over,
+            // or head back to the menu.
             _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
                 new List<Texture2D>(),
                 rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
-                showCancel: true);
+                showCancel: false,
+                footer: new[]
+                {
+                    new Prompt.Option("Return to Board", () => { }),
+                    new Prompt.Option("Leave Game", () => BackToMenu("")),
+                });
         }
     }
 }

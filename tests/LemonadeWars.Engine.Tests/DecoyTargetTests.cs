@@ -103,6 +103,10 @@ namespace LemonadeWars.Engine.Tests
             });
             Assert.Empty(s.ResponseStack);
             Assert.DoesNotContain(decoys[0], s.Players[victim].Turf.Equipped);
+            // The window died with the attack: nobody is left "awaited" on it, so no
+            // one gets shown an empty Pass-only prompt (live-play bug 2026-10-20).
+            Assert.Empty(s.AwaitingResponse);
+            Assert.Equal(attacker, Assert.Single(game.ActingPlayers()));
             Assert.Contains(decoys[0], s.BlackMarketDiscard);
             Assert.Contains(attack, s.LemonDiscard);
         }

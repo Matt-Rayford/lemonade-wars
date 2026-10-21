@@ -67,6 +67,7 @@ namespace LemonadeWars.Unity
             _vpIcon = LoadIcon("VictoryPoint.png");
             _cashIcon = LoadIcon("Cash.png");
             _tantrumIcon = LoadIcon("Tantrum.png");
+            _hourglassIcon = LoadIcon("Hourglass.png");
             Build(canvasRoot);
         }
 
@@ -159,10 +160,13 @@ namespace LemonadeWars.Unity
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);
+            // Breathing room above and below: the band sits flush between the stand
+            // captions and the hand's peek, and a button filling it touched both.
             UiKit.Anchor((RectTransform)bar.transform, Vector2.zero, Vector2.one,
-                new Vector2(8, 3), new Vector2(-8, -3));
+                new Vector2(8, 9), new Vector2(-8, -9));
             var barLayout = bar.GetComponent<HorizontalLayoutGroup>();
             barLayout.spacing = 8;
+            barLayout.childAlignment = TextAnchor.MiddleCenter;
             barLayout.childForceExpandHeight = true;
             barLayout.childForceExpandWidth = false;
             barLayout.childControlWidth = true;
@@ -254,6 +258,24 @@ namespace LemonadeWars.Unity
                 EndEquipTargeting();
                 cancel?.Invoke();
                 return;
+            }
+            if (_discardOverlay.gameObject.activeSelf)
+            {
+                CloseDiscardViewer();
+            }
+        }
+
+        /// <summary>
+        /// Silently drop the pick overlays a CHANGED modal context is about to
+        /// replace. Unlike <see cref="CancelOverlays"/> this never invokes cancel
+        /// callbacks — those reopen the flow being replaced. Attack aiming is left
+        /// alone: it is hand-armed, not modal-owned.
+        /// </summary>
+        public void DismissModalOverlays()
+        {
+            if (_targetingPick != null)
+            {
+                EndEquipTargeting();
             }
             if (_discardOverlay.gameObject.activeSelf)
             {

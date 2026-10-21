@@ -170,6 +170,12 @@ public static class ClientSession
                         room = found;
                         break;
                     }
+                    case MessageType.LeaveRoom when room != null:
+                    {
+                        room.Leave(connection);
+                        room = null;
+                        break;
+                    }
                     case MessageType.Ready when room != null:
                     {
                         room.SetReady(room.SeatIndexOf(connection),
