@@ -55,7 +55,10 @@ namespace LemonadeWars.Unity
             {
                 if (_circle == null)
                 {
-                    _circle = Generate(128, 62f, 0f, border: 0f, pixelsPerUnit: 200f);
+                    // Mipmapped: it is shown far below its 128px (16px status dots,
+                    // 56px badges), and an unfiltered shrink turns the rim to mush.
+                    _circle = Generate(128, 62f, 0f, border: 0f, pixelsPerUnit: 200f,
+                        mipmaps: true);
                 }
                 return _circle;
             }
@@ -338,13 +341,13 @@ namespace LemonadeWars.Unity
         /// edge to 0 over <paramref name="falloff"/> pixels (0 = crisp 1px anti-aliased edge).
         /// </summary>
         private static Sprite Generate(int size, float radius, float falloff, float border,
-            float pixelsPerUnit = 100f, float outline = 0f)
+            float pixelsPerUnit = 100f, float outline = 0f, bool mipmaps = false)
         {
-            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, mipmaps)
             {
                 hideFlags = HideFlags.DontSave,
                 wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
+                filterMode = mipmaps ? FilterMode.Trilinear : FilterMode.Bilinear,
             };
 
             float half = size / 2f;

@@ -61,6 +61,9 @@ namespace LemonadeWars.Unity
         private readonly TMP_Text _lobbyStatus;
         private readonly TMP_Text _menuStatus;
         private readonly TMP_Text _serverStatus;
+
+        private static readonly Color ReadyGreen = new Color(0.45f, 0.85f, 0.45f);
+        private static readonly Color NotReadyRed = new Color(0.90f, 0.32f, 0.32f);
         private readonly TMP_Text _readyLabel;
         private readonly RectTransform _hostControls;
         private bool _myReady;
@@ -411,8 +414,8 @@ namespace LemonadeWars.Unity
             }
             foreach (var s in room.Seats)
             {
+                // Readiness is the dot at the row's right edge, not a word in the label.
                 string label = $"{s.Seat + 1}. {s.Name}" +
-                    (s.Ready ? "   READY" : s.IsBot ? "" : "   ...") +
                     (s.IsBot || s.Connected ? "" : "  (disconnected)") +
                     (s.Seat == room.YourSeat ? "   <- you" : "");
                 int seatIndex = s.Seat;
@@ -422,7 +425,8 @@ namespace LemonadeWars.Unity
                     level,
                     isHost && s.IsBot
                         ? () => OnSetBotLevel?.Invoke(seatIndex, NextLevel(level))
-                        : (System.Action)null);
+                        : (System.Action)null,
+                    ready: s.IsBot || s.Ready);
             }
             if (isHost && room.Seats.Count > 0 && room.Seats.Count < MaxSeats)
             {
@@ -482,9 +486,15 @@ namespace LemonadeWars.Unity
         /// difficulty chip to its left: clickable (cycles easy/medium/hard) when
         /// onCycleLevel is provided, informational otherwise.
         /// </summary>
+        /// <summary>
+        /// One lobby row. <paramref name="ready"/> draws the status dot at the right
+        /// edge (green ready, red not); null = no dot (solo seats, the games list).
+        /// </summary>
         private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
-            string botLevel = null, System.Action onCycleLevel = null)
+            string botLevel = null, System.Action onCycleLevel = null, bool? ready = null)
         {
+            // The dot owns the rightmost 26px; chip and remove button shift left of it.
+            float dotInset = ready != null ? 26f : 0f;
             var row = new GameObject("SeatRow", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
             row.transform.SetParent(list, false);
             var background = row.GetComponent<Image>();
@@ -495,7 +505,25 @@ namespace LemonadeWars.Unity
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(16, 2), new Vector2(botLevel != null ? -182 : -56, -2));
+                new Vector2(16, 2), new Vector2((botLevel != null ? -182 : -56) - dotInset, -2));
+
+            if (ready is bool isReady)
+            {
+                var dotGo = new GameObject("ReadyDot", typeof(RectTransform), typeof(Image));
+                dotGo.transform.SetParent(row.transform, false);
+                var dotRect = (RectTransform)dotGo.transform;
+                dotRect.anchorMin = dotRect.anchorMax = new Vector2(1f, 0.5f);
+                dotRect.pivot = new Vector2(1f, 0.5f);
+                // 16px = exactly 1/8 of the 128px circle: a whole mip level, no blend.
+                dotRect.sizeDelta = new Vector2(16f, 16f);
+                dotRect.anchoredPosition = new Vector2(-9f, 0);
+                var dotImage = dotGo.GetComponent<Image>();
+                dotImage.sprite = UiSprites.Circle;
+                dotImage.type = Image.Type.Simple;
+                dotImage.preserveAspect = true;
+                dotImage.color = isReady ? ReadyGreen : NotReadyRed;
+                dotImage.raycastTarget = false;
+            }
 
             if (botLevel != null)
             {
@@ -505,7 +533,7 @@ namespace LemonadeWars.Unity
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
                 chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULANCE
-                chipRect.anchoredPosition = new Vector2(onRemove != null ? -49f : -7f, 0);
+                chipRect.anchoredPosition = new Vector2((onRemove != null ? -49f : -7f) - dotInset, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;
                 chipImage.type = Image.Type.Sliced;
@@ -536,7 +564,7 @@ namespace LemonadeWars.Unity
                 removeRect.anchorMin = removeRect.anchorMax = new Vector2(1f, 0.5f);
                 removeRect.pivot = new Vector2(1f, 0.5f);
                 removeRect.sizeDelta = new Vector2(36f, 36f);
-                removeRect.anchoredPosition = new Vector2(-7f, 0);
+                removeRect.anchoredPosition = new Vector2(-7f - dotInset, 0);
                 var removeImage = removeGo.GetComponent<Image>();
                 removeImage.sprite = UiSprites.RoundedRect;
                 removeImage.type = Image.Type.Sliced;
@@ -561,9 +589,7 @@ namespace LemonadeWars.Unity
         public void SetServerStatus(bool reachable, string detail)
         {
             _serverStatus.text = reachable ? "● server online" : $"○ {detail}";
-            _serverStatus.color = reachable
-                ? new Color(0.45f, 0.85f, 0.45f)
-                : new Color(0.85f, 0.55f, 0.45f);
+            _serverStatus.color = reachable ? ReadyGreen : new Color(0.85f, 0.55f, 0.45f);
         }
     }
 }
