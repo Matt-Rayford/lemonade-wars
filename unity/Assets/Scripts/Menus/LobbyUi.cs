@@ -172,6 +172,9 @@ namespace LemonadeWars.Unity
             var codeRect = (RectTransform)_codeInput.transform;
             UiKit.Anchor(codeRect, new Vector2(0.37f, 0.46f), new Vector2(0.63f, 0.58f));
             _codeInput.characterLimit = 5;
+            // Room codes are upper-case letters; typed or pasted, each character lands
+            // upper-cased so what you see is exactly what the server will look up.
+            _codeInput.onValidateInput += (text, index, added) => char.ToUpperInvariant(added);
             var codeText = _codeInput.textComponent;
             codeText.fontSize = 52;
             codeText.alignment = TextAlignmentOptions.Center;
@@ -434,7 +437,7 @@ namespace LemonadeWars.Unity
                 UiKit.CreateButton(_lobbySeatList, "+ Add bot", 18, () => OnAddBot?.Invoke());
             }
 
-            _readyLabel.text = myReady ? "READY! (click to undo)" : "READY UP";
+            _readyLabel.text = myReady ? "UNREADY" : "READY UP";
             _lobbyStatus.text = status ?? "";
             _hostControls.gameObject.SetActive(isHost);
         }

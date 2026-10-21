@@ -160,8 +160,10 @@ namespace LemonadeWars.Unity
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);
+            // Breathing room above and below: the band sits flush between the stand
+            // captions and the hand's peek, and a button filling it touched both.
             UiKit.Anchor((RectTransform)bar.transform, Vector2.zero, Vector2.one,
-                new Vector2(8, 3), new Vector2(-8, -3));
+                new Vector2(8, 9), new Vector2(-8, -9));
             var barLayout = bar.GetComponent<HorizontalLayoutGroup>();
             barLayout.spacing = 8;
             barLayout.childAlignment = TextAnchor.MiddleCenter;

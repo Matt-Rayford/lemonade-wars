@@ -491,6 +491,11 @@ namespace LemonadeWars.Engine.Core
         private void PopCancelled(StackItem item, List<GameEvent> events)
         {
             State.ResponseStack.Remove(item);
+            // The window that was open on this item dies with it. An Inflatable Decoy
+            // cancels WITHOUT pushing a new item, so nothing else would recompute the
+            // wait — and the players still listed would be shown an empty "Pass"
+            // window for a play that no longer exists.
+            State.AwaitingResponse.Clear();
             BumpRevision();
             if (item.Kind == StackItemKind.BlackMarketPurchase)
             {
