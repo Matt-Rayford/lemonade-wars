@@ -141,7 +141,7 @@ namespace LemonadeWars.Unity
             var backShadow = backGo.GetComponent<Shadow>();
             backShadow.effectColor = new Color(0, 0, 0, 0.5f);
             backShadow.effectDistance = new Vector2(0, -4f);
-            var backLabel = UiKit.CreateText(backGo.transform, "< BACK", 22,
+            var backLabel = UiKit.CreateText(backGo.transform, "BACK", 22,
                 TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
             backLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)backLabel.transform, Vector2.zero, Vector2.one);

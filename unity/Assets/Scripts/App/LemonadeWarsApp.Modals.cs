@@ -217,7 +217,7 @@ namespace LemonadeWars.Unity
                 guided[0].OnPick(); // a lone guided flow — skip the one-button page
                 return;
             }
-            var options = new List<Prompt.Option> { new Prompt.Option("< Back", back) };
+            var options = new List<Prompt.Option> { new Prompt.Option("Back", back) };
             options.AddRange(guided);
             options.AddRange(direct.Select(v => new Prompt.Option(
                 _session.LabelFor(v),

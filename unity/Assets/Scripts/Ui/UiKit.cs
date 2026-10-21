@@ -298,10 +298,11 @@ namespace LemonadeWars.Unity
             image.pixelsPerUnitMultiplier = 14f / 10f; // ~10px corner radius
             image.color = idleBackground;
 
-            var text = CreateText(go.transform, label, fontSize,
-                highlighted ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, idleText);
+            // Centered labels everywhere: a left-aligned word floating in a wide
+            // menu button read as misaligned, not as a design choice.
+            var text = CreateText(go.transform, label, fontSize, TextAnchor.MiddleCenter, idleText);
             Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(10, 2), new Vector2(-6, -2));
+                new Vector2(10, 2), new Vector2(-10, -2));
 
             AddHover(go,
                 () =>

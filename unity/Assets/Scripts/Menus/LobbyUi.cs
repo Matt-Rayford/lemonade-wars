@@ -183,7 +183,7 @@ namespace LemonadeWars.Unity
 
             var joinActions = CreateButtonRow(_joinRoot, "JoinActions",
                 new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.38f));
-            UiKit.CreateButton(joinActions, "< Back", 20, () => ShowMenu(""));
+            UiKit.CreateButton(joinActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(joinActions, "Join", 20,
                 () => OnJoin?.Invoke(_serverInput.text, DisplayName,
                     _codeInput.text.Trim().ToUpperInvariant()));
@@ -198,7 +198,7 @@ namespace LemonadeWars.Unity
 
             var soloActions = CreateButtonRow(_soloRoot, "SoloActions",
                 new Vector2(0.30f, 0.05f), new Vector2(0.70f, 0.13f));
-            UiKit.CreateButton(soloActions, "< Back", 20, () => ShowMenu(""));
+            UiKit.CreateButton(soloActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(soloActions, "Start game", 20,
                 () => OnStartSolo?.Invoke(_soloBots.ToList()));
             _soloRoot.gameObject.SetActive(false);
@@ -212,7 +212,7 @@ namespace LemonadeWars.Unity
 
             var gamesActions = CreateButtonRow(_gamesRoot, "GamesActions",
                 new Vector2(0.34f, 0.05f), new Vector2(0.66f, 0.13f));
-            UiKit.CreateButton(gamesActions, "< Back", 20, () => OnGamesBack?.Invoke());
+            UiKit.CreateButton(gamesActions, "Back", 20, () => OnGamesBack?.Invoke());
             UiKit.CreateButton(gamesActions, "Refresh", 20, () => OnGamesRefresh?.Invoke());
             _gamesRoot.gameObject.SetActive(false);
 
@@ -226,7 +226,7 @@ namespace LemonadeWars.Unity
             // Everyone: ready toggle + leave. Host additionally: start.
             var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls",
                 new Vector2(0.30f, 0.145f), new Vector2(0.70f, 0.225f));
-            UiKit.CreateButton(everyoneControls, "< Back", 20, () => OnLeave?.Invoke());
+            UiKit.CreateButton(everyoneControls, "Back", 20, () => OnLeave?.Invoke());
             var readyButton = UiKit.CreateButton(everyoneControls,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<TMP_Text>();

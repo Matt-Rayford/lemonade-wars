@@ -303,6 +303,13 @@ namespace LemonadeWars.Unity
         private void RenderTurnActions(MoveGroups groups)
         {
             UiKit.Clear(_turnActionRow);
+            if (View.Stage == GameStage.Finished)
+            {
+                // Back on the board after the scoreboard: the exit lives where the
+                // sale chip did, so leaving is never a hunt.
+                AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
+                return;
+            }
             if (groups == null || groups.IsModal)
             {
                 return;
@@ -318,16 +325,22 @@ namespace LemonadeWars.Unity
                 }
                 var captured = move;
                 // End Turn stays silent: the die's own roll sound covers it.
-                var button = UiKit.CreateButton(_turnActionRow, label, 16,
-                    () => Submit(captured), dark: true,
-                    clickSound: captured is EndTurn ? null : Sfx.ButtonClick);
-                var element = button.GetComponent<LayoutElement>();
-                element.minWidth = 190;
-                element.minHeight = 36;
-                var text = button.GetComponentInChildren<TMPro.TMP_Text>();
-                text.alignment = TMPro.TextAlignmentOptions.Center;
-                UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
+                AddTurnActionChip(label, () => Submit(captured),
+                    captured is EndTurn ? null : Sfx.ButtonClick);
             }
+        }
+
+        /// <summary>One dark, centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
+        private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
+        {
+            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick, dark: true,
+                clickSound: clickSound);
+            var element = button.GetComponent<LayoutElement>();
+            element.minWidth = 190;
+            element.minHeight = 36;
+            var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+            text.alignment = TMPro.TextAlignmentOptions.Center;
+            UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
 
         private void RenderActionBar(MoveGroups groups)
