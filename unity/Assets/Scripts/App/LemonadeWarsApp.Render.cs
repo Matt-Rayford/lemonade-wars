@@ -55,6 +55,14 @@ namespace LemonadeWars.Unity
                 _modalSignature = "";
             }
 
+            // A resolved response window: the reaction panel must not outlive the
+            // stack item it was answering — and it must close BEFORE the banner is
+            // drawn, or the bar keeps narrating the old play for one more revision.
+            if (_reaction.IsOpen && !ReactionWindowDue(groups))
+            {
+                _reaction.Hide();
+            }
+
             try
             {
                 ClearTransientStatus();
@@ -87,12 +95,6 @@ namespace LemonadeWars.Unity
                 {
                     _table.EndPlayerPick();
                 }
-            }
-            // Same for a resolved response window: the reaction panel must not
-            // outlive the stack item it was answering.
-            if (_reaction.IsOpen && !ReactionWindowDue(groups))
-            {
-                _reaction.Hide();
             }
             if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
             {
@@ -169,6 +171,24 @@ namespace LemonadeWars.Unity
             _statusText.text = "";
         }
 
+        /// <summary>
+        /// The players the table is blocked on, joined for the banner — when that is
+        /// not simply the active player taking an ordinary turn, not you (your own
+        /// waits are the reaction panel or a modal), and not the setup stages, which
+        /// narrate themselves. Null when nobody else is holding things up.
+        /// </summary>
+        private string WaitingOnOthers()
+        {
+            if (View.Stage == GameStage.ChoosingLemonLords || View.Stage == GameStage.InitialBuys ||
+                View.ActingPlayers.Count == 0 || View.ActingPlayers.Contains(View.ViewerId))
+            {
+                return null;
+            }
+            bool isPlainTurn = View.StackTop == null && View.PendingRollValue == null &&
+                View.ActingPlayers.Count == 1 && View.ActingPlayers[0] == View.ActivePlayer;
+            return isPlainTurn ? null : string.Join(" & ", View.ActingPlayers.Select(NameOf));
+        }
+
         private void RenderBanner()
         {
             string banner;
@@ -182,6 +202,12 @@ namespace LemonadeWars.Unity
             else if (View.Stage == GameStage.Finished)
             {
                 banner = "Thanks for playing!";
+            }
+            else if (WaitingOnOthers() is string holdouts)
+            {
+                // Someone else has to respond or decide before anything moves: say
+                // who (the hourglass on their bar says the same thing in pictures).
+                banner = $"Waiting on {holdouts}";
             }
             else if (View.StackTop != null)
             {
@@ -209,7 +235,7 @@ namespace LemonadeWars.Unity
             }
             else if (View.ActivePlayer == View.ViewerId)
             {
-                banner = $"Your turn — {View.Phase} ({ActionsLabel(View.ActionsRemaining)} left)";
+                banner = $"Your Turn ({ActionsLabel(View.ActionsRemaining)})";
             }
             else
             {

@@ -361,7 +361,7 @@ namespace LemonadeWars.Unity
         private void RefreshSoloSeats()
         {
             UiKit.Clear(_soloSeatList);
-            AddSeatRow(_soloSeatList, $"1. {DisplayName}   <- you", null);
+            AddSeatRow(_soloSeatList, $"1. {DisplayName}", null, isYou: true);
             for (int i = 0; i < _soloBots.Count; i++)
             {
                 int index = i;
@@ -414,10 +414,10 @@ namespace LemonadeWars.Unity
             }
             foreach (var s in room.Seats)
             {
-                // Readiness is the dot at the row's right edge, not a word in the label.
+                // Readiness is the dot at the row's right edge, and "you" is the row's
+                // yellow tint — neither is a word in the label.
                 string label = $"{s.Seat + 1}. {s.Name}" +
-                    (s.IsBot || s.Connected ? "" : "  (disconnected)") +
-                    (s.Seat == room.YourSeat ? "   <- you" : "");
+                    (s.IsBot || s.Connected ? "" : "  (disconnected)");
                 int seatIndex = s.Seat;
                 string level = s.IsBot ? (string.IsNullOrEmpty(s.BotLevel) ? "medium" : s.BotLevel) : null;
                 AddSeatRow(_lobbySeatList, label,
@@ -426,7 +426,8 @@ namespace LemonadeWars.Unity
                     isHost && s.IsBot
                         ? () => OnSetBotLevel?.Invoke(seatIndex, NextLevel(level))
                         : (System.Action)null,
-                    ready: s.IsBot || s.Ready);
+                    ready: s.IsBot ? (bool?)null : s.Ready, // bots are always ready: no dot
+                    isYou: s.Seat == room.YourSeat);
             }
             if (isHost && room.Seats.Count > 0 && room.Seats.Count < MaxSeats)
             {
@@ -491,7 +492,8 @@ namespace LemonadeWars.Unity
         /// edge (green ready, red not); null = no dot (solo seats, the games list).
         /// </summary>
         private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
-            string botLevel = null, System.Action onCycleLevel = null, bool? ready = null)
+            string botLevel = null, System.Action onCycleLevel = null, bool? ready = null,
+            bool isYou = false)
         {
             // The dot owns the rightmost 26px; chip and remove button shift left of it.
             float dotInset = ready != null ? 26f : 0f;
@@ -502,6 +504,19 @@ namespace LemonadeWars.Unity
             background.type = Image.Type.Sliced;
             background.color = new Color(0, 0, 0, 0.30f);
             row.GetComponent<LayoutElement>().minHeight = 48;
+            if (isYou)
+            {
+                // Your seat wears the same yellow rim as your player bar on the table.
+                var rimGo = new GameObject("YouRim", typeof(RectTransform), typeof(Image));
+                rimGo.transform.SetParent(row.transform, false);
+                UiKit.Anchor((RectTransform)rimGo.transform, Vector2.zero, Vector2.one,
+                    new Vector2(-2, -2), new Vector2(2, 2));
+                var rim = rimGo.GetComponent<Image>();
+                rim.sprite = UiSprites.RoundedOutline;
+                rim.type = Image.Type.Sliced;
+                rim.color = UiKit.ButtonColor;
+                rim.raycastTarget = false;
+            }
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,

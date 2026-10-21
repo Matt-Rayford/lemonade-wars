@@ -136,10 +136,17 @@ namespace LemonadeWars.Unity
             _revealCardHost = (RectTransform)cardGo.transform;
             UiKit.Anchor(_revealCardHost, Vector2.zero, Vector2.one);
 
+            // The title hugs the card: bottom-aligned in a band that starts just above
+            // the card's top edge (card center +60, half-height 161), so the gap stays
+            // the same whether the headline fits one line or wraps to two.
             _revealTitle = UiKit.CreateText(_revealRoot, "", 40,
-                TextAnchor.MiddleCenter, Color.white);
-            UiKit.Anchor((RectTransform)_revealTitle.transform,
-                new Vector2(0.05f, 0.85f), new Vector2(0.95f, 0.96f));
+                TextAnchor.LowerCenter, Color.white);
+            var revealTitleRect = (RectTransform)_revealTitle.transform;
+            revealTitleRect.anchorMin = new Vector2(0.05f, 0.5f);
+            revealTitleRect.anchorMax = new Vector2(0.95f, 0.5f);
+            revealTitleRect.pivot = new Vector2(0.5f, 0f);
+            revealTitleRect.sizeDelta = new Vector2(0f, 110f);
+            revealTitleRect.anchoredPosition = new Vector2(0f, 60f + 161f + 14f);
             _revealTitle.raycastTarget = false;
             UiKit.AddTextShadow(_revealTitle);
 
