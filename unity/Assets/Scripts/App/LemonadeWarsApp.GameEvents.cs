@@ -97,7 +97,10 @@ namespace LemonadeWars.Unity
                     _lastSpenderId = money.PlayerId;
                     _lastMarketPrice = -money.Amount;
                 }
-                _fx.QueueMoney(money.PlayerId, money.Amount);
+                if (money.Amount > 0 || !PaysWithBills(money.Reason))
+                {
+                    _fx.QueueMoney(money.PlayerId, money.Amount);
+                }
                 if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
                 {
                     _saleEarnings.Add($"{money.Reason} +${money.Amount}");
@@ -395,6 +398,14 @@ namespace LemonadeWars.Unity
                     showCard);
             }
         }
+
+        /// <summary>
+        /// A loss the bill pile already shows: a purchase (stand, Black Market card,
+        /// Bragging Rights) slaps its money on the table, so the "-$X" floater would
+        /// only say it again. Fines, the Swear Jar and the market refresh have no pile.
+        /// </summary>
+        private static bool PaysWithBills(string reason) =>
+            reason != "timeout fine" && reason != "swear jar" && reason != "market refresh";
 
         /// <summary>
         /// Whose purchases get the showcase-and-fly treatment: everyone but the viewer,

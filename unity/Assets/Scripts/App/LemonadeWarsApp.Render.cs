@@ -305,23 +305,16 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            foreach (var move in groups.BarMoves)
+            var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
+            if (endTurn != null)
             {
-                string label = move is EndTurn ? "END TURN (SELL)"
-                    : move is InitialBuyEnd ? "FINISH DRAFT"
-                    : null;
-                if (label == null)
-                {
-                    continue;
-                }
-                var captured = move;
-                // End Turn stays silent: the die's own roll sound covers it.
-                AddTurnActionChip(label, () => Submit(captured),
-                    captured is EndTurn ? null : Sfx.ButtonClick);
+                // Silent: the die's own roll sound covers it. (Passing a draft visit is
+                // the big table button instead — see RenderActionBar.)
+                AddTurnActionChip("END TURN (SELL)", () => Submit(endTurn), null);
             }
         }
 
-        /// <summary>One centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
+        /// <summary>One centered chip in the top-right row (End Turn, Leave Game).</summary>
         private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
         {
             var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick,
@@ -334,7 +327,7 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
 
-        /// <summary>Tall enough to fill the message strip at 1080p, short enough never to touch the shelf.</summary>
+        /// <summary>Table-button height: fills the message strip at 1080p, never touches the shelf.</summary>
         private const float EndTurnButtonHeightPx = 52f;
 
         private void RenderActionBar(MoveGroups groups)
@@ -368,14 +361,30 @@ namespace LemonadeWars.Unity
                 // above the board, at the message's own size — "Your Turn (0 actions)"
                 // would only repeat what the button says. (The top-right chip stays for
                 // ending early.) Silent click: the sale roll has its own sound.
-                _tableMessage.text = "";
-                var endButton = UiKit.CreateButton(_tableActionHost, "End Turn & Sell",
-                    Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(endTurn),
-                    clickSound: null, highlighted: true);
-                var endLayout = endButton.GetComponent<LayoutElement>();
-                endLayout.minWidth = 360;
-                endLayout.minHeight = EndTurnButtonHeightPx;
+                AddTableActionButton("End Turn & Sell", endTurn, clickSound: null);
             }
+            var passDraft = groups.BarMoves.FirstOrDefault(m => m is InitialBuyEnd);
+            if (passDraft != null)
+            {
+                // The draft visit after the mandatory stand: buying a Black Market card
+                // is optional, so the way out is the same big button, labelled plainly.
+                AddTableActionButton("Pass", passDraft, Sfx.ButtonClick);
+            }
+        }
+
+        /// <summary>
+        /// The big yellow button in the message strip above the board — the one thing
+        /// to do next, in place of the words that would only repeat it.
+        /// </summary>
+        private void AddTableActionButton(string label, GameAction move, string clickSound)
+        {
+            _tableMessage.text = "";
+            var button = UiKit.CreateButton(_tableActionHost, label,
+                Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
+                clickSound: clickSound, highlighted: true);
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minWidth = 360;
+            layout.minHeight = EndTurnButtonHeightPx;
         }
 
         // ---------------------------------------------------------- game over
