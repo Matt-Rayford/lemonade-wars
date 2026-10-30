@@ -49,6 +49,13 @@ namespace LemonadeWars.Unity
         /// Keyed by instance id, not slot, so batched buys that shift the row still
         /// hide exactly the cards the viewer has not been shown.</summary>
         public System.Func<int, bool> MarketCardHidden;
+        /// <summary>
+        /// For a hidden market slot: the art of the card that USED to sit there, drawn
+        /// inert in its place until the theatre sweeps it away — the row must not
+        /// blink empty between the engine's refill and the effect that shows it.
+        /// Null = plain empty socket.
+        /// </summary>
+        public System.Func<int, Texture2D> MarketStandIn;
         /// <summary>Shelf cells by market slot index — flight-origin anchors; includes
         /// suppressed placeholder cells so a slot's spot is known while empty.</summary>
         private readonly Dictionary<int, RectTransform> _marketSlotAnchors =
@@ -58,6 +65,8 @@ namespace LemonadeWars.Unity
             new Dictionary<string, RectTransform>();
         /// <summary>The Bragging Rights shelf cell, null while sold out.</summary>
         private RectTransform _braggingAnchor;
+        /// <summary>The Black Market deck back on the shelf — where swept cards go and dealt cards come from.</summary>
+        private RectTransform _blackMarketDeckAnchor;
 
         private void RenderMarket(PlayerView view, CardDatabase db, MoveGroups groups)
         {
@@ -68,6 +77,7 @@ namespace LemonadeWars.Unity
             _marketSlotAnchors.Clear();
             _supplyAnchors.Clear();
             _braggingAnchor = null;
+            _blackMarketDeckAnchor = null;
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
             BuildDiscardPile(view, blackMarket: false);
@@ -82,9 +92,18 @@ namespace LemonadeWars.Unity
                 var card = view.Market[i];
                 if (MarketCardHidden?.Invoke(card.InstanceId) == true)
                 {
-                    // A purchase drift is mid-air: hold this slot visually empty so
-                    // the refill pops in when the flight delivers, not instantly.
-                    BuildEmptyMarketCell(i);
+                    // The refill's theatre has not played yet: show the old card as a
+                    // stand-in until it is swept, or an empty socket once it has gone,
+                    // so the new card arrives with the flight rather than instantly.
+                    var standIn = MarketStandIn?.Invoke(card.InstanceId);
+                    if (standIn != null)
+                    {
+                        BuildMarketCell(i, standIn, inert: true);
+                    }
+                    else
+                    {
+                        BuildEmptyMarketCell(i);
+                    }
                     continue;
                 }
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
@@ -121,7 +140,9 @@ namespace LemonadeWars.Unity
             socket.sizeDelta = new Vector2(width, height);
             socket.anchoredPosition = Vector2.zero;
 
-            _marketSlotAnchors[marketIndex] = (RectTransform)cell.transform;
+            // The CARD's rect, not the cell's: the cell is padded, so a flight aimed at
+            // its centre would land 2px off and jump as the real card takes over.
+            _marketSlotAnchors[marketIndex] = socket;
         }
 
         /// <summary>
@@ -182,7 +203,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>A market card: hover glows it; drag it onto your turf/stands to buy.</summary>
-        private void BuildMarketCell(int marketIndex, Texture2D texture)
+        /// <param name="inert">A stand-in for a card already gone: looks the part, does nothing.</param>
+        private void BuildMarketCell(int marketIndex, Texture2D texture, bool inert = false)
         {
             const float width = 154f;
             const float height = 216f;
@@ -219,6 +241,12 @@ namespace LemonadeWars.Unity
             frame.anchoredPosition = Vector2.zero;
             frame.sizeDelta = new Vector2(width, height);
 
+            if (inert)
+            {
+                image.raycastTarget = false;
+                _marketSlotAnchors[marketIndex] = lift;
+                return;
+            }
             _preview.Attach(image.gameObject, texture);
             var drag = image.gameObject.AddComponent<DragSource>();
             drag.Kind = DragKind.MarketCard;
@@ -239,7 +267,7 @@ namespace LemonadeWars.Unity
                 OnMarketDragEnd?.Invoke();
             };
             _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
-            _marketSlotAnchors[marketIndex] = (RectTransform)cell.transform;
+            _marketSlotAnchors[marketIndex] = lift; // the card's own rect: flights land exactly on it
         }
 
         /// <summary>
@@ -258,6 +286,9 @@ namespace LemonadeWars.Unity
 
         /// <summary>World position of the Bragging Rights shelf card; null once sold out.</summary>
         public Vector3? BraggingShelfWorld() => CellCenterWorld(_braggingAnchor);
+
+        /// <summary>World position of the Black Market deck back on the shelf.</summary>
+        public Vector3? BlackMarketDeckWorld() => CellCenterWorld(_blackMarketDeckAnchor);
 
         private Vector3? CellCenterWorld(RectTransform cell)
         {
@@ -440,6 +471,10 @@ namespace LemonadeWars.Unity
             var back = _art.Back(blackMarket ? "blackMarket" : "lemon");
             var image = UiKit.CreateCardImage(_marketRow, back, 154, 216);
             var frame = (RectTransform)image.transform.parent;
+            if (blackMarket)
+            {
+                _blackMarketDeckAnchor = frame;
+            }
 
             var discards = blackMarket ? view.BlackMarketDiscard : view.LemonDiscard;
             int count = discards.Count;

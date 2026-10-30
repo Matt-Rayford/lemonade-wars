@@ -175,6 +175,8 @@ namespace LemonadeWars.Unity
             // A refilled market card renders as an empty slot while the purchase drift
             // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
             _table.MarketCardHidden = instanceId => _hiddenMarketIds.Contains(instanceId);
+            _table.MarketStandIn = instanceId =>
+                _marketStandIns.TryGetValue(instanceId, out var art) ? art : null;
             _table.SetVisible(false);
 
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),

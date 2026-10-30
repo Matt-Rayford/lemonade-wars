@@ -28,6 +28,20 @@ namespace LemonadeWars.Unity
         /// need reading. Claims (Whiniest Baby) set their own, shorter hold.
         /// </summary>
         private const float RevealHoldSeconds = 2.0f;
+        private const float ShelfCardWidth = 154f;
+        private const float ShelfCardHeight = 216f;
+        private const float SweepSeconds = 0.175f;
+        /// <summary>Swept one at a time: the next card leaves as the last one slips under the deck.</summary>
+        private const float SweepStaggerSeconds = SweepSeconds;
+        /// <summary>A swept card fades through the last of its slide, as if passing under the deck.</summary>
+        private const float SweepFadeOutFrom = 0.55f;
+        private const float DealSeconds = 0.2f;
+        /// <summary>A dealt copy outlives its landing by a few frames, until the real card has been drawn under it.</summary>
+        private const float DealLingerSeconds = 0.06f;
+        /// <summary>Dealt one at a time: the next card leaves the deck as the last one lands.</summary>
+        private const float DealStaggerSeconds = DealSeconds;
+        /// <summary>After the refresh dollar lands, this long before the shelf starts moving.</summary>
+        private const float RefreshMoneyBeatSeconds = 0.25f;
         /// <summary>Height a purchased card shrinks to on arrival: a little under the 82px player bar.</summary>
         private const float PurchaseEndHeight = 60f;
         private const float BillWidth = 207f;
@@ -112,6 +126,8 @@ namespace LemonadeWars.Unity
             /// <summary>Fires exactly once when the drift ends (or the fx is skipped /
             /// cleared) — the moment a suppressed refill slot may show its new card.</summary>
             public System.Action OnDelivered;
+            /// <summary>Fires when the lifted card is on screen: its shelf stand-in may go.</summary>
+            public System.Action OnStarted;
         }
 
         /// <summary>
@@ -120,6 +136,25 @@ namespace LemonadeWars.Unity
         /// one player at a time, with a breath between players; OnArrived is the
         /// moment their displayed cash may catch up, so it fires on every exit path.
         /// </summary>
+        /// <summary>
+        /// The shelf changing hands with the deck: cards being swept slide under the
+        /// Black Market deck back and vanish, then each dealt card slides from the
+        /// deck to its slot. A paid refresh first slaps the refresher's dollar down.
+        /// Every deal's OnLanded fires exactly once, on every exit path.
+        /// </summary>
+        private sealed class MarketDealFx : Fx
+        {
+            public System.Func<Vector3?> DeckWorld;
+            public List<ShelfCardFlight> Sweep = new List<ShelfCardFlight>();
+            public List<ShelfCardFlight> Deals = new List<ShelfCardFlight>();
+            /// <summary>Who paid for a refresh; -1 = no money shown.</summary>
+            public int PayerId = -1;
+            public int Price;
+            public System.Func<int, Texture2D> BillArt;
+            /// <summary>Fires when the flights are on screen: stand-ins on the shelf may go.</summary>
+            public System.Action OnStarted;
+        }
+
         private sealed class EarnFx : Fx
         {
             public int PlayerId;
@@ -275,7 +310,8 @@ namespace LemonadeWars.Unity
         /// buyer's bar. The origin is a func because layout may not have settled at
         /// queue time; a null origin at start skips the motion but still delivers.</summary>
         public void QueuePurchase(Texture2D art, int buyerId, int price, System.Func<int, Texture2D> billArt,
-            System.Func<Vector3?> origin, System.Action onDelivered = null, bool showCard = true)
+            System.Func<Vector3?> origin, System.Action onDelivered = null, bool showCard = true,
+            System.Action onStarted = null)
         {
             _announceIdle = true;
             _queue.Enqueue(new PurchaseFx
@@ -287,6 +323,25 @@ namespace LemonadeWars.Unity
                 ShowCard = showCard,
                 Origin = origin,
                 OnDelivered = onDelivered,
+                OnStarted = onStarted,
+            });
+        }
+
+        /// <summary>Sweep cards under the Black Market deck and deal new ones to the shelf (see MarketDealFx).</summary>
+        public void QueueMarketDeal(System.Func<Vector3?> deckWorld, List<ShelfCardFlight> sweep,
+            List<ShelfCardFlight> deals, int payerId = -1, int price = 0,
+            System.Func<int, Texture2D> billArt = null, System.Action onStarted = null)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new MarketDealFx
+            {
+                DeckWorld = deckWorld,
+                Sweep = sweep,
+                Deals = deals,
+                PayerId = payerId,
+                Price = price,
+                BillArt = billArt,
+                OnStarted = onStarted,
             });
         }
 
@@ -373,6 +428,12 @@ namespace LemonadeWars.Unity
                     case EarnFx earn:
                         earn.OnArrived?.Invoke();
                         break;
+                    case MarketDealFx deal:
+                        foreach (var card in deal.Deals)
+                        {
+                            card.OnLanded?.Invoke();
+                        }
+                        break;
                 }
             }
             _queue.Clear();
@@ -455,6 +516,9 @@ namespace LemonadeWars.Unity
                     break;
                 case EarnFx earn:
                     StartEarnings(earn);
+                    break;
+                case MarketDealFx deal:
+                    StartMarketDeal(deal);
                     break;
                 case ToastFx toast:
                     SpawnToast(toast.Text);
@@ -592,6 +656,7 @@ namespace LemonadeWars.Unity
                 }
             }
 
+            purchase.OnStarted?.Invoke();
             if (!purchase.ShowCard)
             {
                 // Your own buy: the money slaps down and clears itself. It still holds
@@ -674,15 +739,145 @@ namespace LemonadeWars.Unity
             };
         }
 
-        /// <summary>The bills that paid for a purchase, out of the buyer's bar, growing and fading in.</summary>
-        private BillFan BuildPurchasePile(PurchaseFx purchase, Vector2 showcase)
+        private void StartMarketDeal(MarketDealFx deal)
         {
-            var barWorld = _anchorFor(purchase.BuyerId);
+            var pending = new List<ShelfCardFlight>(deal.Deals);
+            void Land(ShelfCardFlight card)
+            {
+                if (pending.Remove(card))
+                {
+                    card.OnLanded?.Invoke();
+                }
+            }
+            void LandAll()
+            {
+                foreach (var card in pending.ToArray())
+                {
+                    Land(card);
+                }
+            }
+
+            var deckWorld = deal.DeckWorld?.Invoke();
+            if (deckWorld == null)
+            {
+                LandAll(); // no shelf on screen: nothing to animate
+                return;
+            }
+            Vector2 deck = _layer.InverseTransformPoint(deckWorld.Value);
+            var chips = new List<RectTransform>();
+            float clock = 0f;
+
+            BillFan fan = null;
+            if (deal.PayerId >= 0 && deal.Price > 0)
+            {
+                fan = BuildPurchasePile(deal.PayerId, deal.Price, deal.BillArt, ShowcaseSpot(deal.PayerId));
+                if (fan != null)
+                {
+                    fan.AutoFadeAfterSeconds = OwnMoneyHoldSeconds;
+                    clock = BillFan.ArriveSeconds + RefreshMoneyBeatSeconds;
+                }
+            }
+
+            int swept = 0;
+            foreach (var card in deal.Sweep)
+            {
+                var art = card.Art?.Invoke();
+                var slot = card.SlotWorld?.Invoke();
+                if (art == null || slot == null)
+                {
+                    continue;
+                }
+                var chip = BuildShelfChip(art);
+                chips.Add(chip);
+                var motion = chip.gameObject.AddComponent<FlightMotion>();
+                motion.From = _layer.InverseTransformPoint(slot.Value);
+                motion.To = deck;
+                motion.Delay = clock + swept * SweepStaggerSeconds;
+                motion.Duration = SweepSeconds;
+                motion.ArcHeight = 0f;
+                motion.VisibleWhileWaiting = true;
+                motion.FadeOutFrom = SweepFadeOutFrom;
+                swept++;
+            }
+            if (swept > 0)
+            {
+                clock += SweepSeconds + SweepStaggerSeconds * (swept - 1);
+            }
+            deal.OnStarted?.Invoke(); // the sliding copies are up: the shelf may drop its stand-ins
+
+            int dealt = 0;
+            foreach (var card in deal.Deals)
+            {
+                var art = card.Art?.Invoke();
+                var slot = card.SlotWorld?.Invoke();
+                if (art == null || slot == null)
+                {
+                    Land(card); // nothing to fly: the slot just shows what it has
+                    continue;
+                }
+                var chip = BuildShelfChip(art);
+                chips.Add(chip);
+                var motion = chip.gameObject.AddComponent<FlightMotion>();
+                motion.From = deck;
+                motion.To = _layer.InverseTransformPoint(slot.Value);
+                motion.Delay = clock + dealt * DealStaggerSeconds;
+                motion.Duration = DealSeconds;
+                motion.ArcHeight = 0f;
+                motion.LingerAfterArrivalSeconds = DealLingerSeconds;
+                var landing = card;
+                motion.OnArrive = () => Land(landing);
+                dealt++;
+            }
+            if (dealt > 0)
+            {
+                clock += DealSeconds + DealStaggerSeconds * (dealt - 1);
+            }
+
+            _busyUntil = Time.time + clock + 0.1f;
+            _endActive = () =>
+            {
+                foreach (var chip in chips)
+                {
+                    if (chip != null)
+                    {
+                        Object.Destroy(chip.gameObject); // skip: nothing left mid-air
+                    }
+                }
+                if (fan != null)
+                {
+                    Object.Destroy(fan.gameObject);
+                }
+                LandAll(); // skip still lands — a hidden slot must never stay hidden
+            };
+        }
+
+        /// <summary>A shelf-sized card chip (the market cell's own size), click-transparent.</summary>
+        private RectTransform BuildShelfChip(Texture2D art)
+        {
+            var image = UiKit.CreateCardImage(_layer, art, ShelfCardWidth, ShelfCardHeight);
+            var chip = (RectTransform)image.transform.parent;
+            foreach (var graphic in chip.GetComponentsInChildren<UnityEngine.UI.Graphic>())
+            {
+                graphic.raycastTarget = false;
+            }
+            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
+            chip.pivot = new Vector2(0.5f, 0.5f);
+            chip.sizeDelta = new Vector2(ShelfCardWidth, ShelfCardHeight);
+            return chip;
+        }
+
+        /// <summary>The bills that paid for a purchase, out of the buyer's bar, growing and fading in.</summary>
+        private BillFan BuildPurchasePile(PurchaseFx purchase, Vector2 showcase) =>
+            BuildPurchasePile(purchase.BuyerId, purchase.Price, purchase.BillArt, showcase);
+
+        private BillFan BuildPurchasePile(int buyerId, int price, System.Func<int, Texture2D> billArt, Vector2 showcase)
+        {
+            var barWorld = _anchorFor(buyerId);
             if (barWorld == null)
             {
                 return null;
             }
-            var fan = BuildBillPile(purchase.Price, purchase.BillArt, $"-${purchase.Price}", LossColor);
+            var fan = BuildBillPile(price, billArt, $"-${price}", LossColor);
             if (fan == null)
             {
                 return null;

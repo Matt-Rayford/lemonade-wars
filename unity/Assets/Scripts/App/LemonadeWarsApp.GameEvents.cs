@@ -21,6 +21,10 @@ namespace LemonadeWars.Unity
         // delivery removes its id exactly once (including skip/Clear — the
         // EffectsPlayer guarantees delivery on every exit path).
         private readonly HashSet<int> _hiddenMarketIds = new HashSet<int>();
+        // For a hidden refill id: the art of the card its slot used to hold, drawn
+        // inert there until the effect that sweeps or lifts it is on screen.
+        private readonly Dictionary<int, UnityEngine.Texture2D> _marketStandIns =
+            new Dictionary<int, UnityEngine.Texture2D>();
         // Who last took something for money (MoneyChanged < 0) or off the market
         // (BlackMarketPurchased): MarketRefilled has no buyer field, but one of those
         // always precedes it in the same event burst — Pay() for purchases, TryEquip's
@@ -369,15 +373,31 @@ namespace LemonadeWars.Unity
                 .Select(id => oldSnap?.FirstOrDefault(c => c.InstanceId == id)
                     ?? new PlayerView.CardInfo { InstanceId = id, DefId = null })
                 .ToList();
-            if (refilled.RefreshedByPlayerId != null || oldSnap == null)
+            if (oldSnap == null)
             {
-                return; // paid sweep, or no baseline yet (fresh join): no per-card fx
+                return; // no baseline yet (fresh join): nothing to animate from
+            }
+            var freshSlots = newIds
+                .Select((id, slot) => (Slot: slot, InstanceId: id))
+                .Where(entry => !oldSnap.Any(c => c.InstanceId == entry.InstanceId))
+                .ToList();
+
+            if (refilled.RefreshedByPlayerId is int refresher)
+            {
+                // The paid sweep: the dollar comes out, the whole row slides under the
+                // deck, and a fresh row is dealt out of it.
+                var swept = oldSnap
+                    .Select((card, slot) => (Slot: slot, Art: ShelfArt(card)))
+                    .Where(entry => entry.Art != null)
+                    .ToList();
+                foreach (var (slot, art) in swept)
+                {
+                    HoldStandIn(freshSlots, slot, art);
+                }
+                QueueMarketDeal(freshSlots, swept, refresher, _db.Config.BlackMarketRefreshCost);
+                return;
             }
 
-            // Cards now on the shelf that the viewer has not been shown yet.
-            var freshIds = newIds.Where(id => !oldSnap.Any(c => c.InstanceId == id)).ToList();
-
-            int departedSoFar = 0;
             for (int slot = 0; slot < oldSnap.Count; slot++)
             {
                 var card = oldSnap[slot];
@@ -385,38 +405,100 @@ namespace LemonadeWars.Unity
                 {
                     continue; // still on the shelf
                 }
-                // Pair the k-th departed card with the k-th fresh card (1:1 in practice).
-                int freshId = departedSoFar < freshIds.Count ? freshIds[departedSoFar] : -1;
-                departedSoFar++;
-                var art = card.DefId == null
-                    ? null // refilled and re-bought inside one burst: art never seen
-                    : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                var art = ShelfArt(card); // null: refilled and re-bought inside one burst, art never seen
                 if (art == null)
                 {
                     continue; // nothing to fly — leave the refill instant (status quo)
                 }
-                bool showCard = ShowsPurchaseTheatre(_lastSpenderId);
-                if (showCard && freshId >= 0)
-                {
-                    _hiddenMarketIds.Add(freshId); // your own buy's refill shows at once
-                }
                 int originSlot = slot;   // geometric spot the departed card occupied
-                int revealId = freshId;  // capture per-flight, not per-loop
+                HoldStandIn(freshSlots, originSlot, art);
                 _fx.QueueSound(Sfx.CashRegister);
                 _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
                     () => _table.MarketSlotWorld(originSlot),
-                    showCard ? () => ReleaseMarketCard(revealId) : null,
-                    showCard);
+                    null, ShowsPurchaseTheatre(_lastSpenderId),
+                    onStarted: () => DropStandIns(freshSlots));
             }
+            // The replacement(s) are dealt from the deck once the purchase has played.
+            QueueMarketDeal(freshSlots, new List<(int Slot, UnityEngine.Texture2D Art)>(), payerId: -1, price: 0);
+        }
+
+        /// <summary>
+        /// Hide the dealt cards' slots until each flight lands, then queue the deal.
+        /// Art resolves when the effect starts, when the view has certainly caught up.
+        /// </summary>
+        private void QueueMarketDeal(List<(int Slot, int InstanceId)> dealt,
+            List<(int Slot, UnityEngine.Texture2D Art)> swept, int payerId, int price)
+        {
+            if (dealt.Count == 0 && swept.Count == 0)
+            {
+                return;
+            }
+            var deals = new List<ShelfCardFlight>();
+            foreach (var (slot, instanceId) in dealt)
+            {
+                _hiddenMarketIds.Add(instanceId);
+                deals.Add(new ShelfCardFlight
+                {
+                    Art = () => MarketArt(instanceId),
+                    SlotWorld = () => _table.MarketSlotWorld(slot),
+                    OnLanded = () => ReleaseMarketCard(instanceId),
+                });
+            }
+            var sweep = new List<ShelfCardFlight>();
+            foreach (var (slot, art) in swept)
+            {
+                sweep.Add(new ShelfCardFlight
+                {
+                    Art = () => art,
+                    SlotWorld = () => _table.MarketSlotWorld(slot),
+                });
+            }
+            _fx.QueueMarketDeal(() => _table.BlackMarketDeckWorld(), sweep, deals, payerId, price, _art.Bill,
+                onStarted: () => DropStandIns(dealt));
+        }
+
+        /// <summary>The card that left <paramref name="slot"/> keeps its place on the shelf, inert, until its effect plays.</summary>
+        private void HoldStandIn(List<(int Slot, int InstanceId)> fresh, int slot, UnityEngine.Texture2D art)
+        {
+            foreach (var (freshSlot, instanceId) in fresh)
+            {
+                if (freshSlot == slot)
+                {
+                    _marketStandIns[instanceId] = art;
+                }
+            }
+        }
+
+        private void DropStandIns(List<(int Slot, int InstanceId)> fresh)
+        {
+            bool dropped = false;
+            foreach (var (_, instanceId) in fresh)
+            {
+                dropped |= _marketStandIns.Remove(instanceId);
+            }
+            if (dropped)
+            {
+                _renderedRevision = -1; // the slots show their empty sockets under the flights
+            }
+        }
+
+        private UnityEngine.Texture2D ShelfArt(PlayerView.CardInfo card) =>
+            card.DefId == null ? null : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+
+        /// <summary>Art of a card on the shelf right now, by instance; null once it is gone.</summary>
+        private UnityEngine.Texture2D MarketArt(int instanceId)
+        {
+            var card = View?.Market.FirstOrDefault(c => c.InstanceId == instanceId);
+            return card == null ? null : ShelfArt(card);
         }
 
         /// <summary>
         /// A loss the bill pile already shows: a purchase (stand, Black Market card,
-        /// Bragging Rights) slaps its money on the table, so the "-$X" floater would
-        /// only say it again. Fines, the Swear Jar and the market refresh have no pile.
+        /// Bragging Rights) or a market refresh slaps its money on the table, so the
+        /// "-$X" floater would only say it again. Fines and the Swear Jar have no pile.
         /// </summary>
         private static bool PaysWithBills(string reason) =>
-            reason != "timeout fine" && reason != "swear jar" && reason != "market refresh";
+            reason != "timeout fine" && reason != "swear jar";
 
         /// <summary>
         /// Whose purchases get the showcase-and-fly treatment: everyone but the viewer,
@@ -430,6 +512,7 @@ namespace LemonadeWars.Unity
         private void ReleaseMarketCard(int instanceId)
         {
             _hiddenMarketIds.Remove(instanceId); // -1 (no paired refill) is a no-op
+            _marketStandIns.Remove(instanceId);
             _renderedRevision = -1;              // surface the refilled card now
         }
 

@@ -289,6 +289,7 @@ namespace LemonadeWars.Unity
             // market slots empty forever (ids can collide across games), and a stale
             // snapshot would diff garbage.
             _hiddenMarketIds.Clear();
+            _marketStandIns.Clear();
             _marketSnap = null;
             _supplyTopSnap = null;
             _lastSpenderId = -1;
