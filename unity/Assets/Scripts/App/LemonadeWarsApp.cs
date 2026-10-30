@@ -114,11 +114,13 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_tableActionHost, messageRect.anchorMin, messageRect.anchorMax);
             var tableActionsLayout = tableActionsGo.GetComponent<HorizontalLayoutGroup>();
             tableActionsLayout.childAlignment = TextAnchor.MiddleCenter;
+            tableActionsLayout.spacing = 12f;
             tableActionsLayout.childForceExpandWidth = false;
             tableActionsLayout.childForceExpandHeight = false;
             tableActionsLayout.childControlWidth = true;
             tableActionsLayout.childControlHeight = true;
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
+            _table.UnshownMoney = id => _earningsInFlight.TryGetValue(id, out int amount) ? amount : 0;
             _table.TheatreBusy = () =>
                 (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||
                 (_turnBanner != null && _turnBanner.IsOpen) ||
@@ -202,7 +204,8 @@ namespace LemonadeWars.Unity
                 playerId => _table.PurchaseShowcaseWorld(playerId),
                 (playerId, on) => _table.SetVictimGlow(playerId, on),
                 _preview,
-                UiKit.LoadTextureSharp(Path.Combine(Application.streamingAssetsPath, "icons", "steal-blank.png")));
+                UiKit.LoadTextureSharp(Path.Combine(Application.streamingAssetsPath, "icons", "steal-blank.png")),
+                NameOf);
             _playTheatre.OnIdle = () =>
             {
                 // Re-render so the reaction modal held behind the arrival beat opens now.
@@ -338,7 +341,7 @@ namespace LemonadeWars.Unity
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();
-            FlushSaleRecap();
+            FlushRollEarnings();
             MaybeShowEndSummary();
             _fx.Tick();
             _playTheatre.Tick();

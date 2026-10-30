@@ -334,8 +334,16 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_table.ActionBar);
             UiKit.Clear(_tableActionHost);
-            if (groups == null || groups.IsModal)
+            if (groups == null)
             {
+                return;
+            }
+            if (groups.IsModal)
+            {
+                if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0 && !TheatreHoldsModals())
+                {
+                    RenderReactionStrip(groups);
+                }
                 return;
             }
             foreach (var move in groups.BarMoves)
@@ -370,6 +378,52 @@ namespace LemonadeWars.Unity
                 // is optional, so the way out is the same big button, labelled plainly.
                 AddTableActionButton("Pass", passDraft, Sfx.ButtonClick);
             }
+        }
+
+        /// <summary>
+        /// A plain response window, answered from the table: "Play a reaction or"
+        /// followed by a button per answer that is not a hand card (an Inflatable
+        /// Decoy, a die ability) and Pass. The hand cards that answer are half-raised
+        /// in the fan; clicking one plays it.
+        /// </summary>
+        private void RenderReactionStrip(MoveGroups groups)
+        {
+            _tableMessage.text = "";
+            var lead = UiKit.CreateText(_tableActionHost, "Play a reaction or",
+                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            lead.raycastTarget = false;
+            UiKit.AddTextShadow(lead);
+            // No fixed width: the row sizes the words to their own length, so the
+            // button sits one spacing step after the last letter.
+
+            foreach (var move in groups.ModalMoves)
+            {
+                bool fromEquipment = move is UseTurnAbility ||
+                                     (move is RespondToWindow respond && respond.EquippedInstanceId != null);
+                if (fromEquipment)
+                {
+                    AddStripButton(_session.LabelFor(move), move, Sfx.ButtonClick);
+                }
+            }
+            var pass = groups.ModalMoves.FirstOrDefault(m => m is PassWindow);
+            if (pass != null)
+            {
+                AddStripButton("Pass", pass, Sfx.ButtonClick);
+            }
+        }
+
+        /// <summary>A modal is held back while theatre plays; the reaction strip waits for the same beat.</summary>
+        private bool TheatreHoldsModals() =>
+            _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy;
+
+        private void AddStripButton(string label, GameAction move, string clickSound)
+        {
+            var button = UiKit.CreateButton(_tableActionHost, label,
+                Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
+                clickSound: clickSound, highlighted: true);
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minWidth = 170f;
+            layout.minHeight = EndTurnButtonHeightPx;
         }
 
         /// <summary>

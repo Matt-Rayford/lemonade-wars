@@ -32,9 +32,12 @@ namespace LemonadeWars.Unity
         /// </summary>
         private int _lastMarketPrice;
 
-        // The viewer's earnings collected across one roll, for the "you earned" recap.
-        private List<string> _saleEarnings;
-        private int _saleTotal;
+        // Every player's earnings from the roll in progress, staged as bill piles once
+        // the roll settles; null between rolls.
+        private Dictionary<int, int> _rollEarnings;
+        private int _rollerId;
+        /// <summary>Earned cash whose pile has not reached the bar yet; the bars show the old total meanwhile.</summary>
+        private readonly Dictionary<int, int> _earningsInFlight = new Dictionary<int, int>();
 
         private readonly List<string> _actionLog = new List<string>();
 
@@ -62,18 +65,14 @@ namespace LemonadeWars.Unity
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
                     roll.Purpose,
                     roll.StandInstanceId is int standId ? StandName(standId) : null);
-                // Start collecting this roll's earnings for the "you earned" recap.
-                _saleEarnings = new List<string>();
-                _saleTotal = 0;
+                // Start collecting this roll's earnings; they are staged as bill piles
+                // once the roll settles.
+                _rollEarnings = new Dictionary<int, int>();
+                _rollerId = roll.PlayerId;
             }
             else if (gameEvent is StandSold sold)
             {
-                _fx.QueueMoney(sold.PlayerId, sold.Earnings);
-                if (sold.PlayerId == _session.Seat && _saleEarnings != null)
-                {
-                    _saleEarnings.Add($"{StandName(sold.StandInstanceId)} +${sold.Earnings}");
-                    _saleTotal += sold.Earnings;
-                }
+                CollectEarnings(sold.PlayerId, sold.Earnings);
             }
             else if (gameEvent is DieRerolled reroll)
             {
@@ -97,14 +96,13 @@ namespace LemonadeWars.Unity
                     _lastSpenderId = money.PlayerId;
                     _lastMarketPrice = -money.Amount;
                 }
-                if (money.Amount > 0 || !PaysWithBills(money.Reason))
+                if (money.Amount > 0)
+                {
+                    CollectEarnings(money.PlayerId, money.Amount);
+                }
+                else if (!PaysWithBills(money.Reason))
                 {
                     _fx.QueueMoney(money.PlayerId, money.Amount);
-                }
-                if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
-                {
-                    _saleEarnings.Add($"{money.Reason} +${money.Amount}");
-                    _saleTotal += money.Amount;
                 }
             }
             else if (gameEvent is CardDrawn drawn && drawn.PlayerId == _session.Seat)
@@ -220,31 +218,23 @@ namespace LemonadeWars.Unity
                 {
                     _fx.QueueSound(Sfx.AttackCard);
                 }
-                if (played.PlayerId != _session.Seat && played.TargetPlayerId is int target)
+                // Every Lemon play lands on the table. A reaction thrown at a staged
+                // play slaps down on top of it; anything else — a plan, an attack, or a
+                // reaction with nothing under it (Out of Stock on a roll, Profit Share
+                // after a theft) — is staged beside its player's bar, badged with who
+                // played it, and held there through any reactions, so a Tantrum is
+                // always thrown at something everyone can see. Attacks get the arrow
+                // to their victim; steals and discard takes show their loot.
+                bool onThePile = !IsStagedPlay(played.DefId) &&
+                    _playTheatre.AddResponse(_art.Lemon(played.DefId), played.DefId, played.PlayerId);
+                if (!onThePile)
                 {
-                    // Someone ELSE attacked: stage the card on the table, arrowed from
-                    // attacker to victim, and hold it there through any reactions.
                     _stagedAttacker = played.PlayerId;
-                    // A steal stages its loot beside the attack: the card about to change hands.
                     var loot = played.DefId == "finders-keepers" && played.StolenDefId != null
                         ? _art.BlackMarket(played.StolenDefId, played.StolenShape ?? Shape.Square)
-                        : null;
-                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId, target, loot);
-                }
-                else if (played.PlayerId != _session.Seat && TakenArt(played) is UnityEngine.Texture2D taken)
-                {
-                    // Someone ELSE is taking a card from the discard: stage the play with
-                    // the loot beside it, held through any reactions, then home to them.
-                    _stagedAttacker = played.PlayerId;
-                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId, -1, taken);
-                }
-                else if (played.PlayerId != _session.Seat && PlayRevealTitle(played) is string revealTitle)
-                {
-                    // Someone ELSE played a response or a plan worth a beat: one
-                    // card-reveal naming both sides. If a response modal is about to
-                    // open for us, the window event below cancels this — the modal
-                    // tells the same story.
-                    _fx.QueueReveal(_art.Lemon(played.DefId), revealTitle);
+                        : TakenArt(played);
+                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId,
+                        played.TargetPlayerId ?? -1, loot);
                 }
             }
             else if (gameEvent is ResponseWindowOpened window &&
@@ -284,6 +274,10 @@ namespace LemonadeWars.Unity
                 {
                     _playTheatre.Cancel();
                 }
+                else
+                {
+                    _playTheatre.CancelResponse(cancelled.OwnerId, cancelled.DefId); // a countered reaction, if it is one on the pile
+                }
                 // The Inflatable Decoy is an equipped reaction with no play event of
                 // its own — without a reveal it cancels invisibly and reads as a bug.
                 if (cancelled.WithDefId == "inflatable-decoy" && cancelled.ByPlayerId is int blocker)
@@ -301,6 +295,23 @@ namespace LemonadeWars.Unity
 
         /// <summary>Who currently owns the staged play (a reflection hands an attack over).</summary>
         private int _stagedAttacker = -1;
+
+        /// <summary>
+        /// Plans and attacks are staged on the table; instants (responses) slap onto
+        /// them or get the reveal. False for a Black Market id (a cancelled purchase).
+        /// </summary>
+        private bool IsStagedPlay(string defId)
+        {
+            try
+            {
+                var type = _db.Lemon(defId).Type;
+                return type == LemonCardType.Plan || type == LemonCardType.Attack;
+            }
+            catch
+            {
+                return false; // not a Lemon card
+            }
+        }
 
         /// <summary>
         /// Art of the discard card a take is lifting, for the plays that take one:
@@ -424,49 +435,72 @@ namespace LemonadeWars.Unity
 
 
         /// <summary>
-        /// Roll fully resolved: recap what the viewer earned. The entries collect
-        /// across the Applies of a roll (windows can hold it open several frames),
-        /// so flush only once the pending roll is gone.
+        /// A roll's earnings stay collected across the Applies of the roll (windows can
+        /// hold it open several frames), so they are staged only once the pending roll
+        /// is gone. The viewer's own earnings ring the coins first.
         /// </summary>
-        private void FlushSaleRecap()
+        private void FlushRollEarnings()
         {
-            if (_saleEarnings == null || View == null || View.PendingRollValue != null)
+            if (_rollEarnings == null || View == null || View.PendingRollValue != null)
             {
                 return;
             }
-            if (_saleTotal > 0)
+            if (_rollEarnings.TryGetValue(_session.Seat, out int mine) && mine > 0)
             {
-                // Coins first so they ring under the recap, not after it.
                 _fx.QueueSound(Sfx.Coins);
-                _fx.QueueToast($"YOU EARN ${_saleTotal}:  " +
-                    string.Join("  ·  ", _saleEarnings).ToUpperInvariant());
             }
-            _saleEarnings = null;
+            StageRollEarnings();
+        }
+
+        /// <summary>
+        /// A gain during a roll joins that roll's pile instead of floating as "+$X";
+        /// its cash is held back from the bar until the pile lands there. Gains
+        /// outside a roll (Profit Share, refunds) still float.
+        /// </summary>
+        private void CollectEarnings(int playerId, int amount)
+        {
+            if (_rollEarnings == null)
+            {
+                _fx.QueueMoney(playerId, amount);
+                return;
+            }
+            _rollEarnings[playerId] = _rollEarnings.TryGetValue(playerId, out int sum) ? sum + amount : amount;
+            _earningsInFlight[playerId] = _earningsInFlight.TryGetValue(playerId, out int held) ? held + amount : amount;
+            _renderedRevision = -1; // the bar must show the old total from the first frame
+        }
+
+        /// <summary>
+        /// The roll has settled: every earner gets their pile in turn order from the
+        /// roller, one after another; each landing releases that player's held cash.
+        /// </summary>
+        private void StageRollEarnings()
+        {
+            var earnings = _rollEarnings;
+            _rollEarnings = null;
+            if (earnings == null || View == null)
+            {
+                return;
+            }
+            int n = View.Players.Count;
+            UnityEngine.Debug.Log("[LW] roll earnings staged: " + (earnings.Count == 0 ? "nobody earned" :
+                string.Join(", ", earnings.Select(kv => $"{NameOf(kv.Key)} +${kv.Value}"))));
+            for (int offset = 0; offset < n; offset++)
+            {
+                int playerId = (_rollerId + offset) % n;
+                if (!earnings.TryGetValue(playerId, out int amount) || amount <= 0)
+                {
+                    continue;
+                }
+                _fx.QueueEarnings(playerId, amount, _art.Bill, () =>
+                {
+                    _earningsInFlight[playerId] = System.Math.Max(0,
+                        (_earningsInFlight.TryGetValue(playerId, out int held) ? held : 0) - amount);
+                    _renderedRevision = -1; // the bar may show the new total now
+                });
+            }
         }
 
         // --------------------------------------------------------- action log
-
-        /// <summary>
-        /// The reveal headline for another player's card, or null for a plain plan
-        /// (Automation and friends change nothing at the table that needs a beat).
-        /// Attacks name the victim; responses name the card they answer.
-        /// </summary>
-        private string PlayRevealTitle(LemonCardPlayed played)
-        {
-            string by = NameOf(played.PlayerId).ToUpperInvariant();
-            string card = LemonName(played.DefId).ToUpperInvariant();
-            if (played.TargetPlayerId is int victim)
-            {
-                string victimName = victim == _session.Seat ? "YOU" : NameOf(victim).ToUpperInvariant();
-                return $"{by} ATTACKS {victimName} WITH {card}!";
-            }
-            if (played.RespondingToDefId != null && played.RespondingToOwnerId is int owner)
-            {
-                string whose = owner == _session.Seat ? "YOUR" : $"{NameOf(owner).ToUpperInvariant()}'S";
-                return $"{by} PLAYS {card} ON {whose} {CardName(played.RespondingToDefId).ToUpperInvariant()}!";
-            }
-            return _db.Lemon(played.DefId).Type == LemonCardType.Plan ? null : $"{by} PLAYS {card}!";
-        }
 
         /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log

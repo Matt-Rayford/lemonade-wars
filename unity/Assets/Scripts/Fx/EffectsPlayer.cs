@@ -40,6 +40,9 @@ namespace LemonadeWars.Unity
         private const float PileAmountDropPx = 18f;
         /// <summary>The pile lands this far right of the card's showcase spot, so the card doesn't sit squarely on it.</summary>
         private const float BillPileRightShiftPx = 50f;
+        /// <summary>Earnings: how long the pile sits before sliding into the bar, and the clear-table breath after.</summary>
+        private const float EarningsHoldSeconds = 0.6f;
+        private const float EarningsBreathSeconds = 0.5f;
         /// <summary>How long the viewer's own money sits on the table before fading on its own.</summary>
         private const float OwnMoneyHoldSeconds = 0.6f;
         /// <summary>Clear-table pause after the viewer's money has faded, before bots may act.</summary>
@@ -109,6 +112,20 @@ namespace LemonadeWars.Unity
             /// <summary>Fires exactly once when the drift ends (or the fx is skipped /
             /// cleared) — the moment a suppressed refill slot may show its new card.</summary>
             public System.Action OnDelivered;
+        }
+
+        /// <summary>
+        /// A player's sale-roll earnings: a pile of bills slides in from off-screen
+        /// right to their showcase spot, holds, then slides into their bar. Blocking,
+        /// one player at a time, with a breath between players; OnArrived is the
+        /// moment their displayed cash may catch up, so it fires on every exit path.
+        /// </summary>
+        private sealed class EarnFx : Fx
+        {
+            public int PlayerId;
+            public int Amount;
+            public System.Func<int, Texture2D> BillArt;
+            public System.Action OnArrived;
         }
 
         private readonly RectTransform _layer;        // floaters + flights, no scrim
@@ -273,6 +290,20 @@ namespace LemonadeWars.Unity
             });
         }
 
+        /// <summary>Slap a player's roll earnings on the table and slide them into their bar.</summary>
+        public void QueueEarnings(int playerId, int amount, System.Func<int, Texture2D> billArt,
+            System.Action onArrived)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new EarnFx
+            {
+                PlayerId = playerId,
+                Amount = amount,
+                BillArt = billArt,
+                OnArrived = onArrived,
+            });
+        }
+
         /// <summary>
         /// The viewer is about to answer this play in a response modal — the modal tells
         /// the story itself, so drop any queued reveal instead of double-billing it.
@@ -338,6 +369,9 @@ namespace LemonadeWars.Unity
                         break;
                     case PurchaseFx purchase:
                         purchase.OnDelivered?.Invoke();
+                        break;
+                    case EarnFx earn:
+                        earn.OnArrived?.Invoke();
                         break;
                 }
             }
@@ -418,6 +452,9 @@ namespace LemonadeWars.Unity
                     break;
                 case PurchaseFx purchase:
                     StartPurchase(purchase);
+                    break;
+                case EarnFx earn:
+                    StartEarnings(earn);
                     break;
                 case ToastFx toast:
                     SpawnToast(toast.Text);
@@ -561,7 +598,7 @@ namespace LemonadeWars.Unity
                 // the table — bots act the moment the theatre is idle, and a bot's own
                 // purchase landing on top of your bills read as clutter — plus a breath
                 // after the fade so the next thing starts on a clear table.
-                var ownFan = BuildBillFan(purchase, ShowcaseSpot(purchase.BuyerId));
+                var ownFan = BuildPurchasePile(purchase, ShowcaseSpot(purchase.BuyerId));
                 Deliver();
                 if (ownFan == null)
                 {
@@ -604,7 +641,7 @@ namespace LemonadeWars.Unity
             var showcase = ShowcaseSpot(purchase.BuyerId);
             // The money comes out first and the card lands on top of it: the fan is
             // built before the chip is raised, so the chip draws over the bills.
-            var fan = BuildBillFan(purchase, showcase);
+            var fan = BuildPurchasePile(purchase, showcase);
             chip.SetAsLastSibling();
 
             var motion = chip.gameObject.AddComponent<PurchaseJourney>();
@@ -637,17 +674,84 @@ namespace LemonadeWars.Unity
             };
         }
 
-        /// <summary>
-        /// The bills that paid for a purchase, fanned so every one shows: the largest
-        /// on top, each lower bill shifted and turned enough to peek out from under it.
-        /// Slides out of the buyer's bar to the showcase spot. Null when nothing was
-        /// paid, or the buyer's bar is off-screen.
-        /// </summary>
-        private BillFan BuildBillFan(PurchaseFx purchase, Vector2 showcase)
+        /// <summary>The bills that paid for a purchase, out of the buyer's bar, growing and fading in.</summary>
+        private BillFan BuildPurchasePile(PurchaseFx purchase, Vector2 showcase)
         {
-            var bills = BillBreakdown.Bills(purchase.Price);
             var barWorld = _anchorFor(purchase.BuyerId);
-            if (bills.Count == 0 || barWorld == null || purchase.BillArt == null)
+            if (barWorld == null)
+            {
+                return null;
+            }
+            var fan = BuildBillPile(purchase.Price, purchase.BillArt, $"-${purchase.Price}", LossColor);
+            if (fan == null)
+            {
+                return null;
+            }
+            fan.From = _layer.InverseTransformPoint(barWorld.Value);
+            fan.To = showcase + new Vector2(BillPileRightShiftPx, 0);
+            fan.StartScale = PurchaseEndHeight / BillHeight;
+            ((RectTransform)fan.transform).anchoredPosition = fan.From;
+            return fan;
+        }
+
+        /// <summary>
+        /// Sale-roll earnings: the pile slides in from off-screen right, level with the
+        /// player's showcase spot, holds a beat, then slides into their bar shrinking
+        /// and fading — the purchase choreography with the money arriving instead of
+        /// leaving. Blocking through a breath after it lands, so players take turns.
+        /// </summary>
+        private void StartEarnings(EarnFx earn)
+        {
+            bool arrived = false;
+            void Arrive()
+            {
+                if (!arrived)
+                {
+                    arrived = true;
+                    earn.OnArrived?.Invoke();
+                }
+            }
+
+            var barWorld = _anchorFor(earn.PlayerId);
+            var fan = barWorld == null
+                ? null
+                : BuildBillPile(earn.Amount, earn.BillArt, $"+${earn.Amount}", GainColor);
+            if (fan == null)
+            {
+                Arrive(); // nothing to show: the cash just updates
+                return;
+            }
+            var showcase = ShowcaseSpot(earn.PlayerId) + new Vector2(BillPileRightShiftPx, 0);
+            fan.GrowAndFadeIn = false;
+            fan.From = new Vector2(_layer.rect.xMax + BillWidth, showcase.y);
+            fan.To = showcase;
+            fan.AutoFadeAfterSeconds = EarningsHoldSeconds;
+            fan.Destination = _layer.InverseTransformPoint(barWorld.Value);
+            fan.EndScale = PurchaseEndHeight / BillHeight;
+            fan.OnArrive = Arrive;
+            ((RectTransform)fan.transform).anchoredPosition = fan.From;
+
+            _busyUntil = Time.time + BillFan.ArriveSeconds + EarningsHoldSeconds +
+                BillFan.DepartSeconds + EarningsBreathSeconds;
+            _endActive = () =>
+            {
+                if (fan != null)
+                {
+                    Object.Destroy(fan.gameObject); // skip: no orphaned pile
+                }
+                Arrive(); // skip still lands the money — the cash must never stay behind
+            };
+        }
+
+        /// <summary>
+        /// A pile of bills for an amount, fanned so every one shows — the largest on top,
+        /// each lower bill shifted and turned enough to peek out from under it — with
+        /// the amount written beside it. Positioned by the caller. Null for nothing.
+        /// </summary>
+        private BillFan BuildBillPile(int amount, System.Func<int, Texture2D> billArt, string label, Color labelColor)
+        {
+            var bills = BillBreakdown.Bills(amount);
+            if (bills.Count == 0 || billArt == null)
             {
                 return null;
             }
@@ -661,7 +765,7 @@ namespace LemonadeWars.Unity
             // Smallest first, so the largest denomination ends up drawn on top.
             for (int i = bills.Count - 1; i >= 0; i--)
             {
-                var art = purchase.BillArt(bills[i]);
+                var art = billArt(bills[i]);
                 if (art == null)
                 {
                     continue;
@@ -677,26 +781,20 @@ namespace LemonadeWars.Unity
                 image.texture = art;
                 image.raycastTarget = false;
             }
-            AddPileAmountLabel(rect, purchase.Price, placements);
-            var fan = root.AddComponent<BillFan>();
-            fan.From = _layer.InverseTransformPoint(barWorld.Value);
-            fan.To = showcase + new Vector2(BillPileRightShiftPx, 0);
-            fan.StartScale = PurchaseEndHeight / BillHeight;
-            rect.anchoredPosition = fan.From;
-            return fan;
+            AddPileAmountLabel(rect, label, labelColor, placements);
+            return root.AddComponent<BillFan>();
         }
 
         /// <summary>
-        /// Big "-$X" hanging off the top bill's top-right corner, a child of the pile so
-        /// it slides, grows and fades with the money: the pile shows the bills, this
+        /// Big "-$X" / "+$X" hanging off the top bill's top-right corner, a child of the
+        /// pile so it moves and fades with the money: the pile shows the bills, this
         /// says the total at a glance. The top bill, not the pile's bounding box: a
         /// lower bill turned hard can push that box's corner into empty table.
         /// </summary>
-        private static void AddPileAmountLabel(RectTransform pile, int price, Vector3[] placements)
+        private static void AddPileAmountLabel(RectTransform pile, string text, Color color, Vector3[] placements)
         {
             var corner = TopRightCorner(placements[0]);
-            var label = UiKit.CreateText(pile, $"-${price}", PileAmountFontSize,
-                TextAnchor.MiddleLeft, LossColor);
+            var label = UiKit.CreateText(pile, text, PileAmountFontSize, TextAnchor.MiddleLeft, color);
             label.raycastTarget = false;
             label.fontStyle = TMPro.FontStyles.Bold;
             UiKit.AddTextOutline(label, PileAmountOutlineWidth, Color.black); // big type over busy art

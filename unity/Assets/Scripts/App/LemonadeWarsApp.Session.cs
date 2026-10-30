@@ -280,6 +280,8 @@ namespace LemonadeWars.Unity
             _dice.Clear();
             _fx.Clear();
             _playTheatre.Clear();
+            _earningsInFlight.Clear();
+            _rollEarnings = null;
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhiniestBaby = false; // a dropped mid-flight claim must not hide it forever
             _table.SuppressSpoiledRotten = false;
@@ -295,7 +297,7 @@ namespace LemonadeWars.Unity
             _wasMyTurn = false;
             _actionLog.Clear();
             _drawRunText = null;
-            _saleEarnings = null;
+            _rollEarnings = null;
             _endShown = false;
         }
 
@@ -328,6 +330,8 @@ namespace LemonadeWars.Unity
             _dice.Clear();
             _fx.Clear();
             _playTheatre.Clear();
+            _earningsInFlight.Clear();
+            _rollEarnings = null;
             _lobby.ShowMenu(status);
         }
 

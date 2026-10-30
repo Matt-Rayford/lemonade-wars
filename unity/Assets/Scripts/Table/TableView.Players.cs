@@ -20,6 +20,8 @@ namespace LemonadeWars.Unity
         /// seen to finish before the turn visibly passes.
         /// </summary>
         public System.Func<bool> TheatreBusy;
+        /// <summary>Dollars a player has earned that the theatre has not delivered to their bar yet.</summary>
+        public System.Func<int, int> UnshownMoney;
         private int _shownTurnHolder = -1;
         private List<int> _shownAwaited;
 
@@ -107,26 +109,11 @@ namespace LemonadeWars.Unity
             }
 
             // Circular badge on the left: dark color hashed from the name, big initial.
-            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
-            badgeGo.transform.SetParent(row.transform, false);
-            var badgeRect = (RectTransform)badgeGo.transform;
+            var badgeRect = CreatePlayerBadge(row.transform, player.Name, 56f);
             badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0f, 0.5f);
             badgeRect.pivot = new Vector2(0f, 0.5f);
-            badgeRect.sizeDelta = new Vector2(56f, 56f);
             badgeRect.anchoredPosition = new Vector2(12f, 0);
-            var badgeImage = badgeGo.GetComponent<Image>();
-            badgeImage.sprite = UiSprites.Circle;
-            badgeImage.type = Image.Type.Simple;
-            badgeImage.preserveAspect = true;
-            badgeImage.color = BadgeColors[StableNameHash(player.Name) % BadgeColors.Length];
-            badgeImage.raycastTarget = false;
-            string initial = string.IsNullOrEmpty(player.Name)
-                ? "?"
-                : char.ToUpperInvariant(player.Name[0]).ToString();
-            var letter = UiKit.CreateText(badgeGo.transform, initial, 30,
-                TextAnchor.MiddleCenter, Color.white);
-            letter.raycastTarget = false;
-            UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+            var badgeGo = badgeRect.gameObject;
 
             // The table is waiting on this player — their turn, a reaction window,
             // a discard, a lord pick — so their badge greys out under the hourglass.
@@ -202,7 +189,9 @@ namespace LemonadeWars.Unity
             statsGo.transform.SetParent(row.transform, false);
             var stats = UiKit.Anchor((RectTransform)statsGo.transform,
                 new Vector2(0, 0), new Vector2(1, 0.56f), new Vector2(80, 4), new Vector2(-52, -1));
-            var cashIcon = AddStatAt(stats, _cashIcon, $"${player.Money}", 0f, 36f);
+            // Cash still in flight (a sale's bills sliding to the bar) is not shown yet.
+            int shownMoney = player.Money - (UnshownMoney?.Invoke(playerId) ?? 0);
+            var cashIcon = AddStatAt(stats, _cashIcon, $"${shownMoney}", 0f, 36f);
             if (cashIcon != null)
             {
                 _cashIcons[playerId] = cashIcon; // money floaters rise from the coin itself
@@ -300,6 +289,30 @@ namespace LemonadeWars.Unity
             textRect.sizeDelta = new Vector2(60f, 34f);
             textRect.anchoredPosition = new Vector2(columnX + iconWidth + 5f, 0f);
             return iconRect;
+        }
+
+        /// <summary>
+        /// A player's avatar: a circle in their stable name colour with their initial.
+        /// The caller anchors it; the same badge marks their bar and the cards they play.
+        /// </summary>
+        public static RectTransform CreatePlayerBadge(Transform parent, string name, float diameter)
+        {
+            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
+            badgeGo.transform.SetParent(parent, false);
+            var badgeRect = (RectTransform)badgeGo.transform;
+            badgeRect.sizeDelta = new Vector2(diameter, diameter);
+            var badgeImage = badgeGo.GetComponent<Image>();
+            badgeImage.sprite = UiSprites.Circle;
+            badgeImage.type = Image.Type.Simple;
+            badgeImage.preserveAspect = true;
+            badgeImage.color = BadgeColors[StableNameHash(name) % BadgeColors.Length];
+            badgeImage.raycastTarget = false;
+            string initial = string.IsNullOrEmpty(name) ? "?" : char.ToUpperInvariant(name[0]).ToString();
+            var letter = UiKit.CreateText(badgeGo.transform, initial, Mathf.RoundToInt(diameter * 30f / 56f),
+                TextAnchor.MiddleCenter, Color.white);
+            letter.raycastTarget = false;
+            UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+            return badgeRect;
         }
 
         /// <summary>World-space middle of a player's bar's right edge — where arrows to/from the bar attach.</summary>

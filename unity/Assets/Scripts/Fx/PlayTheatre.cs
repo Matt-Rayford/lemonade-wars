@@ -8,13 +8,14 @@ namespace LemonadeWars.Unity
     /// the showcase spot, a curved arrow points it at the victim whose bar glows red,
     /// and it hangs there while any response window plays out; a take (Finders
     /// Keepers, Reduce and Reuse, Reverse Engineer) stages its loot beside the card
-    /// under a grabbing hand. On resolution the card slides into the victim's bar —
-    /// or back into the player's own, for a take — shrinking and fading; cancelled,
-    /// it fades where it floats. Only the arrival beat and the departure count as
-    /// blocking theatre — the wait for reactions must not, or the viewer's own
+    /// under a grabbing hand; reactions thrown at it slap down on top (see the
+    /// Responses partial). On resolution the card slides into the victim's bar — or
+    /// back into the player's own, for a take — shrinking and fading; cancelled, it
+    /// fades where it floats. Only the arrival beat, a slap and the departure count
+    /// as blocking theatre — the wait for reactions must not, or the viewer's own
     /// reaction modal could never open.
     /// </summary>
-    public sealed class PlayTheatre
+    public sealed partial class PlayTheatre
     {
         private enum Phase { Idle, Arriving, Holding, Departing, Fading }
 
@@ -28,6 +29,9 @@ namespace LemonadeWars.Unity
         private const float EndHeight = 60f;
         private const float ArrowRefreshThresholdSq = 4f;
         private const float ArrowEdgeGapPx = 10f;
+        private const float BadgeDiameterPx = 48f;
+        /// <summary>The badge's centre sits this far inside the card's top-right corner: overlapping the edge, not hiding it.</summary>
+        private const float BadgeInsetPx = 10f;
         private const float LootGapPx = 18f;
         private const float GrabIconSizePx = 75f;
         /// <summary>The hand's centre above the loot's top edge: high enough that only the thumb tip overlaps the card.</summary>
@@ -44,9 +48,11 @@ namespace LemonadeWars.Unity
         private readonly System.Action<int, bool> _victimGlow;
         private readonly CardPreview _preview;
         private readonly Texture2D _grabIcon;
+        private readonly System.Func<int, string> _nameOf;
 
         private RectTransform _chip;
         private CanvasGroup _group;
+        private RectTransform _badge;
         private RectTransform _loot;
         private CanvasGroup _lootGroup;
         private Vector2 _lootShowcase;
@@ -73,10 +79,13 @@ namespace LemonadeWars.Unity
         /// <param name="victimGlow">Turns the red attack glow on a player's bar on or off.</param>
         /// <param name="preview">The table's magnifier, so the staged card reads on hover / Alt like any other.</param>
         /// <param name="grabIcon">The hand that hovers over stolen loot; null = loot shows bare.</param>
+        /// <param name="nameOf">A player's display name, for the avatar pinned to the card they played.</param>
         public PlayTheatre(RectTransform canvasRoot, System.Func<int, Vector3?> barWorld,
             System.Func<int, Vector3?> barEdgeWorld, System.Func<int, Vector3?> showcaseWorld,
-            System.Action<int, bool> victimGlow, CardPreview preview, Texture2D grabIcon)
+            System.Action<int, bool> victimGlow, CardPreview preview, Texture2D grabIcon,
+            System.Func<int, string> nameOf)
         {
+            _nameOf = nameOf;
             _barWorld = barWorld;
             _barEdgeWorld = barEdgeWorld;
             _showcaseWorld = showcaseWorld;
@@ -98,7 +107,7 @@ namespace LemonadeWars.Unity
         /// <summary>True during the arrival beat and the departure; never while waiting on reactions.</summary>
         public bool IsBusy =>
             _phase == Phase.Arriving || _phase == Phase.Departing || _phase == Phase.Fading ||
-            (_phase == Phase.Holding && Time.time < _holdUntil);
+            (_phase == Phase.Holding && Time.time < _holdUntil) || Slapping;
 
         /// <summary>The staged play is this owner's card of this def (owner changes on a reflection).</summary>
         public bool Matches(int ownerId, string defId) => IsActive && ownerId == _attackerId && defId == _defId;
@@ -120,6 +129,8 @@ namespace LemonadeWars.Unity
             _from = Local(attackerBar.Value);
             _showcase = Local(showcase.Value); // level with the attacker's own bar, like a purchase
             _chip = BuildChip(art);
+            _group = _chip.GetComponent<CanvasGroup>(); // the builder also serves the response pile
+            PinPlayerBadge(_chip, attackerId);
             _chip.anchoredPosition = _from;
             if (lootArt != null)
             {
@@ -144,6 +155,7 @@ namespace LemonadeWars.Unity
             _attackerId = attackerId;
             _targetId = targetId;
             _targetArrowDrawn = false;
+            PinPlayerBadge(_chip, attackerId); // a reflection makes the card someone else's
             // The engine drops the card-specific pick on a redirect; the attacker
             // re-picks on resolve, so the staged loot is no longer the truth.
             DestroyLoot();
@@ -166,7 +178,9 @@ namespace LemonadeWars.Unity
             }
             _chip = null;
             _group = null;
+            _badge = null; // destroyed with the chip
             DestroyLoot();
+            DestroyResponses();
             UiKit.Clear(_arrowHost);
             GlowVictim(off: true);
             _phase = Phase.Idle;
@@ -216,7 +230,12 @@ namespace LemonadeWars.Unity
                     {
                         if (_cancelWhenReady)
                         {
+                            FadeResponses();
                             EnterPhase(Phase.Fading);
+                        }
+                        else if (_resolveWhenReady && FadeResponses())
+                        {
+                            _holdUntil = Time.time + SlapMotion.FadeSeconds; // the pile clears first
                         }
                         else if (_resolveWhenReady)
                         {
@@ -350,8 +369,8 @@ namespace LemonadeWars.Unity
             chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
             chip.pivot = new Vector2(0.5f, 0.5f);
             chip.sizeDelta = new Vector2(CardWidth, CardHeight);
-            _group = chip.gameObject.AddComponent<CanvasGroup>();
-            _group.blocksRaycasts = true;
+            var group = chip.gameObject.AddComponent<CanvasGroup>();
+            group.blocksRaycasts = true;
             return chip;
         }
 
@@ -396,6 +415,26 @@ namespace LemonadeWars.Unity
                 hand.anchoredPosition = new Vector2(0, CardHeight / 2f + GrabIconLiftPx);
             }
             return chip;
+        }
+
+        /// <summary>
+        /// The player's avatar on the card's top-right corner, so a staged card says who
+        /// played it at a glance.
+        /// </summary>
+        private void PinPlayerBadge(RectTransform chip, int playerId, bool remember = true)
+        {
+            if (remember && _badge != null)
+            {
+                Object.Destroy(_badge.gameObject); // the staged card changed hands
+            }
+            var badge = TableView.CreatePlayerBadge(chip, _nameOf(playerId), BadgeDiameterPx);
+            badge.anchorMin = badge.anchorMax = new Vector2(1f, 1f);
+            badge.pivot = new Vector2(0.5f, 0.5f);
+            badge.anchoredPosition = new Vector2(-BadgeInsetPx, -BadgeInsetPx);
+            if (remember)
+            {
+                _badge = badge;
+            }
         }
 
         private void DestroyLoot()

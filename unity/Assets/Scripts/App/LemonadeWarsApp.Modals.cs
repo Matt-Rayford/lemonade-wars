@@ -90,6 +90,16 @@ namespace LemonadeWars.Unity
                 return;
             }
             bool IsPassMove(GameAction m) => m is SkipFreePlay || m is PassWindow;
+            if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0)
+            {
+                // A plain response window: the hand's reaction cards sit half-raised to
+                // be clicked, and the message strip offers the rest (see RenderActionBar).
+                // The side panel stays for retargets and strike-backs, which need their
+                // own pages.
+                _reaction.Hide();
+                _prompt.Hide();
+                return;
+            }
             if (ReactionWindowDue(groups))
             {
                 // A stack-top window: react from the log column with the table live.

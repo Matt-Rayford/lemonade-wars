@@ -18,6 +18,8 @@ public sealed partial class Room
     /// delay is 0 (tests, instant rooms).
     /// </summary>
     private const int RollTheatreMs = 2800;
+    /// <summary>Per earner: the client's earnings pile (0.25s in, 0.6s hold, 0.5s to the bar, 0.5s breath).</summary>
+    private const int EarningsTheatreMs = 1850;
 
     /// <summary>Seats already alerted for their current wait — one nudge per turn edge.</summary>
     private readonly HashSet<int> _alertedSeats = new();
@@ -155,7 +157,12 @@ public sealed partial class Room
             int delayMs = _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
             if (delayMs > 0 && events.Any(e => e is SaleRolled || e is DieRerolled || e is RollModified))
             {
-                _rollTheatreUntil = DateTime.UtcNow.AddMilliseconds(RollTheatreMs);
+                // The die, then one bill pile per earner (slide, hold, slide into the
+                // bar, breath) — the client plays them one at a time, so bots wait for all.
+                int earners = events.Where(e => e is StandSold || (e is MoneyChanged m && m.Amount > 0))
+                    .Select(e => e is StandSold sold ? sold.PlayerId : ((MoneyChanged)e).PlayerId)
+                    .Distinct().Count();
+                _rollTheatreUntil = DateTime.UtcNow.AddMilliseconds(RollTheatreMs + earners * EarningsTheatreMs);
             }
             var acting = _game.ActingPlayers();
 
