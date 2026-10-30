@@ -109,6 +109,9 @@ namespace LemonadeWars.Unity
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview);
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
+            _table.TheatreBusy = () =>
+                (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||
+                (_turnBanner != null && _turnBanner.IsOpen);
             _table.AimIsReaction = () => ReactionWindowDue(CurrentGroups());
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
@@ -186,7 +189,7 @@ namespace LemonadeWars.Unity
                 () => _dice.IsBusy || _turnBanner.IsOpen,
                 playerId => _table.PlayerBarWorld(playerId),
                 playerId => _table.PlayerCashWorld(playerId),
-                () => _table.PurchaseShowcaseWorld());
+                buyerId => _table.PurchaseShowcaseWorld(buyerId));
             _fx.OnFinished = () =>
             {
                 // Re-render so modals held back behind the theatre open now.

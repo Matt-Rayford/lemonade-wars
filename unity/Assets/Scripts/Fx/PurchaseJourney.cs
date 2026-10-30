@@ -4,14 +4,14 @@ namespace LemonadeWars.Unity
 {
     /// <summary>
     /// A purchased card's trip from the shelf to its buyer: slides down to a showcase
-    /// spot, holds there so the table can read it, then flies to the buyer's player
-    /// bar while shrinking to badge size and fading out. Two seconds end to end.
+    /// spot beside the buyer's bar, holds there so the table can read it, then slides
+    /// into the bar while shrinking to badge size and fading out. 1.5 seconds end to end.
     /// OnLeaveShowcase fires once when the flight begins; OnDone only on the natural
     /// end — early teardown is the owner's job (EndActive).
     /// </summary>
     public sealed class PurchaseJourney : MonoBehaviour
     {
-        public const float TotalSeconds = 2.0f;
+        public const float TotalSeconds = 1.5f;
         private const float SlideSeconds = 0.3f;
         private const float ShowcaseUntilSeconds = 1.0f;
         /// <summary>Fade through the back half of the flight, so the shrink reads first.</summary>

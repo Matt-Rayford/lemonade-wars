@@ -125,7 +125,7 @@ namespace LemonadeWars.Unity
                     ?? _art.Back("braggingRights");
                 if (ShowsPurchaseTheatre(brag.PlayerId))
                 {
-                    _fx.QueuePurchase(bragArt, brag.PlayerId, PurchaseCaption(brag.PlayerId),
+                    _fx.QueuePurchase(bragArt, brag.PlayerId,
                         () => _table.BraggingShelfWorld());
                 }
             }
@@ -185,7 +185,7 @@ namespace LemonadeWars.Unity
                 string typeId = standBought.StandTypeId;
                 if (ShowsPurchaseTheatre(standBought.PlayerId))
                 {
-                    _fx.QueuePurchase(standArt, standBought.PlayerId, PurchaseCaption(standBought.PlayerId),
+                    _fx.QueuePurchase(standArt, standBought.PlayerId,
                         () => _table.StandSupplyWorld(typeId));
                 }
             }
@@ -329,7 +329,7 @@ namespace LemonadeWars.Unity
                 int originSlot = slot;   // geometric spot the departed card occupied
                 int revealId = freshId;  // capture per-flight, not per-loop
                 _fx.QueueSound(Sfx.CashRegister);
-                _fx.QueuePurchase(art, _lastSpenderId, PurchaseCaption(_lastSpenderId),
+                _fx.QueuePurchase(art, _lastSpenderId,
                     () => _table.MarketSlotWorld(originSlot),
                     () => ReleaseMarketCard(revealId));
             }
@@ -349,12 +349,6 @@ namespace LemonadeWars.Unity
             _renderedRevision = -1;              // surface the refilled card now
         }
 
-        /// <summary>Buyer's name under the drifting card; null for your own buys (you
-        /// just dragged it — the name would be noise).</summary>
-        private string PurchaseCaption(int playerId) =>
-            playerId >= 0 && playerId != _session.Seat
-                ? NameOf(playerId).ToUpperInvariant()
-                : null;
 
         /// <summary>
         /// Roll fully resolved: recap what the viewer earned. The entries collect

@@ -28,10 +28,10 @@ namespace LemonadeWars.Unity
         /// need reading. Claims (Whiniest Baby) set their own, shorter hold.
         /// </summary>
         private const float RevealHoldSeconds = 2.0f;
-        /// <summary>How far above the shelf rule a showcased purchase hovers.</summary>
-        private const float ShowcaseLiftPx = 24f;
         /// <summary>Height a purchased card shrinks to on arrival: a little under the 82px player bar.</summary>
         private const float PurchaseEndHeight = 60f;
+        /// <summary>Showcased purchases sit this much left of the board's first column, nearer the bars they join.</summary>
+        private const float ShowcaseLeftShiftPx = -10f;
 
         private sealed class RevealFx : Fx
         {
@@ -67,8 +67,6 @@ namespace LemonadeWars.Unity
         {
             public Texture2D Art;
             public int BuyerId;
-            /// <summary>Small line under the drifting card (the buyer's name); null = none.</summary>
-            public string Caption;
             /// <summary>Resolved when the effect STARTS (layout settles between queue
             /// and start). Null result = nothing on screen to lift from: deliver
             /// instantly with no motion.</summary>
@@ -85,7 +83,7 @@ namespace LemonadeWars.Unity
         private readonly System.Func<bool> _held;
         private readonly System.Func<int, Vector3?> _anchorFor;   // player id -> world
         private readonly System.Func<int, Vector3?> _cashAnchorFor;   // player id -> cash icon world
-        private readonly System.Func<Vector3?> _showcaseWorld;         // where bought cards pause
+        private readonly System.Func<int, Vector3?> _showcaseWorld;    // buyer id -> where their card pauses
         private readonly Queue<Fx> _queue = new Queue<Fx>();
 
         private float _busyUntil;
@@ -125,15 +123,15 @@ namespace LemonadeWars.Unity
         }
 
         /// <param name="cashAnchorFor">A player's cash icon; money floaters rise from it. Null falls back to the bar.</param>
-        /// <param name="showcaseWorld">Where a bought card pauses before flying to its buyer; null = layer centre.</param>
+        /// <param name="showcaseWorld">Where a buyer's card pauses before sliding into their bar; null = over the bar itself.</param>
         public EffectsPlayer(RectTransform canvasRoot, System.Func<bool> held,
             System.Func<int, Vector3?> anchorFor, System.Func<int, Vector3?> cashAnchorFor = null,
-            System.Func<Vector3?> showcaseWorld = null)
+            System.Func<int, Vector3?> showcaseWorld = null)
         {
             _held = held;
             _anchorFor = anchorFor;
             _cashAnchorFor = cashAnchorFor ?? anchorFor;
-            _showcaseWorld = showcaseWorld ?? (() => null);
+            _showcaseWorld = showcaseWorld ?? anchorFor;
 
             var go = new GameObject("Effects", typeof(RectTransform));
             go.transform.SetParent(canvasRoot, false);
@@ -224,7 +222,7 @@ namespace LemonadeWars.Unity
         /// <summary>Showcase a purchased card out of its shelf slot, then fly it to the
         /// buyer's bar. The origin is a func because layout may not have settled at
         /// queue time; a null origin at start skips the motion but still delivers.</summary>
-        public void QueuePurchase(Texture2D art, int buyerId, string caption, System.Func<Vector3?> origin,
+        public void QueuePurchase(Texture2D art, int buyerId, System.Func<Vector3?> origin,
             System.Action onDelivered = null)
         {
             _announceIdle = true;
@@ -232,7 +230,6 @@ namespace LemonadeWars.Unity
             {
                 Art = art,
                 BuyerId = buyerId,
-                Caption = caption,
                 Origin = origin,
                 OnDelivered = onDelivered,
             });
@@ -501,8 +498,8 @@ namespace LemonadeWars.Unity
         // --------------------------------------------------------- purchases
 
         /// <summary>
-        /// The bought card's art slides out of its shelf slot to a showcase spot below
-        /// the market, holds a beat, then flies to the buyer's player bar, shrinking and
+        /// The bought card's art slides out of its shelf slot to a showcase spot level
+        /// with the buyer's bar, holds a beat, then slides into that bar, shrinking and
         /// fading out. Blocking, so back-to-back bot purchases play one at a time; the
         /// busy window covers the whole trip, and delivery fires exactly once on EVERY
         /// exit path (leaving the showcase, skip, Clear) — a suppressed refill slot
@@ -542,24 +539,8 @@ namespace LemonadeWars.Unity
             chip.anchoredPosition = _layer.InverseTransformPoint(world.Value);
             chip.SetAsLastSibling(); // over the shelf card now shifted into this slot
 
-            if (!string.IsNullOrEmpty(purchase.Caption))
-            {
-                // Buyer's name rides under the card; child of the chip, so the drift's
-                // CanvasGroup fades it in lockstep.
-                var label = UiKit.CreateText(chip, purchase.Caption, 20,
-                    TextAnchor.MiddleCenter, ToastColor);
-                label.raycastTarget = false;
-                label.fontStyle = TMPro.FontStyles.Bold;
-                UiKit.AddTextShadow(label);
-                var labelRect = (RectTransform)label.transform;
-                labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0f);
-                labelRect.pivot = new Vector2(0.5f, 1f);
-                labelRect.sizeDelta = new Vector2(320f, 30f);
-                labelRect.anchoredPosition = new Vector2(0, -8f);
-            }
-
             var motion = chip.gameObject.AddComponent<PurchaseJourney>();
-            motion.Showcase = ShowcaseSpot();
+            motion.Showcase = ShowcaseSpot(purchase.BuyerId);
             motion.EndScale = PurchaseEndHeight / height;
             motion.Destination = () => PurchaseDestination(purchase.BuyerId, motion.Showcase);
             motion.OnLeaveShowcase = Deliver; // the shelf is visibly empty by now
@@ -576,15 +557,13 @@ namespace LemonadeWars.Unity
             };
         }
 
-        /// <summary>Where a bought card pauses to be read, in layer space: the table's showcase point, lifted a touch.</summary>
-        private Vector2 ShowcaseSpot()
+        /// <summary>Where a buyer's card pauses to be read, in layer space; the layer centre when the table has no spot for them.</summary>
+        private Vector2 ShowcaseSpot(int buyerId)
         {
-            var world = _showcaseWorld();
-            if (world == null)
-            {
-                return Vector2.zero;
-            }
-            return (Vector2)_layer.InverseTransformPoint(world.Value) + new Vector2(0, ShowcaseLiftPx);
+            var world = _showcaseWorld(buyerId) ?? _anchorFor(buyerId);
+            return world == null
+                ? Vector2.zero
+                : (Vector2)_layer.InverseTransformPoint(world.Value) - new Vector2(ShowcaseLeftShiftPx, 0);
         }
 
         /// <summary>The buyer's bar in layer space; a bar that is off-screen keeps the card at the showcase.</summary>

@@ -13,6 +13,14 @@ namespace LemonadeWars.Unity
         /// <summary>playerId -> "easy"/"medium"/"hard" for bot seats, null for humans.</summary>
         public System.Func<int, string> BotLevelLookup;
 
+        /// <summary>
+        /// True while the table is mid-theatre (effects, die, turn banner). The turn
+        /// lemon holds its last position until then, so a bot's purchases and roll are
+        /// seen to finish before the turn visibly passes.
+        /// </summary>
+        public System.Func<bool> TheatreBusy;
+        private int _shownTurnHolder = -1;
+
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
         private static readonly Color[] BadgeColors =
         {
@@ -78,8 +86,10 @@ namespace LemonadeWars.Unity
             background.color = new Color(0, 0, 0, 0.32f);
             row.GetComponent<LayoutElement>().minHeight = 82;
 
-            // Turn lemon, right edge: sits with the active player and moves each turn.
-            if (playerId == view.ActivePlayer && _lemonIcon != null)
+            // Turn lemon, right edge: sits with whoever holds the turn and moves with
+            // it — the drafter during setup (ActivePlayer is frozen until play starts).
+            int turnHolder = ShownTurnHolder(view);
+            if (playerId == turnHolder && _lemonIcon != null)
             {
                 var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
                 lemonGo.transform.SetParent(row.transform, false);
@@ -294,6 +304,20 @@ namespace LemonadeWars.Unity
             _cashIcons.TryGetValue(playerId, out var icon) && icon != null
                 ? icon.TransformPoint(icon.rect.center)
                 : (Vector3?)null;
+
+        /// <summary>
+        /// Whose lemon it is this render: the engine's turn holder, except that while
+        /// the theatre is still playing out the previous holder keeps it — the effects'
+        /// OnFinished forces the re-render that hands it over.
+        /// </summary>
+        private int ShownTurnHolder(PlayerView view)
+        {
+            int actual = view.CurrentInitialBuyer ?? view.ActivePlayer;
+            bool holdBack = TheatreBusy?.Invoke() == true && _shownTurnHolder >= 0 &&
+                            view.Players.Any(p => p.PlayerId == _shownTurnHolder);
+            _shownTurnHolder = holdBack ? _shownTurnHolder : actual;
+            return _shownTurnHolder;
+        }
 
         /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
         public Vector3? PlayerBarWorld(int playerId)

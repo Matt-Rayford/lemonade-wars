@@ -18,6 +18,9 @@ namespace LemonadeWars.Unity
         public System.Action OnBraggingDrop;
 
         private RectTransform _boardPanel;
+        /// <summary>The row's left inset inside the panel and the first cell's width (see RenderBoard's AddCard calls).</summary>
+        private const float BoardRowInsetPx = 6f;
+        private const float VictoryCellWidthPx = 188f;
         private RectTransform _boardRow;
         private RectMask2D _boardMask;
         private float _boardScroll;
@@ -542,27 +545,23 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Where a bought card pauses on its way to the buyer: the seam between the
-        /// victory-point slot and the Turf card, at the height of the shelf rule — so
-        /// it hovers half over the store, half over the table, blocking neither.
+        /// Where a bought card pauses on its way to the buyer: over the board's first
+        /// column (the victory-point slot), level with the buyer's own bar — so the
+        /// card sits right beside the row it is about to slide into. Measured from the
+        /// board PANEL, not the row's first cell: the row is rebuilt on every render and
+        /// a cell read before its layout pass sits wherever the row's centre happened to
+        /// be, which made the spot creep.
         /// </summary>
-        public Vector3 PurchaseShowcaseWorld()
+        public Vector3? PurchaseShowcaseWorld(int buyerId)
         {
-            float seamX;
-            if (_boardRow.childCount >= 2)
+            var bar = PlayerBarWorld(buyerId);
+            if (bar == null)
             {
-                var first = (RectTransform)_boardRow.GetChild(0);
-                var second = (RectTransform)_boardRow.GetChild(1);
-                float rightEdge = first.TransformPoint(new Vector3(first.rect.xMax, 0, 0)).x;
-                float leftEdge = second.TransformPoint(new Vector3(second.rect.xMin, 0, 0)).x;
-                seamX = (rightEdge + leftEdge) / 2f;
+                return null;
             }
-            else
-            {
-                seamX = _boardPanel.TransformPoint(new Vector3(_boardPanel.rect.xMin + 200f, 0, 0)).x;
-            }
-            float ruleY = _shelfRule.TransformPoint(_shelfRule.rect.center).y;
-            return new Vector3(seamX, ruleY, 0);
+            float columnX = _boardPanel.TransformPoint(
+                new Vector3(_boardPanel.rect.xMin + BoardRowInsetPx + VictoryCellWidthPx / 2f, 0, 0)).x;
+            return new Vector3(columnX, bar.Value.y, 0);
         }
     }
 }
