@@ -736,7 +736,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>Equip an in-hand Black Market instance, discarding a replaced card if needed.</summary>
-        private bool TryEquip(PlayerState player, int bmInstanceId, int? standInstanceId, int? replaceId, List<GameEvent> events)
+        private bool TryEquip(PlayerState player, int bmInstanceId, int? standInstanceId, int? replaceId,
+            List<GameEvent> events, int pricePaid = 0)
         {
             var def = Db.BlackMarket(State.BlackMarketInstances[bmInstanceId].DefId);
             List<int> equipped;
@@ -774,6 +775,7 @@ namespace LemonadeWars.Engine.Core
                 InstanceId = bmInstanceId,
                 DefId = def.Id,
                 TargetStandInstanceId = def.Target == EquipTarget.Stand ? standInstanceId : null,
+                Price = pricePaid,
             });
             return true;
         }

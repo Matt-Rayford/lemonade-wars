@@ -26,6 +26,11 @@ namespace LemonadeWars.Unity
         // always precedes it in the same event burst — Pay() for purchases, TryEquip's
         // event for free takes like Connections. Caption-only; never load-bearing.
         private int _lastSpenderId = -1;
+        /// <summary>
+        /// What the Black Market take in progress cost — the last payment, or 0 once a
+        /// free take's equip event says so — for the bills its drift slaps down.
+        /// </summary>
+        private int _lastMarketPrice;
 
         // The viewer's earnings collected across one roll, for the "you earned" recap.
         private List<string> _saleEarnings;
@@ -85,9 +90,12 @@ namespace LemonadeWars.Unity
             {
                 if (money.Amount < 0)
                 {
-                    // Remember who paid: the MarketRefilled that follows a purchase
-                    // carries no buyer, but Pay() always precedes it in the burst.
+                    // Remember who paid, and what: the MarketRefilled that follows a
+                    // purchase carries neither, but Pay() always precedes it in the
+                    // burst (the equip event, which also knows the price, comes after
+                    // the tantrum window — too late for the drift).
                     _lastSpenderId = money.PlayerId;
+                    _lastMarketPrice = -money.Amount;
                 }
                 _fx.QueueMoney(money.PlayerId, money.Amount);
                 if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
@@ -123,11 +131,9 @@ namespace LemonadeWars.Unity
                 // shelf's own index-from-price math in TableView.RenderSupply).
                 var bragArt = _art.BraggingRights((brag.Price - 16) / 2)
                     ?? _art.Back("braggingRights");
-                if (ShowsPurchaseTheatre(brag.PlayerId))
-                {
-                    _fx.QueuePurchase(bragArt, brag.PlayerId,
-                        () => _table.BraggingShelfWorld());
-                }
+                _fx.QueuePurchase(bragArt, brag.PlayerId, brag.Price, _art.Bill,
+                    () => _table.BraggingShelfWorld(),
+                    showCard: ShowsPurchaseTheatre(brag.PlayerId));
             }
             else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
             {
@@ -167,6 +173,7 @@ namespace LemonadeWars.Unity
                 // keyed there. But for free takes (Connections) this precedes the
                 // refill and is the only event naming the taker — remember them.
                 _lastSpenderId = bought.PlayerId;
+                _lastMarketPrice = bought.Price;
             }
             else if (gameEvent is MarketRefilled refilled)
             {
@@ -183,11 +190,9 @@ namespace LemonadeWars.Unity
                         ? _art.Stand(standBought.StandTypeId, topShape)
                         : _art.Stand(standBought.StandTypeId);
                 string typeId = standBought.StandTypeId;
-                if (ShowsPurchaseTheatre(standBought.PlayerId))
-                {
-                    _fx.QueuePurchase(standArt, standBought.PlayerId,
-                        () => _table.StandSupplyWorld(typeId));
-                }
+                _fx.QueuePurchase(standArt, standBought.PlayerId, standBought.Price, _art.Bill,
+                    () => _table.StandSupplyWorld(typeId),
+                    showCard: ShowsPurchaseTheatre(standBought.PlayerId));
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -372,26 +377,29 @@ namespace LemonadeWars.Unity
                 var art = card.DefId == null
                     ? null // refilled and re-bought inside one burst: art never seen
                     : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
-                if (art == null || !ShowsPurchaseTheatre(_lastSpenderId))
+                if (art == null)
                 {
-                    continue; // nothing to fly, or your own buy — the refill shows at once
+                    continue; // nothing to fly — leave the refill instant (status quo)
                 }
-                if (freshId >= 0)
+                bool showCard = ShowsPurchaseTheatre(_lastSpenderId);
+                if (showCard && freshId >= 0)
                 {
-                    _hiddenMarketIds.Add(freshId);
+                    _hiddenMarketIds.Add(freshId); // your own buy's refill shows at once
                 }
                 int originSlot = slot;   // geometric spot the departed card occupied
                 int revealId = freshId;  // capture per-flight, not per-loop
                 _fx.QueueSound(Sfx.CashRegister);
-                _fx.QueuePurchase(art, _lastSpenderId,
+                _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
                     () => _table.MarketSlotWorld(originSlot),
-                    () => ReleaseMarketCard(revealId));
+                    showCard ? () => ReleaseMarketCard(revealId) : null,
+                    showCard);
             }
         }
 
         /// <summary>
         /// Whose purchases get the showcase-and-fly treatment: everyone but the viewer,
-        /// who just clicked the card and already knows what they bought.
+        /// who just clicked the card and already knows what they bought (their money
+        /// still slaps down).
         /// </summary>
         private bool ShowsPurchaseTheatre(int buyerId) => buyerId != _session.Seat;
 

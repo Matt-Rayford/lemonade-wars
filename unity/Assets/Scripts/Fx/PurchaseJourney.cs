@@ -3,9 +3,10 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// A purchased card's trip from the shelf to its buyer: slides down to a showcase
-    /// spot beside the buyer's bar, holds there so the table can read it, then slides
-    /// into the bar while shrinking to badge size and fading out. 1.5 seconds end to end.
+    /// A purchased card's trip from the shelf to its buyer: after an optional delay it
+    /// slides down to a showcase spot beside the buyer's bar, holds there so the table
+    /// can read it, then slides into the bar while shrinking to badge size and fading
+    /// out. 1.5 seconds after the delay.
     /// OnLeaveShowcase fires once when the flight begins; OnDone only on the natural
     /// end — early teardown is the owner's job (EndActive).
     /// </summary>
@@ -17,6 +18,8 @@ namespace LemonadeWars.Unity
         /// <summary>Fade through the back half of the flight, so the shrink reads first.</summary>
         private const float FadeStartFraction = 0.5f;
 
+        /// <summary>Seconds the card waits on its shelf before sliding (the money arrives first).</summary>
+        public float Delay;
         public Vector2 Showcase;
         /// <summary>Resolved when the flight begins — the buyer's bar may have re-laid-out.</summary>
         public System.Func<Vector2> Destination;
@@ -48,9 +51,14 @@ namespace LemonadeWars.Unity
                 _from = _rect.anchoredPosition; // set by the spawner after Awake
             }
             _elapsed += Time.deltaTime;
-            if (_elapsed < ShowcaseUntilSeconds)
+            float since = _elapsed - Delay;
+            if (since < 0f)
             {
-                Slide(Mathf.Clamp01(_elapsed / SlideSeconds));
+                return; // still on the shelf while the money comes out
+            }
+            if (since < ShowcaseUntilSeconds)
+            {
+                Slide(Mathf.Clamp01(since / SlideSeconds));
                 return;
             }
             if (!_flying)
@@ -59,7 +67,7 @@ namespace LemonadeWars.Unity
                 _to = Destination?.Invoke() ?? Showcase;
                 OnLeaveShowcase?.Invoke();
             }
-            float flight = Mathf.Clamp01((_elapsed - ShowcaseUntilSeconds) / (TotalSeconds - ShowcaseUntilSeconds));
+            float flight = Mathf.Clamp01((since - ShowcaseUntilSeconds) / (TotalSeconds - ShowcaseUntilSeconds));
             Fly(flight);
             if (flight >= 1f)
             {

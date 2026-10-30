@@ -492,7 +492,8 @@ namespace LemonadeWars.Engine.Core
                 throw new InvalidActionException($"No {standType.Name}s left in the supply.");
             }
 
-            Pay(player, StandPrice(playerId, standTypeId), standType.Name, events);
+            int price = StandPrice(playerId, standTypeId);
+            Pay(player, price, standType.Name, events);
             if (spendAction)
             {
                 SpendAction();
@@ -514,6 +515,7 @@ namespace LemonadeWars.Engine.Core
                 PlayerId = playerId,
                 StandInstanceId = stand.InstanceId,
                 StandTypeId = standTypeId,
+                Price = price,
             });
         }
 
@@ -589,7 +591,8 @@ namespace LemonadeWars.Engine.Core
             if (duringSetup)
             {
                 // Pre-game purchases cannot be tantrummed — equip immediately.
-                TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events);
+                TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events,
+                    pricePaid: price);
                 AdvanceInitialBuyQueue(events);
                 return;
             }
@@ -631,7 +634,7 @@ namespace LemonadeWars.Engine.Core
         {
             var player = Player(item.OwnerId);
             if (!TryEquip(player, item.BmInstanceId!.Value,
-                    item.EquipStandInstanceId, item.EquipReplaceInstanceId, events))
+                    item.EquipStandInstanceId, item.EquipReplaceInstanceId, events, pricePaid: item.PaidCost))
             {
                 // Destination vanished mid-contest (cannot normally happen); card is lost.
                 State.BlackMarketDiscard.Add(item.BmInstanceId.Value);

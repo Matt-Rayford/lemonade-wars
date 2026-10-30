@@ -64,6 +64,8 @@ namespace LemonadeWars.Engine.Core
         public int PlayerId { get; set; }
         public int StandInstanceId { get; set; }
         public string StandTypeId { get; set; } = "";
+        /// <summary>Dollars paid; 0 when the stand arrived by a Rebrand swap.</summary>
+        public int Price { get; set; }
         public override string ToString() => $"P{PlayerId} bought {StandTypeId} stand";
     }
 
@@ -74,6 +76,8 @@ namespace LemonadeWars.Engine.Core
         public string DefId { get; set; } = "";
         /// <summary>Stand instance id, or null when equipped to Turf.</summary>
         public int? TargetStandInstanceId { get; set; }
+        /// <summary>Dollars paid; 0 for free takes (Connections, steals, discard recoveries).</summary>
+        public int Price { get; set; }
         public override string ToString() => $"P{PlayerId} equipped {DefId}";
     }
 
