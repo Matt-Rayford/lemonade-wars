@@ -63,6 +63,7 @@ namespace LemonadeWars.Unity
         private CardPreview _preview;
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
+        private int _shownDiceHeadline;
         private EffectsPlayer _fx;
         private PlayTheatre _playTheatre;
         private RectTransform _turnActionRow;
@@ -337,7 +338,13 @@ namespace LemonadeWars.Unity
             _picker.Tick(Input.mousePosition);
             // A roll that is still open for responses keeps its die on the table.
             _dice.Linger = View != null && View.PendingRollValue != null;
+            _dice.KeepForEarnings = EarningsStillShowing();
             _dice.Tick();
+            if (_dice.HeadlineRevision != _shownDiceHeadline)
+            {
+                _shownDiceHeadline = _dice.HeadlineRevision;
+                _renderedRevision = -1; // the banner carries the die's words
+            }
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();

@@ -383,7 +383,7 @@ namespace LemonadeWars.Engine.Core
                     {
                         State.BlackMarketDiscard.Add(bmId);
                     }
-                    RefillMarket();
+                    RefillMarket(marketIndex);
                     events.Add(new MarketRefilled { Market = State.Market.ToList() });
                     return true;
                 }

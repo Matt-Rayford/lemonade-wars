@@ -24,7 +24,7 @@ namespace LemonadeWars.Unity
 
         private void BuildPlayerPick()
         {
-            _pickRoot = UiKit.CreatePanel(Root, "PlayerPick", new Color(0, 0, 0, 0));
+            _pickRoot = UiKit.CreatePanel(_canvasRoot, "PlayerPick", new Color(0, 0, 0, 0));
             UiKit.Anchor(_pickRoot, Vector2.zero, Vector2.one);
             UiKit.AddClick(_pickRoot.gameObject, FinishPlayerPick);
 
@@ -74,6 +74,7 @@ namespace LemonadeWars.Unity
             _pickCard.gameObject.SetActive(cardArt != null);
             UiKit.Clear(_pickArrowHost);
             _pickRoot.SetAsLastSibling();
+            _pickRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _pickRoot.gameObject.SetActive(true);
             _preview.SetDragging(true); // no magnify pop-ups while aiming
         }

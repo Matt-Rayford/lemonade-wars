@@ -20,6 +20,7 @@ namespace LemonadeWars.Unity
         private enum Phase { Idle, Arriving, Holding, Departing, Fading }
 
         private const float ArriveSeconds = 0.3f;
+        private const float ReflectCrossSeconds = 0.6f;
         private const float MinHoldSeconds = 1.0f;
         private const float DepartSeconds = 0.5f;
         private const float FadeSeconds = 0.4f;
@@ -29,8 +30,8 @@ namespace LemonadeWars.Unity
         private const float EndHeight = 60f;
         private const float ArrowRefreshThresholdSq = 4f;
         private const float ArrowEdgeGapPx = 10f;
-        private const float BadgeDiameterPx = 48f;
-        /// <summary>The badge's centre sits this far inside the card's top-right corner: overlapping the edge, not hiding it.</summary>
+        private const float BadgeDiameterPx = 41f;
+        /// <summary>The badge's centre sits this far inside the card's top-left corner: overlapping the edge, not hiding it.</summary>
         private const float BadgeInsetPx = 10f;
         private const float LootGapPx = 18f;
         private const float GrabIconSizePx = 75f;
@@ -65,6 +66,7 @@ namespace LemonadeWars.Unity
         private Vector2 _to;
         private int _attackerId = -1;
         private int _targetId = -1;
+        private float _arriveSeconds = ArriveSeconds;
         private string _defId = "";
         private bool _resolveWhenReady;
         private bool _cancelWhenReady;
@@ -138,6 +140,7 @@ namespace LemonadeWars.Unity
                 _loot = BuildLoot(lootArt);
                 _loot.anchoredPosition = _from;
             }
+            _arriveSeconds = ArriveSeconds;
             _phase = Phase.Arriving;
             _phaseStart = Time.time;
             _holdUntil = Time.time + MinHoldSeconds;
@@ -152,6 +155,7 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
+            bool reflected = attackerId != _attackerId;
             _attackerId = attackerId;
             _targetId = targetId;
             _targetArrowDrawn = false;
@@ -159,8 +163,37 @@ namespace LemonadeWars.Unity
             // The engine drops the card-specific pick on a redirect; the attacker
             // re-picks on resolve, so the staged loot is no longer the truth.
             DestroyLoot();
+            if (reflected)
+            {
+                CrossToNewOwner();
+                return;
+            }
             RedrawArrows(force: true);
             GlowVictim();
+        }
+
+        /// <summary>
+        /// "As if you played it": a reflected attack slides across the table to the
+        /// reflector's side, its reaction pile fading behind it, so the card wearing
+        /// their badge is seen to BECOME theirs rather than just change hats.
+        /// </summary>
+        private void CrossToNewOwner()
+        {
+            var newShowcase = _showcaseWorld(_attackerId);
+            if (newShowcase == null)
+            {
+                RedrawArrows(force: true);
+                GlowVictim();
+                return;
+            }
+            FadeResponses();
+            UiKit.Clear(_arrowHost);
+            GlowVictim(off: true);
+            _from = _chip.anchoredPosition;
+            _showcase = Local(newShowcase.Value);
+            _arriveSeconds = ReflectCrossSeconds;
+            _holdUntil = Time.time + ReflectCrossSeconds + MinHoldSeconds;
+            EnterPhase(Phase.Arriving);
         }
 
         /// <summary>The attack landed: slide into the victim once the minimum hold is over.</summary>
@@ -194,6 +227,7 @@ namespace LemonadeWars.Unity
             if (IsActive)
             {
                 Advance();
+                TickSpread();
             }
             bool busy = IsBusy;
             if (_wasBusy && !busy)
@@ -210,14 +244,14 @@ namespace LemonadeWars.Unity
             {
                 case Phase.Arriving:
                 {
-                    float eased = Ease(Mathf.Clamp01(t / ArriveSeconds));
+                    float eased = Ease(Mathf.Clamp01(t / _arriveSeconds));
                     _chip.anchoredPosition = Vector2.Lerp(_from, _showcase, eased);
                     if (_loot != null)
                     {
                         _loot.anchoredPosition = Vector2.Lerp(_from, _lootShowcase, eased);
                     }
                     RedrawArrows(force: false);
-                    if (t >= ArriveSeconds)
+                    if (t >= _arriveSeconds)
                     {
                         EnterPhase(Phase.Holding);
                     }
@@ -428,9 +462,9 @@ namespace LemonadeWars.Unity
                 Object.Destroy(_badge.gameObject); // the staged card changed hands
             }
             var badge = TableView.CreatePlayerBadge(chip, _nameOf(playerId), BadgeDiameterPx);
-            badge.anchorMin = badge.anchorMax = new Vector2(1f, 1f);
+            badge.anchorMin = badge.anchorMax = new Vector2(0f, 1f);
             badge.pivot = new Vector2(0.5f, 0.5f);
-            badge.anchoredPosition = new Vector2(-BadgeInsetPx, -BadgeInsetPx);
+            badge.anchoredPosition = new Vector2(BadgeInsetPx, -BadgeInsetPx);
             if (remember)
             {
                 _badge = badge;

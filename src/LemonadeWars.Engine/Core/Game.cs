@@ -186,11 +186,24 @@ namespace LemonadeWars.Engine.Core
         private int MarketSize =>
             State.Players.Count == 2 ? Db.Config.BlackMarketFaceUp2Player : Db.Config.BlackMarketFaceUp;
 
-        private void RefillMarket()
+        /// <summary>
+        /// Top the row back up. A single taken card is replaced IN ITS OWN SLOT
+        /// (<paramref name="vacatedIndex"/>), so the shelf keeps its order and the
+        /// table can show the gap where the card was; any further shortfall appends.
+        /// </summary>
+        private void RefillMarket(int vacatedIndex = -1)
         {
             while (State.Market.Count < MarketSize && TryDrawBlackMarket(out int id))
             {
-                State.Market.Add(id);
+                if (vacatedIndex >= 0 && vacatedIndex <= State.Market.Count)
+                {
+                    State.Market.Insert(vacatedIndex, id);
+                    vacatedIndex = -1;
+                }
+                else
+                {
+                    State.Market.Add(id);
+                }
             }
         }
 
@@ -585,7 +598,7 @@ namespace LemonadeWars.Engine.Core
             }
 
             State.Market.RemoveAt(action.MarketIndex);
-            RefillMarket();
+            RefillMarket(action.MarketIndex);
             events.Add(new MarketRefilled { Market = State.Market.ToList() });
 
             if (duringSetup)

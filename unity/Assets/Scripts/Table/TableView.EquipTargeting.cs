@@ -33,7 +33,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void BuildEquipTargeting()
         {
-            _targetingRoot = UiKit.CreatePanel(Root, "EquipTargeting", new Color(0, 0, 0, 0));
+            _targetingRoot = UiKit.CreatePanel(_canvasRoot, "EquipTargeting", new Color(0, 0, 0, 0));
             UiKit.Anchor(_targetingRoot, Vector2.zero, Vector2.one);
             // Dim everything EXCEPT the board band: the live stands (tucked upgrades
             // and all) are the targets, so the player aims with full information.
@@ -155,6 +155,7 @@ namespace LemonadeWars.Unity
             }
 
             _targetingRoot.SetAsLastSibling();
+            _targetingRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _targetingRoot.gameObject.SetActive(true);
         }
 

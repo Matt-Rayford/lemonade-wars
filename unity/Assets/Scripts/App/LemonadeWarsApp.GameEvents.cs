@@ -49,22 +49,22 @@ namespace LemonadeWars.Unity
                 return; // autopilot is for fast testing — no theatre
             }
             string logLine = LogLine(gameEvent);
-            if (logLine != null)
+            // A roll's number is a secret until the die settles: its line waits.
+            bool logWaitsForDie = gameEvent is SaleRolled || gameEvent is DieRerolled || gameEvent is RollModified;
+            if (logLine != null && !logWaitsForDie)
             {
-                _actionLog.Add(logLine);
-                if (_actionLog.Count > 40)
-                {
-                    _actionLog.RemoveAt(0);
-                }
+                AddLogLine(logLine);
             }
+            System.Action onLanded = logLine == null ? null : () => AddLogLine(logLine);
             if (gameEvent is SaleRolled roll)
             {
-                // Played, not queued: it belongs to the tumble, which passive effects
+                // Played, not queued: it belongs to the throw, which passive effects
                 // deliberately wait behind.
                 Sfx.Play(Sfx.SaleRoll);
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
                     roll.Purpose,
-                    roll.StandInstanceId is int standId ? StandName(standId) : null);
+                    roll.StandInstanceId is int standId ? StandName(standId) : null,
+                    onLanded);
                 // Start collecting this roll's earnings; they are staged as bill piles
                 // once the roll settles.
                 _rollEarnings = new Dictionary<int, int>();
@@ -76,14 +76,14 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is DieRerolled reroll)
             {
-                Sfx.Play(Sfx.SaleRoll); // a second real tumble deserves the same sound
+                Sfx.Play(Sfx.SaleRoll); // a second real throw deserves the same sound
                 _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
-                    reroll.ByPlayerId == _session.Seat);
+                    reroll.ByPlayerId == _session.Seat, onLanded);
             }
             else if (gameEvent is RollModified modified)
             {
                 _dice.EnqueueModifier(NameOf(modified.PlayerId), BlackMarketName(modified.SourceDefId),
-                    modified.NewValue, modified.PlayerId == _session.Seat);
+                    modified.NewValue, modified.PlayerId == _session.Seat, onLanded);
             }
             else if (gameEvent is MoneyChanged money)
             {
@@ -439,6 +439,10 @@ namespace LemonadeWars.Unity
         /// hold it open several frames), so they are staged only once the pending roll
         /// is gone. The viewer's own earnings ring the coins first.
         /// </summary>
+        /// <summary>A roll's money is still being collected, or still sliding into bars.</summary>
+        private bool EarningsStillShowing() =>
+            _rollEarnings != null || _earningsInFlight.Values.Any(held => held > 0);
+
         private void FlushRollEarnings()
         {
             if (_rollEarnings == null || View == null || View.PendingRollValue != null)
@@ -507,6 +511,16 @@ namespace LemonadeWars.Unity
         /// (individual money ticks, window bookkeeping) or already folded into the
         /// line above (a run of draws grows its own line in place).
         /// </summary>
+        private void AddLogLine(string line)
+        {
+            _actionLog.Add(line);
+            if (_actionLog.Count > 40)
+            {
+                _actionLog.RemoveAt(0);
+            }
+            _renderedRevision = -1; // the log panel only redraws with the table
+        }
+
         private string LogLine(GameEvent e)
         {
             switch (e)

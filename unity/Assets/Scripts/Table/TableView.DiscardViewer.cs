@@ -39,7 +39,9 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void BuildDiscardViewer()
         {
-            _discardOverlay = UiKit.CreatePanel(Root, "DiscardOverlay", new Color(0, 0, 0, 0.82f));
+            // On the canvas root, not the table: the HUD's message strip is built after
+            // the table and would otherwise sit on top of the dimming, undimmed.
+            _discardOverlay = UiKit.CreatePanel(_canvasRoot, "DiscardOverlay", new Color(0, 0, 0, 0.82f));
             UiKit.Anchor(_discardOverlay, Vector2.zero, Vector2.one);
             UiKit.AddClick(_discardOverlay.gameObject, CloseDiscardViewer);
 
@@ -165,6 +167,13 @@ namespace LemonadeWars.Unity
         {
             _discardTitle.text = cards.Count == 0 ? $"{title} — EMPTY" : $"{title} ({cards.Count})";
             FillDiscardGrid(cards, blackMarket, null);
+            ShowDiscardOverlay();
+        }
+
+        /// <summary>Raised to the top of the canvas every time: everything built since (HUD strip, theatre) goes under its dim.</summary>
+        private void ShowDiscardOverlay()
+        {
+            _discardOverlay.SetAsLastSibling();
             _discardOverlay.gameObject.SetActive(true);
         }
 
@@ -185,7 +194,7 @@ namespace LemonadeWars.Unity
             _discardOnBack = onBack;
             FillDiscardGrid(cards, blackMarket, nameOf, disabledReason);
             _discardBackButton.SetActive(onBack != null);
-            _discardOverlay.gameObject.SetActive(true);
+            ShowDiscardOverlay();
         }
 
         private void FillDiscardGrid(IReadOnlyList<PlayerView.CardInfo> cards, bool blackMarket,

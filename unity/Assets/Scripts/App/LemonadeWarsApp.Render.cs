@@ -184,7 +184,12 @@ namespace LemonadeWars.Unity
         private void RenderBanner()
         {
             string banner;
-            if (_reaction.IsOpen)
+            if (_dice.Headline is string dieHeadline)
+            {
+                // Whose roll is in the air — and, once it lands, the number.
+                banner = dieHeadline;
+            }
+            else if (_reaction.IsOpen)
             {
                 // The response panel's headline lives HERE while it is open, so the
                 // panel itself can stay all cards and buttons.

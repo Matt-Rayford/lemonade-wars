@@ -16,6 +16,9 @@ namespace LemonadeWars.Unity
         public Vector2 From;
         public Vector2 To;
 
+        /// <summary>Once down, the card is the pile's to place (hover spreads it); the slap no longer moves it.</summary>
+        public bool Landed { get; private set; }
+
         private RectTransform _rect;
         private CanvasGroup _group;
         private float _elapsed;
@@ -49,10 +52,15 @@ namespace LemonadeWars.Unity
                 }
                 return;
             }
+            if (Landed)
+            {
+                return;
+            }
             float t = Mathf.Clamp01(_elapsed / SlapSeconds);
             float eased = t * t; // accelerating in: the hand comes DOWN, it doesn't float
             _rect.anchoredPosition = Vector2.Lerp(From, To, eased);
             transform.localScale = Vector3.one * Mathf.Lerp(LiftScale, 1f, eased);
+            Landed = t >= 1f;
         }
     }
 }

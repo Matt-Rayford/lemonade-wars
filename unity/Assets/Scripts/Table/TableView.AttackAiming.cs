@@ -66,7 +66,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void BuildAttackTargeting()
         {
-            _attackRoot = UiKit.CreatePanel(Root, "AttackTargeting", new Color(0, 0, 0, 0));
+            _attackRoot = UiKit.CreatePanel(_canvasRoot, "AttackTargeting", new Color(0, 0, 0, 0));
             UiKit.Anchor(_attackRoot, Vector2.zero, Vector2.one);
             // Click mode: a click on a glowing bar fires, anywhere else disarms.
             UiKit.AddClick(_attackRoot.gameObject, FinishAttackTargeting);
@@ -119,6 +119,7 @@ namespace LemonadeWars.Unity
                     break;
                 }
             }
+            _attackRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _attackRoot.gameObject.SetActive(true);
         }
 
@@ -207,6 +208,7 @@ namespace LemonadeWars.Unity
             }
             // Force the next Tick to redraw the arrow from the (possibly new) frame.
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
+            _attackRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _attackRoot.gameObject.SetActive(true);
         }
 
