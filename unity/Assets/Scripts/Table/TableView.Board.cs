@@ -540,5 +540,29 @@ namespace LemonadeWars.Unity
                 new Color(0, 0, 0, 0.55f)).color = Color.white;
             return (RectTransform)cell.transform;
         }
+
+        /// <summary>
+        /// Where a bought card pauses on its way to the buyer: the seam between the
+        /// victory-point slot and the Turf card, at the height of the shelf rule — so
+        /// it hovers half over the store, half over the table, blocking neither.
+        /// </summary>
+        public Vector3 PurchaseShowcaseWorld()
+        {
+            float seamX;
+            if (_boardRow.childCount >= 2)
+            {
+                var first = (RectTransform)_boardRow.GetChild(0);
+                var second = (RectTransform)_boardRow.GetChild(1);
+                float rightEdge = first.TransformPoint(new Vector3(first.rect.xMax, 0, 0)).x;
+                float leftEdge = second.TransformPoint(new Vector3(second.rect.xMin, 0, 0)).x;
+                seamX = (rightEdge + leftEdge) / 2f;
+            }
+            else
+            {
+                seamX = _boardPanel.TransformPoint(new Vector3(_boardPanel.rect.xMin + 200f, 0, 0)).x;
+            }
+            float ruleY = _shelfRule.TransformPoint(_shelfRule.rect.center).y;
+            return new Vector3(seamX, ruleY, 0);
+        }
     }
 }

@@ -123,8 +123,11 @@ namespace LemonadeWars.Unity
                 // shelf's own index-from-price math in TableView.RenderSupply).
                 var bragArt = _art.BraggingRights((brag.Price - 16) / 2)
                     ?? _art.Back("braggingRights");
-                _fx.QueuePurchase(bragArt, PurchaseCaption(brag.PlayerId),
-                    () => _table.BraggingShelfWorld());
+                if (ShowsPurchaseTheatre(brag.PlayerId))
+                {
+                    _fx.QueuePurchase(bragArt, brag.PlayerId, PurchaseCaption(brag.PlayerId),
+                        () => _table.BraggingShelfWorld());
+                }
             }
             else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
             {
@@ -180,8 +183,11 @@ namespace LemonadeWars.Unity
                         ? _art.Stand(standBought.StandTypeId, topShape)
                         : _art.Stand(standBought.StandTypeId);
                 string typeId = standBought.StandTypeId;
-                _fx.QueuePurchase(standArt, PurchaseCaption(standBought.PlayerId),
-                    () => _table.StandSupplyWorld(typeId));
+                if (ShowsPurchaseTheatre(standBought.PlayerId))
+                {
+                    _fx.QueuePurchase(standArt, standBought.PlayerId, PurchaseCaption(standBought.PlayerId),
+                        () => _table.StandSupplyWorld(typeId));
+                }
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -312,9 +318,9 @@ namespace LemonadeWars.Unity
                 var art = card.DefId == null
                     ? null // refilled and re-bought inside one burst: art never seen
                     : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
-                if (art == null)
+                if (art == null || !ShowsPurchaseTheatre(_lastSpenderId))
                 {
-                    continue; // nothing to fly — leave the refill instant (status quo)
+                    continue; // nothing to fly, or your own buy — the refill shows at once
                 }
                 if (freshId >= 0)
                 {
@@ -323,11 +329,17 @@ namespace LemonadeWars.Unity
                 int originSlot = slot;   // geometric spot the departed card occupied
                 int revealId = freshId;  // capture per-flight, not per-loop
                 _fx.QueueSound(Sfx.CashRegister);
-                _fx.QueuePurchase(art, PurchaseCaption(_lastSpenderId),
+                _fx.QueuePurchase(art, _lastSpenderId, PurchaseCaption(_lastSpenderId),
                     () => _table.MarketSlotWorld(originSlot),
                     () => ReleaseMarketCard(revealId));
             }
         }
+
+        /// <summary>
+        /// Whose purchases get the showcase-and-fly treatment: everyone but the viewer,
+        /// who just clicked the card and already knows what they bought.
+        /// </summary>
+        private bool ShowsPurchaseTheatre(int buyerId) => buyerId != _session.Seat;
 
         /// <summary>Drift delivery: let the hidden refill card show itself. Fires
         /// exactly once per flight on every path (landing, skip, effects Clear).</summary>

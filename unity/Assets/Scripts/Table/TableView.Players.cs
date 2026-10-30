@@ -32,14 +32,15 @@ namespace LemonadeWars.Unity
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
-        /// the player after you; you sit pinned at the bottom. The lemon is the
-        /// first-player token — it stays put all game (the banner and status line
-        /// already say whose turn it is).
+        /// the player after you; you sit pinned at the bottom. The lemon marks whose
+        /// turn it is and moves with the turn (the hourglass separately marks whoever
+        /// the table is waiting on, which mid-window is often someone else).
         /// </summary>
         private void RenderPlayers(PlayerView view)
         {
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
+            _cashIcons.Clear();
             int count = view.Players.Count;
             int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
             for (int offset = 1; offset <= count; offset++)
@@ -77,10 +78,10 @@ namespace LemonadeWars.Unity
             background.color = new Color(0, 0, 0, 0.32f);
             row.GetComponent<LayoutElement>().minHeight = 82;
 
-            // First-player lemon token, right edge — stays put for the whole game.
-            if (playerId == view.FirstPlayer && _lemonIcon != null)
+            // Turn lemon, right edge: sits with the active player and moves each turn.
+            if (playerId == view.ActivePlayer && _lemonIcon != null)
             {
-                var lemonGo = new GameObject("FirstPlayerLemon", typeof(RectTransform), typeof(RawImage));
+                var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
                 lemonGo.transform.SetParent(row.transform, false);
                 var lemonRect = (RectTransform)lemonGo.transform;
                 lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
@@ -188,7 +189,11 @@ namespace LemonadeWars.Unity
             statsGo.transform.SetParent(row.transform, false);
             var stats = UiKit.Anchor((RectTransform)statsGo.transform,
                 new Vector2(0, 0), new Vector2(1, 0.56f), new Vector2(80, 4), new Vector2(-52, -1));
-            AddStatAt(stats, _cashIcon, $"${player.Money}", 0f, 36f);
+            var cashIcon = AddStatAt(stats, _cashIcon, $"${player.Money}", 0f, 36f);
+            if (cashIcon != null)
+            {
+                _cashIcons[playerId] = cashIcon; // money floaters rise from the coin itself
+            }
             // Hand size is targeting intel: fewer cards = fewer possible reactions.
             AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
             AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
@@ -253,14 +258,16 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>One icon-plus-count chip at a fixed column offset in the stat row.</summary>
-        private static void AddStatAt(RectTransform parent, Texture2D icon, string count,
+        /// <summary>Returns the icon's rect (null when the icon texture is missing).</summary>
+        private static RectTransform AddStatAt(RectTransform parent, Texture2D icon, string count,
             float columnX, float iconWidth)
         {
+            RectTransform iconRect = null;
             if (icon != null)
             {
                 var iconGo = new GameObject("StatIcon", typeof(RectTransform), typeof(RawImage));
                 iconGo.transform.SetParent(parent, false);
-                var iconRect = (RectTransform)iconGo.transform;
+                iconRect = (RectTransform)iconGo.transform;
                 iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
                 iconRect.pivot = new Vector2(0f, 0.5f);
                 iconRect.sizeDelta = new Vector2(iconWidth, 36f);
@@ -279,7 +286,14 @@ namespace LemonadeWars.Unity
             textRect.pivot = new Vector2(0f, 0.5f);
             textRect.sizeDelta = new Vector2(60f, 34f);
             textRect.anchoredPosition = new Vector2(columnX + iconWidth + 5f, 0f);
+            return iconRect;
         }
+
+        /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>
+        public Vector3? PlayerCashWorld(int playerId) =>
+            _cashIcons.TryGetValue(playerId, out var icon) && icon != null
+                ? icon.TransformPoint(icon.rect.center)
+                : (Vector3?)null;
 
         /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
         public Vector3? PlayerBarWorld(int playerId)

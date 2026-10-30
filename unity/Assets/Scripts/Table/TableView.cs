@@ -40,6 +40,8 @@ namespace LemonadeWars.Unity
             new List<(int?, RectTransform, Texture2D)>();
         private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
             _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
+        private readonly Dictionary<int, RectTransform> _cashIcons = new Dictionary<int, RectTransform>();
+        private RectTransform _shelfRule;
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
             new List<(int, RectTransform, GameObject)>();
         private readonly List<(int Id, RectTransform Strip, GameObject Glow)> _equipCells =
@@ -122,6 +124,7 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(shelfRule, new Vector2(0f, 0.70f), new Vector2(1f, 0.70f),
                 new Vector2(0, 0), new Vector2(0, 4));
             shelfRule.GetComponent<Image>().raycastTarget = false;
+            _shelfRule = shelfRule;
 
             // Center: your board (turf + stands). Also a drop zone for supply stands.
             // Transparent — cards float on the table; the Image still catches drops.

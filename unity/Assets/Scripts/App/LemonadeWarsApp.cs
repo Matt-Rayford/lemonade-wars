@@ -184,7 +184,9 @@ namespace LemonadeWars.Unity
             // Above the table, below the modal overlays built after it.
             _fx = new EffectsPlayer(root,
                 () => _dice.IsBusy || _turnBanner.IsOpen,
-                playerId => _table.PlayerBarWorld(playerId));
+                playerId => _table.PlayerBarWorld(playerId),
+                playerId => _table.PlayerCashWorld(playerId),
+                () => _table.PurchaseShowcaseWorld());
             _fx.OnFinished = () =>
             {
                 // Re-render so modals held back behind the theatre open now.
