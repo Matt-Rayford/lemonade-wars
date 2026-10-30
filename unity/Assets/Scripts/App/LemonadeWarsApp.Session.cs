@@ -114,7 +114,7 @@ namespace LemonadeWars.Unity
                 (ulong)System.DateTime.Now.Ticks,
                 _soloBots.Select(b => b.Level).ToList());
             localSession.BotStepSeconds = LocalStepSeconds(PlayerPrefs.GetString(SpeedPref, "medium"));
-            localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen;
+            localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen || _playTheatre.IsBusy;
             _session = localSession;
             _session.EventEmitted += OnGameEvent;
             EnterGame();
@@ -279,6 +279,7 @@ namespace LemonadeWars.Unity
             _turnBanner.Hide();
             _dice.Clear();
             _fx.Clear();
+            _playTheatre.Clear();
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhiniestBaby = false; // a dropped mid-flight claim must not hide it forever
             _table.SuppressSpoiledRotten = false;
@@ -326,6 +327,7 @@ namespace LemonadeWars.Unity
             _turnBanner.Hide();
             _dice.Clear();
             _fx.Clear();
+            _playTheatre.Clear();
             _lobby.ShowMenu(status);
         }
 

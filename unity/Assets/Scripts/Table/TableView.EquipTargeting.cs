@@ -6,7 +6,7 @@ namespace LemonadeWars.Unity
 {
     // Equip targeting: the table dims EXCEPT the board band — you aim at your real
     // stands (tucked upgrades visible, so "that one is full" is legible), with the
-    // taken card floating up top and a dashed arrow to the hovered cell.
+    // taken card floating up top and a arrow to the hovered cell.
     public sealed partial class TableView
     {
         /// <summary>True while the aim-at-your-stands layer is up — the modal pipeline
@@ -158,7 +158,7 @@ namespace LemonadeWars.Unity
             _targetingRoot.gameObject.SetActive(true);
         }
 
-        /// <summary>Called every frame by the app; drives hover glow + the dashed arrow.</summary>
+        /// <summary>Called every frame by the app; drives hover glow + the arrow.</summary>
         public void TickEquipTargeting(Vector2 screenPosition)
         {
             if (_targetingPick == null)
@@ -208,7 +208,7 @@ namespace LemonadeWars.Unity
 
                         var world = cell.TransformPoint(
                             new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
-                        UiKit.DrawDashedArrow(_targetingArrowHost, _targetingCardBottom,
+                        UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
                             (Vector2)_targetingRoot.InverseTransformPoint(world),
                             UiKit.ButtonColor);
                         break;
@@ -259,7 +259,7 @@ namespace LemonadeWars.Unity
                         strip.rect.width + 26, strip.rect.height + 26, DropGlowHot);
                     var world = strip.TransformPoint(
                         new Vector3(strip.rect.center.x, strip.rect.yMax, 0));
-                    UiKit.DrawDashedArrow(_targetingArrowHost, _targetingCardBottom,
+                    UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
                         (Vector2)_targetingRoot.InverseTransformPoint(world),
                         UiKit.ButtonColor);
                     break;

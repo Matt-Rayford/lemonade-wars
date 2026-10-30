@@ -30,8 +30,6 @@ namespace LemonadeWars.Unity
         private const float RevealHoldSeconds = 2.0f;
         /// <summary>Height a purchased card shrinks to on arrival: a little under the 82px player bar.</summary>
         private const float PurchaseEndHeight = 60f;
-        /// <summary>Showcased purchases sit this much left of the board's first column, nearer the bars they join.</summary>
-        private const float ShowcaseLeftShiftPx = -10f;
 
         private sealed class RevealFx : Fx
         {
@@ -561,9 +559,7 @@ namespace LemonadeWars.Unity
         private Vector2 ShowcaseSpot(int buyerId)
         {
             var world = _showcaseWorld(buyerId) ?? _anchorFor(buyerId);
-            return world == null
-                ? Vector2.zero
-                : (Vector2)_layer.InverseTransformPoint(world.Value) - new Vector2(ShowcaseLeftShiftPx, 0);
+            return world == null ? Vector2.zero : (Vector2)_layer.InverseTransformPoint(world.Value);
         }
 
         /// <summary>The buyer's bar in layer space; a bar that is off-screen keeps the card at the showcase.</summary>

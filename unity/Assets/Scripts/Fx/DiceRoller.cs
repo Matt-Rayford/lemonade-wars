@@ -128,7 +128,7 @@ namespace LemonadeWars.Unity
             // The roll lives in the shelf band, not over the whole screen: a die is
             // theatre, and the table underneath stays readable while it tumbles.
             _root = UiKit.CreatePanel(canvasRoot, "DiceBand", new Color(0.04f, 0.05f, 0.08f, 0.93f));
-            UiKit.Anchor(_root, new Vector2(0f, 0.695f), new Vector2(1f, 0.95f));
+            UiKit.Anchor(_root, new Vector2(0f, 0.75f), new Vector2(1f, 1f));
             _group = _root.gameObject.AddComponent<CanvasGroup>();
 
             _title = UiKit.CreateText(_root, "", 24, TextAnchor.MiddleCenter, Color.white);

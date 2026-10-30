@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using TMPro;
@@ -20,6 +21,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         public System.Func<bool> TheatreBusy;
         private int _shownTurnHolder = -1;
+        private List<int> _shownAwaited;
 
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
         private static readonly Color[] BadgeColors =
@@ -89,6 +91,7 @@ namespace LemonadeWars.Unity
             // Turn lemon, right edge: sits with whoever holds the turn and moves with
             // it — the drafter during setup (ActivePlayer is frozen until play starts).
             int turnHolder = ShownTurnHolder(view);
+            var awaited = ShownAwaited(view);
             if (playerId == turnHolder && _lemonIcon != null)
             {
                 var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
@@ -128,7 +131,7 @@ namespace LemonadeWars.Unity
             // The table is waiting on this player — their turn, a reaction window,
             // a discard, a lord pick — so their badge greys out under the hourglass.
             // Several can wait at once (a window open to everyone); each gets one.
-            if (view.ActingPlayers.Contains(playerId) && !isMe)
+            if (awaited.Contains(playerId) && !isMe)
             {
                 var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
                 shadeGo.transform.SetParent(badgeGo.transform, false);
@@ -299,11 +302,40 @@ namespace LemonadeWars.Unity
             return iconRect;
         }
 
+        /// <summary>World-space middle of a player's bar's right edge — where arrows to/from the bar attach.</summary>
+        public Vector3? PlayerBarEdgeWorld(int playerId)
+        {
+            foreach (var (id, row, _) in _playerRows)
+            {
+                if (id == playerId && row != null)
+                {
+                    return row.TransformPoint(new Vector3(row.rect.xMax, row.rect.center.y, 0));
+                }
+            }
+            return null;
+        }
+
         /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>
         public Vector3? PlayerCashWorld(int playerId) =>
             _cashIcons.TryGetValue(playerId, out var icon) && icon != null
                 ? icon.TransformPoint(icon.rect.center)
                 : (Vector3?)null;
+
+        /// <summary>
+        /// Who wears the hourglass this render: the players the engine is waiting on,
+        /// except that while the theatre is still playing out the previous set keeps
+        /// it — the hourglass and the lemon move together, once the last animation ends.
+        /// </summary>
+        private IReadOnlyList<int> ShownAwaited(PlayerView view)
+        {
+            bool holdBack = TheatreBusy?.Invoke() == true && _shownAwaited != null &&
+                            _shownAwaited.All(id => view.Players.Any(p => p.PlayerId == id));
+            if (!holdBack)
+            {
+                _shownAwaited = view.ActingPlayers.ToList();
+            }
+            return _shownAwaited;
+        }
 
         /// <summary>
         /// Whose lemon it is this render: the engine's turn holder, except that while

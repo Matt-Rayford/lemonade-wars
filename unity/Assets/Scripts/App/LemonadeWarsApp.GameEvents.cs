@@ -212,12 +212,30 @@ namespace LemonadeWars.Unity
                 {
                     _fx.QueueSound(Sfx.AttackCard);
                 }
-                if (played.PlayerId != _session.Seat && PlayRevealTitle(played) is string revealTitle)
+                if (played.PlayerId != _session.Seat && played.TargetPlayerId is int target)
                 {
-                    // Someone ELSE played a card at a player: one card-reveal beat
-                    // showing the card and naming both sides. If a response modal is
-                    // about to open for us, the window event below cancels this —
-                    // the modal tells the same story.
+                    // Someone ELSE attacked: stage the card on the table, arrowed from
+                    // attacker to victim, and hold it there through any reactions.
+                    _stagedAttacker = played.PlayerId;
+                    // A steal stages its loot beside the attack: the card about to change hands.
+                    var loot = played.DefId == "finders-keepers" && played.StolenDefId != null
+                        ? _art.BlackMarket(played.StolenDefId, played.StolenShape ?? Shape.Square)
+                        : null;
+                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId, target, loot);
+                }
+                else if (played.PlayerId != _session.Seat && TakenArt(played) is UnityEngine.Texture2D taken)
+                {
+                    // Someone ELSE is taking a card from the discard: stage the play with
+                    // the loot beside it, held through any reactions, then home to them.
+                    _stagedAttacker = played.PlayerId;
+                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId, -1, taken);
+                }
+                else if (played.PlayerId != _session.Seat && PlayRevealTitle(played) is string revealTitle)
+                {
+                    // Someone ELSE played a response or a plan worth a beat: one
+                    // card-reveal naming both sides. If a response modal is about to
+                    // open for us, the window event below cancels this — the modal
+                    // tells the same story.
                     _fx.QueueReveal(_art.Lemon(played.DefId), revealTitle);
                 }
             }
@@ -228,20 +246,36 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is AttackRedirected redirect)
             {
+                _playTheatre.Retarget(_stagedAttacker, redirect.NewTargetId);
                 _fx.QueueToast($"{NameOf(redirect.ByPlayerId).ToUpperInvariant()} TAGS IT TO " +
                     $"{NameOf(redirect.NewTargetId).ToUpperInvariant()}!");
             }
             else if (gameEvent is AttackReflected reflect)
             {
+                // "As if you played it": the reflector owns the attack from here on.
+                _stagedAttacker = reflect.ByPlayerId;
+                _playTheatre.Retarget(reflect.ByPlayerId, reflect.NewTargetId);
                 _fx.QueueToast($"{NameOf(reflect.ByPlayerId).ToUpperInvariant()} " +
                     "REFLECTS IT BACK!");
             }
             else if (gameEvent is AttackFizzled fizzle)
             {
+                if (_playTheatre.Matches(fizzle.OwnerId, fizzle.DefId))
+                {
+                    _playTheatre.Cancel();
+                }
                 _fx.QueueToast($"{LemonName(fizzle.DefId).ToUpperInvariant()} FIZZLES!");
+            }
+            else if (gameEvent is PlayResolved resolved && _playTheatre.Matches(resolved.OwnerId, resolved.DefId))
+            {
+                _playTheatre.Resolve();
             }
             else if (gameEvent is PlayCancelled cancelled)
             {
+                if (_playTheatre.Matches(cancelled.OwnerId, cancelled.DefId))
+                {
+                    _playTheatre.Cancel();
+                }
                 // The Inflatable Decoy is an equipped reaction with no play event of
                 // its own — without a reveal it cancels invisibly and reads as a bug.
                 if (cancelled.WithDefId == "inflatable-decoy" && cancelled.ByPlayerId is int blocker)
@@ -255,6 +289,26 @@ namespace LemonadeWars.Unity
                 _fx.QueueToast($"{NameOf(cancelled.OwnerId).ToUpperInvariant()}'S " +
                     $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED{byWhat}!");
             }
+        }
+
+        /// <summary>Who currently owns the staged play (a reflection hands an attack over).</summary>
+        private int _stagedAttacker = -1;
+
+        /// <summary>
+        /// Art of the discard card a take is lifting, for the plays that take one:
+        /// Reduce and Reuse (a Black Market card) and Reverse Engineer (a Lemon card,
+        /// unless it drew instead). Null for everything else.
+        /// </summary>
+        private UnityEngine.Texture2D TakenArt(LemonCardPlayed played)
+        {
+            if (played.TakenDefId == null ||
+                (played.DefId != "reduce-and-reuse" && played.DefId != "reverse-engineer"))
+            {
+                return null;
+            }
+            return played.TakenIsLemon
+                ? _art.Lemon(played.TakenDefId)
+                : _art.BlackMarket(played.TakenDefId, played.TakenShape ?? Shape.Square);
         }
 
         // ------------------------------------------------- purchase theatre

@@ -142,7 +142,7 @@ namespace LemonadeWars.Unity
             _pickArrowFrom = from;
             _pickArrowTo = to;
             UiKit.Clear(_pickArrowHost);
-            UiKit.DrawDashedArrow(_pickArrowHost, from, to, AttackArrowColor);
+            UiKit.DrawArrow(_pickArrowHost, from, to, AttackArrowColor);
         }
 
         /// <summary>The decision is blocking: clicking empty space keeps aiming.</summary>

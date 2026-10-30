@@ -21,6 +21,8 @@ namespace LemonadeWars.Unity
         /// <summary>The row's left inset inside the panel and the first cell's width (see RenderBoard's AddCard calls).</summary>
         private const float BoardRowInsetPx = 6f;
         private const float VictoryCellWidthPx = 188f;
+        /// <summary>Horizontal nudge of the showcase off that column's centre (negative = right); tuned at the table.</summary>
+        private const float ShowcaseLeftShiftPx = -10f;
         private RectTransform _boardRow;
         private RectMask2D _boardMask;
         private float _boardScroll;
@@ -545,8 +547,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Where a bought card pauses on its way to the buyer: over the board's first
-        /// column (the victory-point slot), level with the buyer's own bar — so the
+        /// Where a bought (or staged attack) card pauses: left of the board's first
+        /// column (the victory-point slot), level with the player's own bar — so the
         /// card sits right beside the row it is about to slide into. Measured from the
         /// board PANEL, not the row's first cell: the row is rebuilt on every render and
         /// a cell read before its layout pass sits wherever the row's centre happened to
@@ -559,8 +561,8 @@ namespace LemonadeWars.Unity
             {
                 return null;
             }
-            float columnX = _boardPanel.TransformPoint(
-                new Vector3(_boardPanel.rect.xMin + BoardRowInsetPx + VictoryCellWidthPx / 2f, 0, 0)).x;
+            float columnX = _boardPanel.TransformPoint(new Vector3(
+                _boardPanel.rect.xMin + BoardRowInsetPx + VictoryCellWidthPx / 2f - ShowcaseLeftShiftPx, 0, 0)).x;
             return new Vector3(columnX, bar.Value.y, 0);
         }
     }

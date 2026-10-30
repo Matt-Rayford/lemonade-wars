@@ -6,8 +6,8 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>Revision-gated rendering: the table, status bar, turn banner and action
-    /// bars, plus the end-of-game scoreboard.</summary>
+    /// <summary>Revision-gated rendering: the table, turn banner and action bars, plus
+    /// the end-of-game scoreboard.</summary>
     public sealed partial class LemonadeWarsApp
     {
         private bool _endShown;
@@ -56,8 +56,7 @@ namespace LemonadeWars.Unity
             }
 
             // A resolved response window: the reaction panel must not outlive the
-            // stack item it was answering — and it must close BEFORE the banner is
-            // drawn, or the bar keeps narrating the old play for one more revision.
+            // stack item it was answering.
             if (_reaction.IsOpen && !ReactionWindowDue(groups))
             {
                 _reaction.Hide();
@@ -65,7 +64,6 @@ namespace LemonadeWars.Unity
 
             try
             {
-                ClearTransientStatus();
                 RenderBanner();
                 // A tumbling die withholds every affordance: the roll may still open
                 // a response window, and acting on the next turn before the sale
@@ -80,9 +78,9 @@ namespace LemonadeWars.Unity
             catch (System.Exception e)
             {
                 // A render throw must never silently brick the frame (stale action
-                // bar, half-drawn table). Name the culprit where the player looks.
+                // bar, half-drawn table).
                 Debug.LogException(e);
-                _statusText.text = $"render error: {e.GetType().Name} — check the console";
+                Debug.LogError($"render error: {e.GetType().Name} — see the exception above");
             }
             MaybeAnnounceTurn();
             // A finished player-pick (or a state that moved past it) must drop the
@@ -96,9 +94,9 @@ namespace LemonadeWars.Unity
                     _table.EndPlayerPick();
                 }
             }
-            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
+            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy)
             {
-                return; // decisions wait behind the ONWARD! button / the die / effects
+                return; // decisions wait behind the ONWARD! button / the die / effects / a staged attack's arrival
             }
             MaybeShowModal(groups, revision);
         }
@@ -107,7 +105,7 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy))
+            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy))
             {
                 // Let the die and effects finish first; their OnFinished forces a
                 // re-render that lands back here with the turn edge still unconsumed.
@@ -161,17 +159,6 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// The top-left of the bar carries no game info any more — it crowded the
-        /// centered turn banner (room code, title holders, "waiting on" all live on
-        /// the player bars or in the log). It only ever shows transient diagnostics
-        /// (a render error, the [D] dump), which the next good render clears.
-        /// </summary>
-        private void ClearTransientStatus()
-        {
-            _statusText.text = "";
-        }
-
-        /// <summary>
         /// The players the table is blocked on, joined for the banner — when that is
         /// not simply the active player taking an ordinary turn, not you (your own
         /// waits are the reaction panel or a modal), and not the setup stages, which
@@ -189,14 +176,18 @@ namespace LemonadeWars.Unity
             return isPlainTurn ? null : string.Join(" & ", View.ActingPlayers.Select(NameOf));
         }
 
+        /// <summary>
+        /// The one line of words the table keeps: whose turn, who is being waited on,
+        /// what card is resolving. Yellow, centred in the clear strip between the
+        /// shelf and the board, where the eye rests between the two.
+        /// </summary>
         private void RenderBanner()
         {
             string banner;
             if (_reaction.IsOpen)
             {
-                // The response panel's headline lives HERE while it is open: the bar
-                // was saying nearly the same thing, and the freed band keeps showing
-                // the die (or the attack) you are responding to.
+                // The response panel's headline lives HERE while it is open, so the
+                // panel itself can stay all cards and buttons.
                 banner = _reactionBanner;
             }
             else if (View.Stage == GameStage.Finished)
@@ -241,11 +232,11 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
-            _topBanner.text = banner;
+            _tableMessage.text = banner;
         }
 
         /// <summary>
-        /// Third-person headline for the yellow bar while a card sits on the stack:
+        /// Third-person headline for the table message while a card sits on the stack:
         /// plain plays ("Dex plays Automation"), attacks ("Dex plays Slander on Kim"),
         /// and reactions (tags, reflections, tantrums) all name the card instead of
         /// falling back to the generic "X's turn — Phase" label.
@@ -297,8 +288,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// The two "advance the game" buttons, pinned top-right in the status bar:
-        /// short labels, dark chips against the yellow.
+        /// The two "advance the game" buttons, pinned top-right on the bare table
+        /// between the shelf and the board: short labels, the table's chip look.
         /// </summary>
         private void RenderTurnActions(MoveGroups groups)
         {
@@ -330,10 +321,10 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>One dark, centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
+        /// <summary>One centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
         private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
         {
-            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick, dark: true,
+            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick,
                 clickSound: clickSound);
             var element = button.GetComponent<LayoutElement>();
             element.minWidth = 190;
@@ -355,7 +346,7 @@ namespace LemonadeWars.Unity
                 if (move is RefreshMarket || move is DrawLemonCard ||
                     move is EndTurn || move is InitialBuyEnd)
                 {
-                    continue; // these live on the table / in the top bar now
+                    continue; // these live on the table / in the top-right chip row
                 }
                 var captured = move;
                 // Buttons whose ACTION has a sound stay silent, rather than clicking
@@ -393,7 +384,8 @@ namespace LemonadeWars.Unity
         private void MaybeShowEndSummary()
         {
             if (View != null && View.Stage == GameStage.Finished && !_endShown &&
-                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen)
+                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen &&
+                !_playTheatre.IsBusy)
             {
                 _endShown = true;
                 ShowEndSummary();

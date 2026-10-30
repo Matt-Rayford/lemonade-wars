@@ -450,7 +450,7 @@ namespace LemonadeWars.Unity
         /// <summary>
         /// Finish a play whose variants differ only by equip destination: one candidate
         /// submits directly; several open the aim-at-your-board targeting (float card +
-        /// dashed arrow), with a replace-prompt when the chosen slot is full.
+        /// arrow), with a replace-prompt when the chosen slot is full.
         /// </summary>
         private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
         {
