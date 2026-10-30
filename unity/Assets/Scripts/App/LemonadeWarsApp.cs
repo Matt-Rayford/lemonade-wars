@@ -67,6 +67,8 @@ namespace LemonadeWars.Unity
         private PlayTheatre _playTheatre;
         private RectTransform _turnActionRow;
         private TMP_Text _tableMessage;
+        /// <summary>Same strip as the message: holds the End Turn button once actions are spent.</summary>
+        private RectTransform _tableActionHost;
         /// <summary>Headline of the open response panel, shown as the table message while it is up.</summary>
         private string _reactionBanner = "";
         private PauseMenu _pause;
@@ -98,11 +100,24 @@ namespace LemonadeWars.Unity
 
             // The table's one line of words, in the clear strip between shelf and
             // board; built after the table so it sits over the wallpaper.
-            _tableMessage = UiKit.CreateText(root, "", 22, TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            _tableMessage = UiKit.CreateText(root, "", 32, TextAnchor.MiddleCenter, UiKit.ButtonColor);
             _tableMessage.raycastTarget = false;
             UiKit.AddTextShadow(_tableMessage);
-            UiKit.Anchor((RectTransform)_tableMessage.transform,
-                new Vector2(0.21f, 0.695f), new Vector2(0.79f, 0.75f));
+            var messageRect = (RectTransform)_tableMessage.transform;
+            UiKit.Anchor(messageRect, new Vector2(0.21f, 0.697f), new Vector2(0.79f, 0.77f));
+            // The message's strip doubles as the home of the big End Turn button when
+            // there is nothing else to say; the words step aside while it is there.
+            // Anchored off the message itself, so nudging one nudges both.
+            var tableActionsGo = new GameObject("TableActions", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            tableActionsGo.transform.SetParent(root, false);
+            _tableActionHost = (RectTransform)tableActionsGo.transform;
+            UiKit.Anchor(_tableActionHost, messageRect.anchorMin, messageRect.anchorMax);
+            var tableActionsLayout = tableActionsGo.GetComponent<HorizontalLayoutGroup>();
+            tableActionsLayout.childAlignment = TextAnchor.MiddleCenter;
+            tableActionsLayout.childForceExpandWidth = false;
+            tableActionsLayout.childForceExpandHeight = false;
+            tableActionsLayout.childControlWidth = true;
+            tableActionsLayout.childControlHeight = true;
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
             _table.TheatreBusy = () =>
                 (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||

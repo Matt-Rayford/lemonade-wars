@@ -334,9 +334,13 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
 
+        /// <summary>Tall enough to fill the message strip at 1080p, short enough never to touch the shelf.</summary>
+        private const float EndTurnButtonHeightPx = 52f;
+
         private void RenderActionBar(MoveGroups groups)
         {
             UiKit.Clear(_table.ActionBar);
+            UiKit.Clear(_tableActionHost);
             if (groups == null || groups.IsModal)
             {
                 return;
@@ -360,21 +364,17 @@ namespace LemonadeWars.Unity
             var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
             if (endTurn != null && View.ActionsRemaining == 0)
             {
-                // Out of actions: the only thing left to do goes right between the
-                // board and the hand, where the eye already is (the top-right chip
-                // stays for ending early). Silent click: the sale roll has its own sound.
-                var endButton = UiKit.CreateButton(_table.ActionBar, "End Turn & Sell", 18,
-                    () => Submit(endTurn), clickSound: null, highlighted: true);
-                endButton.GetComponent<LayoutElement>().minWidth = 240;
-            }
-            if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
-            {
-                // Draft visits before the mandatory stand: every move is a drag, so
-                // the empty bar says what to do instead of looking broken.
-                var hint = UiKit.CreateText(_table.ActionBar,
-                    "Drag a stand from the shelf onto your row", 15,
-                    TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f), body: true);
-                hint.gameObject.AddComponent<LayoutElement>().minWidth = 320;
+                // Out of actions: the only thing left to do takes over the message strip
+                // above the board, at the message's own size — "Your Turn (0 actions)"
+                // would only repeat what the button says. (The top-right chip stays for
+                // ending early.) Silent click: the sale roll has its own sound.
+                _tableMessage.text = "";
+                var endButton = UiKit.CreateButton(_tableActionHost, "End Turn & Sell",
+                    Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(endTurn),
+                    clickSound: null, highlighted: true);
+                var endLayout = endButton.GetComponent<LayoutElement>();
+                endLayout.minWidth = 360;
+                endLayout.minHeight = EndTurnButtonHeightPx;
             }
         }
 
