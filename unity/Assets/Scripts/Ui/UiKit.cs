@@ -112,6 +112,18 @@ namespace LemonadeWars.Unity
             material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0.25f);
         }
 
+        /// <summary>
+        /// Solid outline round the glyphs. Width is in TMP's font-relative units; the
+        /// atlas padding caps how far it can reach, so keep it under about 0.35.
+        /// </summary>
+        public static void AddTextOutline(TMP_Text text, float width, Color color)
+        {
+            var material = text.fontMaterial;
+            material.EnableKeyword(ShaderUtilities.Keyword_Outline);
+            material.SetColor(ShaderUtilities.ID_OutlineColor, color);
+            material.SetFloat(ShaderUtilities.ID_OutlineWidth, width);
+        }
+
         public static Canvas CreateCanvas()
         {
             var go = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));

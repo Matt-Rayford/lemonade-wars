@@ -32,6 +32,12 @@ namespace LemonadeWars.Unity
         private const float PurchaseEndHeight = 60f;
         private const float BillWidth = 207f;
         private const float BillHeight = 148f;
+        private const int PileAmountFontSize = 40;
+        /// <summary>Black outline round the money label, in TMP font-relative units.</summary>
+        private const float PileAmountOutlineWidth = 0.25f;
+        /// <summary>The "-$X" sits this far right of the pile's top-right corner, and a little below it.</summary>
+        private const float PileAmountGapPx = 10f;
+        private const float PileAmountDropPx = 18f;
         /// <summary>The pile lands this far right of the card's showcase spot, so the card doesn't sit squarely on it.</summary>
         private const float BillPileRightShiftPx = 50f;
         /// <summary>How long the viewer's own money sits on the table before fading on its own.</summary>
@@ -671,12 +677,45 @@ namespace LemonadeWars.Unity
                 image.texture = art;
                 image.raycastTarget = false;
             }
+            AddPileAmountLabel(rect, purchase.Price, placements);
             var fan = root.AddComponent<BillFan>();
             fan.From = _layer.InverseTransformPoint(barWorld.Value);
             fan.To = showcase + new Vector2(BillPileRightShiftPx, 0);
             fan.StartScale = PurchaseEndHeight / BillHeight;
             rect.anchoredPosition = fan.From;
             return fan;
+        }
+
+        /// <summary>
+        /// Big "-$X" hanging off the top bill's top-right corner, a child of the pile so
+        /// it slides, grows and fades with the money: the pile shows the bills, this
+        /// says the total at a glance. The top bill, not the pile's bounding box: a
+        /// lower bill turned hard can push that box's corner into empty table.
+        /// </summary>
+        private static void AddPileAmountLabel(RectTransform pile, int price, Vector3[] placements)
+        {
+            var corner = TopRightCorner(placements[0]);
+            var label = UiKit.CreateText(pile, $"-${price}", PileAmountFontSize,
+                TextAnchor.MiddleLeft, LossColor);
+            label.raycastTarget = false;
+            label.fontStyle = TMPro.FontStyles.Bold;
+            UiKit.AddTextOutline(label, PileAmountOutlineWidth, Color.black); // big type over busy art
+            var rect = (RectTransform)label.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0f, 0.5f);
+            rect.sizeDelta = new Vector2(200f, 72f); // generous: an outline must never be clipped by its own box
+            rect.anchoredPosition = corner + new Vector2(PileAmountGapPx, -PileAmountDropPx);
+        }
+
+        /// <summary>Where a bill's top-right corner ends up after its turn.</summary>
+        private static Vector2 TopRightCorner(Vector3 placement)
+        {
+            float radians = placement.z * Mathf.Deg2Rad;
+            float x = BillWidth / 2f;
+            float y = BillHeight / 2f;
+            return new Vector2(
+                placement.x + x * Mathf.Cos(radians) - y * Mathf.Sin(radians),
+                placement.y + x * Mathf.Sin(radians) + y * Mathf.Cos(radians));
         }
 
         /// <summary>
