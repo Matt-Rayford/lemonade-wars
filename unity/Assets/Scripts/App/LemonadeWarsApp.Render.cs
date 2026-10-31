@@ -306,9 +306,9 @@ namespace LemonadeWars.Unity
                 AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
                 return;
             }
-            if (groups == null || groups.IsModal)
+            if (groups == null || groups.IsModal || _turnBanner.IsOpen)
             {
-                return;
+                return; // the banner's dismiss re-renders, and the chip comes back then
             }
             var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
             if (endTurn != null)
@@ -394,7 +394,9 @@ namespace LemonadeWars.Unity
         private void RenderReactionStrip(MoveGroups groups)
         {
             _tableMessage.text = "";
-            var lead = UiKit.CreateText(_tableActionHost, "Play a reaction or",
+            // A theft names the thief and the numbers; everything else is "a reaction".
+            string leadText = View.TheftOnMe ? ModalTitle() : "Play a reaction or";
+            var lead = UiKit.CreateText(_tableActionHost, leadText,
                 Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
             lead.raycastTarget = false;
             UiKit.AddTextShadow(lead);

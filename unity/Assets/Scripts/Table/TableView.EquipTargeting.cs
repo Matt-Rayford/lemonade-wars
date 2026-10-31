@@ -44,10 +44,10 @@ namespace LemonadeWars.Unity
                 panel.GetComponent<Image>().raycastTarget = false;
                 UiKit.Anchor(panel, min, max);
             }
-            Dim(new Vector2(0f, 0.695f), new Vector2(1f, 1f));      // market band + up
-            Dim(new Vector2(0f, 0f), new Vector2(1f, 0.21f));       // action bar + hand
-            Dim(new Vector2(0f, 0.21f), new Vector2(0.21f, 0.695f)); // player column
-            Dim(new Vector2(0.79f, 0.21f), new Vector2(1f, 0.695f)); // log column
+            Dim(new Vector2(0f, BoardTop), new Vector2(1f, 1f));                     // market band + up
+            Dim(new Vector2(0f, 0f), new Vector2(1f, BoardBottom));                  // action bar + hand
+            Dim(new Vector2(0f, BoardBottom), new Vector2(BoardLeft, BoardTop));     // player column + stage
+            Dim(new Vector2(BoardRight, BoardBottom), new Vector2(1f, BoardTop));    // whatever lies right of the board
             UiKit.AddClick(_targetingRoot.gameObject, () =>
             {
                 var pick = _targetingPick;

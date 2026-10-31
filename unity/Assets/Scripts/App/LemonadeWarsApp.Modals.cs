@@ -29,9 +29,10 @@ namespace LemonadeWars.Unity
             var decision = View.MyDecisions.FirstOrDefault();
             if (decision == null)
             {
-                // A stack play to react to, or a settled die you may still tweak
-                // (Out of Stock, Downsell, Sugared Up, Take Two).
-                return (View.StackTop != null || View.PendingRollValue != null) &&
+                // A stack play to react to, a settled die you may still tweak
+                // (Out of Stock, Downsell, Sugared Up, Take Two), or money just
+                // stolen from you (Profit Share) — all answered from the table.
+                return (View.StackTop != null || View.PendingRollValue != null || View.TheftOnMe) &&
                        View.AwaitingResponse.Contains(View.ViewerId);
             }
             // Bouncer resolves AFTER its attack leaves the stack, so it has no stack

@@ -19,7 +19,7 @@ namespace LemonadeWars.Unity
 
         private RectTransform _boardPanel;
         /// <summary>The row's left inset inside the panel and the first cell's width (see RenderBoard's AddCard calls).</summary>
-        private const float BoardRowInsetPx = 6f;
+        private const int BoardFadePx = 70;
         private const float VictoryCellWidthPx = 188f;
         /// <summary>Horizontal nudge of the showcase off that column's centre (negative = right); tuned at the table.</summary>
         private RectTransform _boardRow;
@@ -191,10 +191,18 @@ namespace LemonadeWars.Unity
             }
             float overflow = _boardRow.rect.width + 12f - _boardPanel.rect.width;
             // The hand-style faded edge doubles as the "this scrolls" cue.
-            var softness = overflow > 0f ? new Vector2Int(70, 0) : Vector2Int.zero;
+            var softness = overflow > 0f ? new Vector2Int(BoardFadePx, 0) : Vector2Int.zero;
             if (_boardMask.softness != softness)
             {
                 _boardMask.softness = softness;
+            }
+            // Until the row has moved there is nothing to clip on the left, so the
+            // clip edge is pushed out past the fade: the Victory Points outline stays
+            // crisp at rest and only fades once something has scrolled under it.
+            var padding = new Vector4(_boardScroll > 0f ? 0f : -BoardFadePx, 0f, 0f, 0f);
+            if (_boardMask.padding != padding)
+            {
+                _boardMask.padding = padding;
             }
             if (overflow <= 0f)
             {

@@ -33,9 +33,9 @@ namespace LemonadeWars.Unity
             var options = ToOptions(direct);
             options.AddRange(guided);
 
-            if (direct.Count == 0 && options.Count == 1)
+            if (options.Count == 1)
             {
-                options[0].OnPick(); // a lone guided flow — skip the one-button menu
+                options[0].OnPick(); // one way to play it: clicking the card IS the play
                 return;
             }
             _prompt.Show(cardName, new[] { cardArt }, options, showCancel: true);

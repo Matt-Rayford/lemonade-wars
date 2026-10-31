@@ -22,7 +22,16 @@ namespace LemonadeWars.Unity
         /// action log takes whatever is left on the right.
         /// </summary>
         public const float BoardLeft = 0.313f; // VP cell (after the row inset) flush with the hand's first card
-        public const float BoardRight = 0.83f;
+        public const float BoardRight = 1f;
+        public const float BoardBottom = 0.21f;
+        public const float BoardTop = 0.695f;
+        /// <summary>The action log's column, top-right over the board band's headroom.</summary>
+        public const float LogLeft = 0.83f;
+        /// <summary>
+        /// The band's clip edge sits this far left of the first cell: the Victory
+        /// Points outline is not nibbled at rest, and the scroll fade starts outside it.
+        /// </summary>
+        public const float BoardLeadPx = 10f;
 
         // Callbacks shared by more than one subsystem (single-subsystem ones live in
         // their partial).
@@ -131,8 +140,8 @@ namespace LemonadeWars.Unity
             // Its top stays below the shelf rule: the bare strip between them is
             // breathing room (and hosts the turn-action chips, top-right).
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
-            UiKit.Anchor(board, new Vector2(BoardLeft, 0.21f), new Vector2(BoardRight, 0.695f),
-                new Vector2(3, 2), new Vector2(-3, -2));
+            UiKit.Anchor(board, new Vector2(BoardLeft, BoardBottom), new Vector2(BoardRight, BoardTop),
+                new Vector2(3 - BoardLeadPx, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             // The row is content-sized behind a mask: a 6th stand overflows to the
@@ -144,8 +153,8 @@ namespace LemonadeWars.Unity
             _boardRow.anchorMin = new Vector2(0f, 0f);
             _boardRow.anchorMax = new Vector2(0f, 1f);
             _boardRow.pivot = new Vector2(0f, 0.5f);
-            _boardRow.offsetMin = new Vector2(6f, 6f);
-            _boardRow.offsetMax = new Vector2(6f, -6f);
+            _boardRow.offsetMin = new Vector2(6f + BoardLeadPx, 6f);
+            _boardRow.offsetMax = new Vector2(6f + BoardLeadPx, -6f);
             _boardRow.gameObject.AddComponent<ContentSizeFitter>().horizontalFit =
                 ContentSizeFitter.FitMode.PreferredSize;
             // Cards sit at the BOTTOM of the band: the headroom above holds a full
