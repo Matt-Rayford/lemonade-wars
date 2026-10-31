@@ -164,6 +164,8 @@ namespace LemonadeWars.Unity
         }
 
         private readonly RectTransform _layer;        // floaters + flights, no scrim
+        /// <summary>The floater/flight layer: what the play stage orders itself directly above.</summary>
+        public RectTransform Layer => _layer;
         private readonly RectTransform _revealRoot;   // dim scrim + card + title
         private readonly TMPro.TMP_Text _revealTitle;
         private readonly RectTransform _revealCardHost;

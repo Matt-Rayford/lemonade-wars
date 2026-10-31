@@ -106,6 +106,9 @@ namespace LemonadeWars.Unity
 
         public bool IsActive => _phase != Phase.Idle;
 
+        /// <summary>Order the stage directly over another canvas layer (a purchase's bills must land under its card).</summary>
+        public void DrawAbove(RectTransform layer) => _layer.SetSiblingIndex(layer.GetSiblingIndex() + 1);
+
         /// <summary>True during the arrival beat and the departure; never while waiting on reactions.</summary>
         public bool IsBusy =>
             _phase == Phase.Arriving || _phase == Phase.Departing || _phase == Phase.Fading ||
@@ -116,7 +119,9 @@ namespace LemonadeWars.Unity
 
         /// <param name="targetId">The attack's victim; -1 for a play with no victim (a take).</param>
         /// <param name="lootArt">For takes and steals, the card changing hands: staged beside the play under a grabbing hand.</param>
-        public void Begin(Texture2D art, string defId, int attackerId, int targetId, Texture2D lootArt = null)
+        /// <param name="fromWorld">Where the card lifts from; null = the player's bar. A contested purchase lifts from its shelf slot.</param>
+        public void Begin(Texture2D art, string defId, int attackerId, int targetId, Texture2D lootArt = null,
+            Vector3? fromWorld = null)
         {
             Clear();
             var showcase = _showcaseWorld(attackerId);
@@ -128,7 +133,7 @@ namespace LemonadeWars.Unity
             _defId = defId;
             _attackerId = attackerId;
             _targetId = targetId;
-            _from = Local(attackerBar.Value);
+            _from = Local(fromWorld ?? attackerBar.Value);
             _showcase = Local(showcase.Value); // level with the attacker's own bar, like a purchase
             _chip = BuildChip(art);
             _group = _chip.GetComponent<CanvasGroup>(); // the builder also serves the response pile

@@ -196,7 +196,8 @@ namespace LemonadeWars.Unity
             _lobby.OnLeave = () => BackToMenu("");
             StartCoroutine(ServerStatusLoop());
 
-            // Staged attacks sit under the effects layer, so reveal scrims cover them.
+            // Staged plays sit under the reveal scrim (ordered below, once the
+            // effects exist), so a reveal still covers them.
             _playTheatre = new PlayTheatre(root,
                 playerId => _table.PlayerBarWorld(playerId),
                 playerId => _table.PlayerBarEdgeWorld(playerId),
@@ -225,6 +226,8 @@ namespace LemonadeWars.Unity
                 _renderedRevision = -1;
                 _modalRevision = -1;
             };
+            // A contested purchase's bills land at the showcase under its staged card.
+            _playTheatre.DrawAbove(_fx.Layer);
 
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this, _preview);

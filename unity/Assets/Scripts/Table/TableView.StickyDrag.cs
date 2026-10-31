@@ -19,6 +19,9 @@ namespace LemonadeWars.Unity
 
         public bool StickyDragActive => _stickyGhost != null;
 
+        /// <summary>A let-go card is back on its shelf slot (or had nowhere to go): the slot may show it again.</summary>
+        public System.Action OnStickyReturned;
+
         /// <summary>Shelf cells go inert while a card is held or gliding: one purchase at a time.</summary>
         private bool ShelfHeld => _stickyGhost != null || _shelfGlidesInFlight > 0;
 
@@ -164,6 +167,7 @@ namespace LemonadeWars.Unity
             if (home == null)
             {
                 Object.Destroy(ghost.gameObject);
+                OnStickyReturned?.Invoke();
                 return;
             }
             var motion = ghost.gameObject.AddComponent<FlightMotion>();
@@ -173,6 +177,7 @@ namespace LemonadeWars.Unity
             motion.ArcHeight = 0f;
             motion.VisibleWhileWaiting = true;
             motion.FadeOutFrom = GhostReturnFadeFrom;
+            motion.OnArrive = () => OnStickyReturned?.Invoke();
         }
 
         /// <summary>Leaving the table: no ghost may outlive it, held or mid-glide.</summary>
@@ -237,16 +242,17 @@ namespace LemonadeWars.Unity
 
         private RectTransform BuildShelfGhost(Texture2D art)
         {
-            var go = new GameObject("ShelfGhost", typeof(RectTransform), typeof(RawImage),
-                typeof(ShelfGhostTag));
-            go.transform.SetParent(_canvasRoot, false);
-            go.transform.SetAsLastSibling();
-            var ghost = (RectTransform)go.transform;
-            ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
-            var image = go.GetComponent<RawImage>();
-            image.texture = art;
+            var image = UiKit.CreateCardImage(_canvasRoot, art, GhostWidthPx, GhostHeightPx);
             image.raycastTarget = false;
             image.color = new Color(1f, 1f, 1f, GhostAlpha);
+            var ghost = (RectTransform)image.transform.parent;
+            ghost.name = "ShelfGhost";
+            ghost.gameObject.AddComponent<ShelfGhostTag>();
+            ghost.GetComponent<Image>().raycastTarget = false;
+            ghost.anchorMin = ghost.anchorMax = new Vector2(0.5f, 0.5f);
+            ghost.pivot = new Vector2(0.5f, 0.5f);
+            ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
+            ghost.SetAsLastSibling();
             return ghost;
         }
     }

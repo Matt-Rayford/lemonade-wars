@@ -568,16 +568,25 @@ namespace LemonadeWars.Unity
                 .Where(m => m.TargetStandInstanceId == standInstanceId)
                 .Cast<GameAction>()
                 .ToList();
+            var card = View.Market[marketIndex];
             if (matching.Count == 1)
             {
+                if (_liftedMarketIds.Contains(card.InstanceId) && _liftedCardLanding == null)
+                {
+                    _liftedCardLanding = Input.mousePosition; // a held card buys from under the cursor
+                }
                 Submit(matching[0]);
             }
-            else if (matching.Count > 1)
+            else
             {
-                var card = View.Market[marketIndex];
-                _prompt.Show("That slot is full — replace which card?",
-                    new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
-                    ToOptions(matching), showCancel: true);
+                // A question (or nothing to buy) in between: the card waits on its slot.
+                RestoreMarketCard(card.InstanceId);
+                if (matching.Count > 1)
+                {
+                    _prompt.Show("That slot is full — replace which card?",
+                        new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
+                        ToOptions(matching), showCancel: true);
+                }
             }
         }
 
@@ -599,13 +608,23 @@ namespace LemonadeWars.Unity
             var destinations = moves.OfType<BuyBlackMarket>()
                 .Select(m => m.TargetStandInstanceId).Distinct().ToList();
             ShowOwnBoard();
+            // The slot is measured while the card still sits in it, then empties: the
+            // card itself leaves the shelf, not a copy of it.
+            var slotWorld = _table.MarketSlotWorld(marketIndex);
+            int instanceId = card.InstanceId;
+            LiftMarketCard(instanceId);
             if (destinations.Count == 1)
             {
                 int? destination = destinations[0];
-                _table.GlideShelfCard(art, _table.MarketSlotWorld(marketIndex),
-                    _table.DropCellWorld(destination), () => OnMarketDrop(marketIndex, destination));
+                var landing = _table.DropCellWorld(destination);
+                _table.GlideShelfCard(art, slotWorld, landing, () =>
+                {
+                    _liftedCardLanding = landing;
+                    OnMarketDrop(marketIndex, destination);
+                });
                 return;
             }
+            _table.OnStickyReturned = () => RestoreMarketCard(instanceId);
             _table.BeginMarketStickyDrag(marketIndex, art);
         }
 

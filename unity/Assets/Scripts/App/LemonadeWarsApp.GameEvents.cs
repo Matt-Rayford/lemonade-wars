@@ -21,6 +21,12 @@ namespace LemonadeWars.Unity
         // delivery removes its id exactly once (including skip/Clear — the
         // EffectsPlayer guarantees delivery on every exit path).
         private readonly HashSet<int> _hiddenMarketIds = new HashSet<int>();
+        /// <summary>Shelf cards the viewer picked up by double-click: their slot is already
+        /// empty, so the refill that follows must not put a stand-in back in it.</summary>
+        private readonly HashSet<int> _liftedMarketIds = new HashSet<int>();
+        /// <summary>Where the viewer's lifted card came to rest (a stand, the turf): a
+        /// contested purchase stages itself from there, not from the empty slot.</summary>
+        private UnityEngine.Vector3? _liftedCardLanding;
         // For a hidden refill id: the art of the card its slot used to hold, drawn
         // inert there until the effect that sweeps or lifts it is on screen.
         private readonly Dictionary<int, UnityEngine.Texture2D> _marketStandIns =
@@ -179,6 +185,10 @@ namespace LemonadeWars.Unity
                 // refill and is the only event naming the taker — remember them.
                 _lastSpenderId = bought.PlayerId;
                 _lastMarketPrice = bought.Price;
+                if (_playTheatre.Matches(bought.PlayerId, bought.DefId))
+                {
+                    _playTheatre.Resolve(); // the contested purchase survived: it slides home
+                }
             }
             else if (gameEvent is MarketRefilled refilled)
             {
@@ -411,8 +421,31 @@ namespace LemonadeWars.Unity
                     continue; // nothing to fly — leave the refill instant (status quo)
                 }
                 int originSlot = slot;   // geometric spot the departed card occupied
-                HoldStandIn(freshSlots, originSlot, art);
+                bool lifted = _liftedMarketIds.Remove(card.InstanceId);
+                if (lifted)
+                {
+                    _hiddenMarketIds.Remove(card.InstanceId); // gone from the shelf for real now
+                }
+                var landing = lifted ? _liftedCardLanding : null;
+                _liftedCardLanding = null;
                 _fx.QueueSound(Sfx.CashRegister);
+                if (IsContestedPurchase(_lastSpenderId, card.DefId))
+                {
+                    // Open to a Tantrum: the card is staged like a play — lifted off its
+                    // slot (or from where the viewer just dropped it) to the buyer's
+                    // showcase, badged, held for reactions; the money lands under it.
+                    // It slides home on the equip, or fades if the purchase is cancelled.
+                    _stagedAttacker = _lastSpenderId;
+                    _playTheatre.Begin(art, card.DefId, _lastSpenderId, -1,
+                        fromWorld: landing ?? _table.MarketSlotWorld(originSlot));
+                    _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
+                        () => _table.MarketSlotWorld(originSlot), null, showCard: false);
+                    continue;
+                }
+                if (!lifted)
+                {
+                    HoldStandIn(freshSlots, originSlot, art);
+                }
                 _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
                     () => _table.MarketSlotWorld(originSlot),
                     null, ShowsPurchaseTheatre(_lastSpenderId),
@@ -455,6 +488,32 @@ namespace LemonadeWars.Unity
             }
             _fx.QueueMarketDeal(() => _table.BlackMarketDeckWorld(), sweep, deals, payerId, price, _art.Bill,
                 onStarted: () => DropStandIns(dealt));
+        }
+
+        /// <summary>The purchase just went onto the response stack: others may still Tantrum it.</summary>
+        private bool IsContestedPurchase(int buyerId, string defId) =>
+            View?.StackTop != null && View.StackTop.IsPurchase &&
+            View.StackTop.OwnerId == buyerId && View.StackTop.DefId == defId;
+
+        /// <summary>The viewer picked a shelf card up: its slot shows empty until the shelf refills.</summary>
+        private void LiftMarketCard(int instanceId)
+        {
+            _hiddenMarketIds.Add(instanceId);
+            _liftedMarketIds.Add(instanceId);
+            _liftedCardLanding = null;
+            _renderedRevision = -1;
+            RenderIfChanged();
+        }
+
+        /// <summary>The lifted card was not bought after all: back onto its slot.</summary>
+        private void RestoreMarketCard(int instanceId)
+        {
+            if (_liftedMarketIds.Remove(instanceId))
+            {
+                _hiddenMarketIds.Remove(instanceId);
+                _liftedCardLanding = null;
+                _renderedRevision = -1;
+            }
         }
 
         /// <summary>The card that left <paramref name="slot"/> keeps its place on the shelf, inert, until its effect plays.</summary>
