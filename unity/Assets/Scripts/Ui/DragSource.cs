@@ -7,10 +7,11 @@ namespace LemonadeWars.Unity
     /// <summary>
     /// Draggable table object (market card or supply stand): lifts with a glow on hover,
     /// spawns a ghost that follows the pointer while dragging. Drop resolution happens in
-    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>.
+    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>. A double-click is the
+    /// no-drag shortcut: the owner decides where the purchase lands.
     /// </summary>
     public sealed class DragSource : MonoBehaviour,
-        IPointerEnterHandler, IPointerExitHandler,
+        IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler,
         IBeginDragHandler, IDragHandler, IEndDragHandler
     {
         public DragKind Kind;
@@ -24,6 +25,7 @@ namespace LemonadeWars.Unity
         public System.Func<bool> CanAct;
         public System.Action DragStarted;
         public System.Action DragEnded;
+        public System.Action DoubleClicked;
 
         public bool Dragging { get; private set; }
 
@@ -44,6 +46,17 @@ namespace LemonadeWars.Unity
             {
                 SetHover(false);
             }
+        }
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            if (eventData.button != PointerEventData.InputButton.Left || eventData.clickCount != 2 ||
+                Dragging || CanAct == null || !CanAct())
+            {
+                return;
+            }
+            SetHover(false);
+            DoubleClicked?.Invoke();
         }
 
         public void OnBeginDrag(PointerEventData eventData)

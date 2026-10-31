@@ -43,7 +43,8 @@ namespace LemonadeWars.Unity
             // Cancel, so a stale one soft-locks the player: dismiss it.
             if (_autoModalOpen &&
                 (_prompt.IsOpen || _picker.IsOpen ||
-                 _table.DiscardPickerOpen || _table.EquipTargetingActive) &&
+                 _table.DiscardPickerOpen || _table.EquipTargetingActive ||
+                 _table.StickyDragActive) &&
                 (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
             {
                 _prompt.Hide();
@@ -74,6 +75,7 @@ namespace LemonadeWars.Unity
                 _table.SetLog(_actionLog);
                 RenderActionBar(actionable);
                 RenderTurnActions(actionable);
+                SyncTimeoutCard();
             }
             catch (System.Exception e)
             {
@@ -198,6 +200,11 @@ namespace LemonadeWars.Unity
             else if (View.Stage == GameStage.Finished)
             {
                 banner = "Thanks for playing!";
+            }
+            else if (View.TimeoutFinePlayerId is int debtor && debtor != View.ViewerId)
+            {
+                // The card lies in the middle of the table; the strip says who it bit.
+                banner = $"Timeout! {NameOf(debtor)} owes ${View.TimeoutFineAmount}";
             }
             else if (WaitingOnOthers() is string holdouts)
             {
@@ -349,6 +356,10 @@ namespace LemonadeWars.Unity
                 {
                     RenderReactionStrip(groups);
                 }
+                else if (TimeoutFineDue() && !TheatreHoldsModals())
+                {
+                    RenderTimeoutStrip(groups);
+                }
                 return;
             }
             foreach (var move in groups.BarMoves)
@@ -416,6 +427,43 @@ namespace LemonadeWars.Unity
             if (pass != null)
             {
                 AddStripButton("Pass", pass, Sfx.ButtonClick);
+            }
+        }
+
+        /// <summary>
+        /// The Whiniest Baby's Timeout: "Timeout!" and a Pay button in the strip, the
+        /// card itself lying on the table below. The engine's one move already lists
+        /// the cheapest assets to sell when cash is short, so the button says so.
+        /// </summary>
+        private void RenderTimeoutStrip(MoveGroups groups)
+        {
+            var payment = groups.ModalMoves.OfType<SubmitTimeoutPayment>().FirstOrDefault();
+            if (payment == null)
+            {
+                return;
+            }
+            _tableMessage.text = "";
+            var lead = UiKit.CreateText(_tableActionHost, "Timeout!",
+                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            lead.raycastTarget = false;
+            UiKit.AddTextShadow(lead);
+            bool sellsAssets = payment.SellStandInstanceIds.Count > 0 || payment.SellBmInstanceIds.Count > 0;
+            string label = sellsAssets
+                ? $"Sell assets & pay ${View.TimeoutFineAmount}"
+                : $"Pay ${View.TimeoutFineAmount}";
+            AddStripButton(label, payment, Sfx.ButtonClick);
+        }
+
+        /// <summary>The Timeout card lies on the table for as long as the fine is owed.</summary>
+        private void SyncTimeoutCard()
+        {
+            if (View.TimeoutFinePlayerId != null && !TheatreHoldsModals())
+            {
+                _table.ShowTimeoutCard(_art.Lemon("timeout"));
+            }
+            else
+            {
+                _table.HideTimeoutCard();
             }
         }
 

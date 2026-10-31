@@ -18,12 +18,15 @@ namespace LemonadeWars.Unity
         public System.Action OnRefreshMarket;
         public System.Action<int> OnMarketDragStart;        // market index
         public System.Action OnMarketDragEnd;
+        public System.Action<int> OnMarketDoubleClick;      // market index: buy without dragging
 
         // Supply drag & drop (stand purchases with row-position insert).
         public System.Func<string, bool> CanBuySupply;      // stand type -> any legal buy?
+        public System.Action<string> OnSupplyDoubleClick;   // stand type: pick it up, click to place
 
         // Bragging Rights drag & drop (shelf card -> your VP column).
         public System.Func<bool> CanBuyBragging;
+        public System.Action OnBraggingDoubleClick;
 
         /// <summary>
         /// True while the player drags a shelf card/stand; the app holds renders on it
@@ -65,6 +68,9 @@ namespace LemonadeWars.Unity
             new Dictionary<string, RectTransform>();
         /// <summary>The Bragging Rights shelf cell, null while sold out.</summary>
         private RectTransform _braggingAnchor;
+        /// <summary>Shelf art by stand type / for Bragging Rights: what a held or gliding ghost wears.</summary>
+        private readonly Dictionary<string, Texture2D> _supplyArt = new Dictionary<string, Texture2D>();
+        public Texture2D BraggingArt { get; private set; }
         /// <summary>The Black Market deck back on the shelf — where swept cards go and dealt cards come from.</summary>
         private RectTransform _blackMarketDeckAnchor;
 
@@ -77,6 +83,8 @@ namespace LemonadeWars.Unity
             _marketSlotAnchors.Clear();
             _supplyAnchors.Clear();
             _braggingAnchor = null;
+            BraggingArt = null;
+            _supplyArt.Clear();
             _blackMarketDeckAnchor = null;
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
@@ -255,7 +263,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
+            drag.CanAct = () => !ShelfHeld && CanBuyMarket?.Invoke(marketIndex) == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -266,6 +274,7 @@ namespace LemonadeWars.Unity
                 ShelfDragEnded();
                 OnMarketDragEnd?.Invoke();
             };
+            drag.DoubleClicked = () => OnMarketDoubleClick?.Invoke(marketIndex);
             _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
             _marketSlotAnchors[marketIndex] = lift; // the card's own rect: flights land exactly on it
         }
@@ -369,7 +378,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuySupply?.Invoke(standTypeId) == true;
+            drag.CanAct = () => !ShelfHeld && CanBuySupply?.Invoke(standTypeId) == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -383,7 +392,9 @@ namespace LemonadeWars.Unity
                 _preview.SetDragging(false);
                 HideInsertPreview();
             };
+            drag.DoubleClicked = () => OnSupplyDoubleClick?.Invoke(standTypeId);
             _supplyAnchors[standTypeId] = (RectTransform)cell.transform;
+            _supplyArt[standTypeId] = texture;
         }
 
         /// <summary>
@@ -403,6 +414,7 @@ namespace LemonadeWars.Unity
             cellElement.flexibleWidth = 0;
             cellElement.flexibleHeight = 0;
             _braggingAnchor = (RectTransform)cell.transform;
+            BraggingArt = texture;
 
             var liftGo = new GameObject("Lift", typeof(RectTransform));
             liftGo.transform.SetParent(cell.transform, false);
@@ -444,7 +456,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuyBragging?.Invoke() == true;
+            drag.CanAct = () => !ShelfHeld && CanBuyBragging?.Invoke() == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -463,6 +475,7 @@ namespace LemonadeWars.Unity
                     _vpGlow.SetActive(false);
                 }
             };
+            drag.DoubleClicked = () => OnBraggingDoubleClick?.Invoke();
         }
 
         /// <summary>A discard pile: card back, count on hover, click to browse.</summary>

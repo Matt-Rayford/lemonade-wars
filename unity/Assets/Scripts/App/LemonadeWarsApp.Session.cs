@@ -318,6 +318,8 @@ namespace LemonadeWars.Unity
             _remote = null;
             _screen = Screen.Menu;
             UiKit.Clear(_turnActionRow);
+            _table.DropShelfGhosts();
+            _table.HideTimeoutCard();
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();

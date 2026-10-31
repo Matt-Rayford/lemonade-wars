@@ -163,14 +163,10 @@ namespace LemonadeWars.Unity
             _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
             _table.CanBuyBragging = () => CurrentGroups()?.BraggingMoves.Count > 0;
-            _table.OnBraggingDrop = () =>
-            {
-                var moves = CurrentGroups()?.BraggingMoves;
-                if (moves != null && moves.Count > 0)
-                {
-                    Submit(moves[0]);
-                }
-            };
+            _table.OnBraggingDrop = BuyBraggingRights;
+            _table.OnMarketDoubleClick = OnMarketDoubleClick;
+            _table.OnSupplyDoubleClick = OnSupplyDoubleClick;
+            _table.OnBraggingDoubleClick = OnBraggingDoubleClick;
             _table.OnBoardViewChanged = () => _renderedRevision = -1;
             // A refilled market card renders as an empty slot while the purchase drift
             // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
@@ -330,6 +326,7 @@ namespace LemonadeWars.Unity
 
             TickGameHotkeys(escConsumed);
 
+            _table.TickStickyDrag(Input.mousePosition);
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);

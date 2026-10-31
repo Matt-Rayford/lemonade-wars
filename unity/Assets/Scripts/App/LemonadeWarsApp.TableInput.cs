@@ -452,16 +452,21 @@ namespace LemonadeWars.Unity
         /// submits directly; several open the aim-at-your-board targeting (float card +
         /// arrow), with a replace-prompt when the chosen slot is full.
         /// </summary>
-        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture) =>
+            ResolveEquipDestination(candidates, texture,
+                m => ((PlayLemonCard)m).EquipStandInstanceId);
+
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture,
+            System.Func<GameAction, int?> destinationOf)
         {
             if (candidates.Count == 1)
             {
                 Submit(candidates[0]);
                 return;
             }
-            var byDest = candidates.Cast<PlayLemonCard>()
-                .GroupBy(m => m.EquipStandInstanceId)
-                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            var byDest = candidates
+                .GroupBy(destinationOf)
+                .ToDictionary(g => g.Key, g => g.ToList());
             System.Action<int?> pickDestination = destId =>
             {
                 var atDest = byDest[destId];
@@ -573,6 +578,80 @@ namespace LemonadeWars.Unity
                 _prompt.Show("That slot is full — replace which card?",
                     new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
                     ToOptions(matching), showCancel: true);
+            }
+        }
+
+        /// <summary>
+        /// Double-click on a shelf card buys it without the drag. One legal home: the
+        /// card glides from its slot to that stand and the buy lands on arrival. Several:
+        /// the card rides the cursor and the next click on a lit stand places it.
+        /// </summary>
+        private void OnMarketDoubleClick(int marketIndex)
+        {
+            _preview.Hide();
+            var groups = CurrentGroups();
+            if (groups == null || !groups.MarketMoves.TryGetValue(marketIndex, out var moves))
+            {
+                return;
+            }
+            var card = View.Market[marketIndex];
+            var art = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+            var destinations = moves.OfType<BuyBlackMarket>()
+                .Select(m => m.TargetStandInstanceId).Distinct().ToList();
+            ShowOwnBoard();
+            if (destinations.Count == 1)
+            {
+                int? destination = destinations[0];
+                _table.GlideShelfCard(art, _table.MarketSlotWorld(marketIndex),
+                    _table.DropCellWorld(destination), () => OnMarketDrop(marketIndex, destination));
+                return;
+            }
+            _table.BeginMarketStickyDrag(marketIndex, art);
+        }
+
+        /// <summary>Double-click on a supply pile: the stand rides the cursor until a click
+        /// places it in your row, exactly where a drag would have dropped it.</summary>
+        private void OnSupplyDoubleClick(string standTypeId)
+        {
+            _preview.Hide();
+            if (CurrentGroups()?.SupplyMoves.ContainsKey(standTypeId) != true)
+            {
+                return;
+            }
+            ShowOwnBoard();
+            _table.BeginSupplyStickyDrag(standTypeId);
+        }
+
+        /// <summary>Double-click on Bragging Rights: it glides onto your VP column, then buys.</summary>
+        private void OnBraggingDoubleClick()
+        {
+            _preview.Hide();
+            if (CurrentGroups()?.BraggingMoves.Count > 0 != true)
+            {
+                return;
+            }
+            ShowOwnBoard();
+            _table.GlideShelfCard(_table.BraggingArt, _table.BraggingShelfWorld(),
+                _table.VictoryCellWorld(), BuyBraggingRights);
+        }
+
+        private void BuyBraggingRights()
+        {
+            var moves = CurrentGroups()?.BraggingMoves;
+            if (moves != null && moves.Count > 0)
+            {
+                Submit(moves[0]);
+            }
+        }
+
+        /// <summary>Shelf purchases land on YOUR board: snap the view home from a rival's.</summary>
+        private void ShowOwnBoard()
+        {
+            if (_table.ViewedBoardPlayer >= 0)
+            {
+                _table.ViewedBoardPlayer = -1;
+                _renderedRevision = -1;
+                RenderIfChanged();
             }
         }
 

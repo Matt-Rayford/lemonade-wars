@@ -249,7 +249,8 @@ namespace LemonadeWars.Unity
 
         /// <summary>True while something Esc-cancellable is up (aiming, equip, discards).</summary>
         public bool HasActiveOverlay =>
-            _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf;
+            _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf ||
+            StickyDragActive;
 
         /// <summary>
         /// Esc: dismiss whichever aiming/browsing overlay is up — same outcome as
@@ -272,6 +273,11 @@ namespace LemonadeWars.Unity
                 cancel?.Invoke();
                 return;
             }
+            if (StickyDragActive)
+            {
+                CancelStickyDrag();
+                return;
+            }
             if (_discardOverlay.gameObject.activeSelf)
             {
                 CloseDiscardViewer();
@@ -290,6 +296,7 @@ namespace LemonadeWars.Unity
             {
                 EndEquipTargeting();
             }
+            CancelStickyDrag();
             if (_discardOverlay.gameObject.activeSelf)
             {
                 CloseDiscardViewer();

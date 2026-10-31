@@ -38,6 +38,7 @@ namespace LemonadeWars.Unity
         private LayoutWidthTween _insertSpacerTween;
         private int _supplyInsertIndex = -1;
         private bool _supplyDragActive;
+        private RectTransform _vpCell;
 
         private void RenderBoard(PlayerView view)
         {
@@ -108,6 +109,7 @@ namespace LemonadeWars.Unity
                 AddTuckedStack(vpCell, vpTextures.Skip(1).ToList());
             }
             _vpGlow = null;
+            _vpCell = vpCell;
             if (_viewingOwnBoard)
             {
                 // Bragging Rights dragged from the shelf land here.
@@ -366,6 +368,31 @@ namespace LemonadeWars.Unity
             _dropGlows.Add((standInstanceId, wide));
             _dropGlows.Add((standInstanceId, hot));
             _dropCells.Add((standInstanceId, cell, art));
+        }
+
+        /// <summary>World centre of your turf (null id) or a stand's card on the live
+        /// board — where a shelf card glides to. Null when the board shown is a rival's.</summary>
+        public Vector3? DropCellWorld(int? standInstanceId)
+        {
+            foreach (var (id, cell, _) in _dropCells)
+            {
+                if (Equals(id, standInstanceId))
+                {
+                    return BoardCardWorld(cell);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>World centre of the viewed board's Victory Point column.</summary>
+        public Vector3? VictoryCellWorld() => _vpCell != null ? BoardCardWorld(_vpCell) : null;
+
+        /// <summary>A board cell was often built this very frame: settle the row first.</summary>
+        private Vector3? BoardCardWorld(RectTransform cell)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_boardRow);
+            var cardFrame = cell.Find("Card") as RectTransform ?? cell;
+            return cardFrame.TransformPoint(cardFrame.rect.center);
         }
 
         public void SetValidDropTargets(ISet<int?> validTargets)

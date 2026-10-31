@@ -54,7 +54,7 @@ namespace LemonadeWars.Unity
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
             bool surfaceOpen = _prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen ||
-                _table.DiscardPickerOpen || _table.EquipTargetingActive;
+                _table.DiscardPickerOpen || _table.EquipTargetingActive || _table.StickyDragActive;
             if (surfaceOpen && signature == _modalSignature)
             {
                 _modalRevision = revision;
@@ -66,7 +66,7 @@ namespace LemonadeWars.Unity
             }
             _modalRevision = revision;
             _modalSignature = signature;
-            if (_table.DiscardPickerOpen || _table.EquipTargetingActive)
+            if (_table.DiscardPickerOpen || _table.EquipTargetingActive || _table.StickyDragActive)
             {
                 // The choice this grid/aim was serving changed under it — drop the
                 // stale surface (silently: its cancel callback would reopen it)
@@ -75,6 +75,14 @@ namespace LemonadeWars.Unity
             }
             if (TryAutoForcedPlay(groups, revision))
             {
+                return;
+            }
+            if (TimeoutFineDue())
+            {
+                // Answered from the table: the card lies in the middle for everyone,
+                // the message strip carries the Pay button (see RenderTimeoutStrip).
+                _reaction.Hide();
+                _prompt.Hide();
                 return;
             }
             _autoModalOpen = true;
@@ -473,6 +481,10 @@ namespace LemonadeWars.Unity
                 picked => accept(picked.Select(i => capturedPool[i].InstanceId).ToList()));
             return true;
         }
+
+        /// <summary>The viewer is the Whiniest Baby and the Timeout just came up.</summary>
+        private bool TimeoutFineDue() =>
+            View.MyDecisions.FirstOrDefault()?.Kind == DecisionKind.TimeoutFine;
 
         private string ModalTitle()
         {
