@@ -16,6 +16,23 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed partial class TableView
     {
+        /// <summary>
+        /// The board band's horizontal span (canvas fractions). Pushed right of centre
+        /// so the staged-card column beside the player bars has room to breathe; the
+        /// action log takes whatever is left on the right.
+        /// </summary>
+        public const float BoardLeft = 0.313f; // VP cell (after the row inset) flush with the hand's first card
+        public const float BoardRight = 1f;
+        public const float BoardBottom = 0.21f;
+        public const float BoardTop = 0.695f;
+        /// <summary>The action log's column, top-right over the board band's headroom.</summary>
+        public const float LogLeft = 0.83f;
+        /// <summary>
+        /// The band's clip edge sits this far left of the first cell: the Victory
+        /// Points outline is not nibbled at rest, and the scroll fade starts outside it.
+        /// </summary>
+        public const float BoardLeadPx = 10f;
+
         // Callbacks shared by more than one subsystem (single-subsystem ones live in
         // their partial).
         public System.Func<bool> CanDrawLemon;      // hand draw slot + lemon pile chip
@@ -40,6 +57,7 @@ namespace LemonadeWars.Unity
             new List<(int?, RectTransform, Texture2D)>();
         private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
             _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
+        private readonly Dictionary<int, RectTransform> _cashIcons = new Dictionary<int, RectTransform>();
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
             new List<(int, RectTransform, GameObject)>();
         private readonly List<(int Id, RectTransform Strip, GameObject Glow)> _equipCells =
@@ -83,8 +101,9 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
 
-            // Repeating badge pattern over the play area — everything below the shelf.
-            UiKit.CreateWallpaper(Root, new Vector2(1f, 0.70f));
+            // Repeating badge pattern behind the whole table, shelf included: one
+            // surface, with the cards themselves marking where the store is.
+            UiKit.CreateWallpaper(Root, Vector2.one);
 
             // Left: player panels in turn order (you at the bottom), below the shelf.
             var playersGo = new GameObject("Players", typeof(RectTransform), typeof(VerticalLayoutGroup));
@@ -108,27 +127,21 @@ namespace LemonadeWars.Unity
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
-            // Full-bleed: the shelf runs edge to edge and meets the status bar, so the
-            // chrome reads as one band instead of a floating panel.
+            // Full-bleed: the shelf runs edge to edge and meets the top of the screen,
+            // so it reads as one band instead of a floating panel. Whose turn it is
+            // and who is awaited show on the player bars, so no bar sits above it.
             var market = UiKit.CreatePanel(Root, "Market", new Color(0, 0, 0, 0));
-            UiKit.Anchor(market, new Vector2(0f, 0.70f), new Vector2(1f, 0.95f),
+            UiKit.Anchor(market, new Vector2(0f, 0.75f), new Vector2(1f, 1f),
                 new Vector2(0, 4), new Vector2(0, 0));
             _marketRow = UiKit.CreateCardRow(market, "MarketRow");
 
-            // Hairline rule under the shelf: with every zone transparent, this is what
-            // separates "the store" from "the table". It fills the 4px gap the shelf
-            // leaves above its own anchor, so it never overlaps the cards.
-            var shelfRule = UiKit.CreatePanel(Root, "ShelfRule", UiKit.ButtonColor);
-            UiKit.Anchor(shelfRule, new Vector2(0f, 0.70f), new Vector2(1f, 0.70f),
-                new Vector2(0, 0), new Vector2(0, 4));
-            shelfRule.GetComponent<Image>().raycastTarget = false;
-
             // Center: your board (turf + stands). Also a drop zone for supply stands.
             // Transparent — cards float on the table; the Image still catches drops.
-            // (The turn banner lives in the top status bar.)
+            // Its top stays below the shelf rule: the bare strip between them is
+            // breathing room (and hosts the turn-action chips, top-right).
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
-            UiKit.Anchor(board, new Vector2(0.21f, 0.21f), new Vector2(0.79f, 0.695f),
-                new Vector2(3, 2), new Vector2(-3, -2));
+            UiKit.Anchor(board, new Vector2(BoardLeft, BoardBottom), new Vector2(BoardRight, BoardTop),
+                new Vector2(3 - BoardLeadPx, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
             // The row is content-sized behind a mask: a 6th stand overflows to the
@@ -140,8 +153,8 @@ namespace LemonadeWars.Unity
             _boardRow.anchorMin = new Vector2(0f, 0f);
             _boardRow.anchorMax = new Vector2(0f, 1f);
             _boardRow.pivot = new Vector2(0f, 0.5f);
-            _boardRow.offsetMin = new Vector2(6f, 6f);
-            _boardRow.offsetMax = new Vector2(6f, -6f);
+            _boardRow.offsetMin = new Vector2(6f + BoardLeadPx, 6f);
+            _boardRow.offsetMax = new Vector2(6f + BoardLeadPx, -6f);
             _boardRow.gameObject.AddComponent<ContentSizeFitter>().horizontalFit =
                 ContentSizeFitter.FitMode.PreferredSize;
             // Cards sit at the BOTTOM of the band: the headroom above holds a full
@@ -156,7 +169,7 @@ namespace LemonadeWars.Unity
             // Persistent actions: a floating button strip above the hand's peek band.
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
             actions.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(actions, new Vector2(0.21f, 0.17f), new Vector2(0.79f, 0.22f),
+            UiKit.Anchor(actions, new Vector2(BoardLeft, 0.17f), new Vector2(BoardRight, 0.22f),
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);

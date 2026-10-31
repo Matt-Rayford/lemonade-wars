@@ -6,7 +6,7 @@ namespace LemonadeWars.Unity
 {
     // Equip targeting: the table dims EXCEPT the board band — you aim at your real
     // stands (tucked upgrades visible, so "that one is full" is legible), with the
-    // taken card floating up top and a dashed arrow to the hovered cell.
+    // taken card floating up top and a arrow to the hovered cell.
     public sealed partial class TableView
     {
         /// <summary>True while the aim-at-your-stands layer is up — the modal pipeline
@@ -33,7 +33,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void BuildEquipTargeting()
         {
-            _targetingRoot = UiKit.CreatePanel(Root, "EquipTargeting", new Color(0, 0, 0, 0));
+            _targetingRoot = UiKit.CreatePanel(_canvasRoot, "EquipTargeting", new Color(0, 0, 0, 0));
             UiKit.Anchor(_targetingRoot, Vector2.zero, Vector2.one);
             // Dim everything EXCEPT the board band: the live stands (tucked upgrades
             // and all) are the targets, so the player aims with full information.
@@ -44,10 +44,10 @@ namespace LemonadeWars.Unity
                 panel.GetComponent<Image>().raycastTarget = false;
                 UiKit.Anchor(panel, min, max);
             }
-            Dim(new Vector2(0f, 0.695f), new Vector2(1f, 1f));      // market band + up
-            Dim(new Vector2(0f, 0f), new Vector2(1f, 0.21f));       // action bar + hand
-            Dim(new Vector2(0f, 0.21f), new Vector2(0.21f, 0.695f)); // player column
-            Dim(new Vector2(0.79f, 0.21f), new Vector2(1f, 0.695f)); // log column
+            Dim(new Vector2(0f, BoardTop), new Vector2(1f, 1f));                     // market band + up
+            Dim(new Vector2(0f, 0f), new Vector2(1f, BoardBottom));                  // action bar + hand
+            Dim(new Vector2(0f, BoardBottom), new Vector2(BoardLeft, BoardTop));     // player column + stage
+            Dim(new Vector2(BoardRight, BoardBottom), new Vector2(1f, BoardTop));    // whatever lies right of the board
             UiKit.AddClick(_targetingRoot.gameObject, () =>
             {
                 var pick = _targetingPick;
@@ -155,10 +155,11 @@ namespace LemonadeWars.Unity
             }
 
             _targetingRoot.SetAsLastSibling();
+            _targetingRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _targetingRoot.gameObject.SetActive(true);
         }
 
-        /// <summary>Called every frame by the app; drives hover glow + the dashed arrow.</summary>
+        /// <summary>Called every frame by the app; drives hover glow + the arrow.</summary>
         public void TickEquipTargeting(Vector2 screenPosition)
         {
             if (_targetingPick == null)
@@ -208,7 +209,7 @@ namespace LemonadeWars.Unity
 
                         var world = cell.TransformPoint(
                             new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
-                        UiKit.DrawDashedArrow(_targetingArrowHost, _targetingCardBottom,
+                        UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
                             (Vector2)_targetingRoot.InverseTransformPoint(world),
                             UiKit.ButtonColor);
                         break;
@@ -259,7 +260,7 @@ namespace LemonadeWars.Unity
                         strip.rect.width + 26, strip.rect.height + 26, DropGlowHot);
                     var world = strip.TransformPoint(
                         new Vector3(strip.rect.center.x, strip.rect.yMax, 0));
-                    UiKit.DrawDashedArrow(_targetingArrowHost, _targetingCardBottom,
+                    UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
                         (Vector2)_targetingRoot.InverseTransformPoint(world),
                         UiKit.ButtonColor);
                     break;

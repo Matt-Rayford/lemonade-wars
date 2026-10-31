@@ -13,7 +13,9 @@ Shader "LemonadeWars/DieUnlit"
         Tags { "Queue" = "Transparent" "RenderType" = "Transparent" }
         Cull Back
         ZWrite Off
-        Blend SrcAlpha OneMinusSrcAlpha
+        // Separate alpha blend: the camera draws into a transparent RenderTexture,
+        // so coverage must accumulate as straight alpha for the UI to composite it.
+        Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
 
         Pass
         {

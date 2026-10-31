@@ -186,11 +186,24 @@ namespace LemonadeWars.Engine.Core
         private int MarketSize =>
             State.Players.Count == 2 ? Db.Config.BlackMarketFaceUp2Player : Db.Config.BlackMarketFaceUp;
 
-        private void RefillMarket()
+        /// <summary>
+        /// Top the row back up. A single taken card is replaced IN ITS OWN SLOT
+        /// (<paramref name="vacatedIndex"/>), so the shelf keeps its order and the
+        /// table can show the gap where the card was; any further shortfall appends.
+        /// </summary>
+        private void RefillMarket(int vacatedIndex = -1)
         {
             while (State.Market.Count < MarketSize && TryDrawBlackMarket(out int id))
             {
-                State.Market.Add(id);
+                if (vacatedIndex >= 0 && vacatedIndex <= State.Market.Count)
+                {
+                    State.Market.Insert(vacatedIndex, id);
+                    vacatedIndex = -1;
+                }
+                else
+                {
+                    State.Market.Add(id);
+                }
             }
         }
 
@@ -492,7 +505,8 @@ namespace LemonadeWars.Engine.Core
                 throw new InvalidActionException($"No {standType.Name}s left in the supply.");
             }
 
-            Pay(player, StandPrice(playerId, standTypeId), standType.Name, events);
+            int price = StandPrice(playerId, standTypeId);
+            Pay(player, price, standType.Name, events);
             if (spendAction)
             {
                 SpendAction();
@@ -514,6 +528,7 @@ namespace LemonadeWars.Engine.Core
                 PlayerId = playerId,
                 StandInstanceId = stand.InstanceId,
                 StandTypeId = standTypeId,
+                Price = price,
             });
         }
 
@@ -583,13 +598,14 @@ namespace LemonadeWars.Engine.Core
             }
 
             State.Market.RemoveAt(action.MarketIndex);
-            RefillMarket();
+            RefillMarket(action.MarketIndex);
             events.Add(new MarketRefilled { Market = State.Market.ToList() });
 
             if (duringSetup)
             {
                 // Pre-game purchases cannot be tantrummed — equip immediately.
-                TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events);
+                TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events,
+                    pricePaid: price);
                 AdvanceInitialBuyQueue(events);
                 return;
             }
@@ -631,7 +647,7 @@ namespace LemonadeWars.Engine.Core
         {
             var player = Player(item.OwnerId);
             if (!TryEquip(player, item.BmInstanceId!.Value,
-                    item.EquipStandInstanceId, item.EquipReplaceInstanceId, events))
+                    item.EquipStandInstanceId, item.EquipReplaceInstanceId, events, pricePaid: item.PaidCost))
             {
                 // Destination vanished mid-contest (cannot normally happen); card is lost.
                 State.BlackMarketDiscard.Add(item.BmInstanceId.Value);

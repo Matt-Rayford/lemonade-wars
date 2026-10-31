@@ -21,15 +21,27 @@ namespace LemonadeWars.Unity
         // delivery removes its id exactly once (including skip/Clear — the
         // EffectsPlayer guarantees delivery on every exit path).
         private readonly HashSet<int> _hiddenMarketIds = new HashSet<int>();
+        // For a hidden refill id: the art of the card its slot used to hold, drawn
+        // inert there until the effect that sweeps or lifts it is on screen.
+        private readonly Dictionary<int, UnityEngine.Texture2D> _marketStandIns =
+            new Dictionary<int, UnityEngine.Texture2D>();
         // Who last took something for money (MoneyChanged < 0) or off the market
         // (BlackMarketPurchased): MarketRefilled has no buyer field, but one of those
         // always precedes it in the same event burst — Pay() for purchases, TryEquip's
         // event for free takes like Connections. Caption-only; never load-bearing.
         private int _lastSpenderId = -1;
+        /// <summary>
+        /// What the Black Market take in progress cost — the last payment, or 0 once a
+        /// free take's equip event says so — for the bills its drift slaps down.
+        /// </summary>
+        private int _lastMarketPrice;
 
-        // The viewer's earnings collected across one roll, for the "you earned" recap.
-        private List<string> _saleEarnings;
-        private int _saleTotal;
+        // Every player's earnings from the roll in progress, staged as bill piles once
+        // the roll settles; null between rolls.
+        private Dictionary<int, int> _rollEarnings;
+        private int _rollerId;
+        /// <summary>Earned cash whose pile has not reached the bar yet; the bars show the old total meanwhile.</summary>
+        private readonly Dictionary<int, int> _earningsInFlight = new Dictionary<int, int>();
 
         private readonly List<string> _actionLog = new List<string>();
 
@@ -41,59 +53,60 @@ namespace LemonadeWars.Unity
                 return; // autopilot is for fast testing — no theatre
             }
             string logLine = LogLine(gameEvent);
-            if (logLine != null)
+            // A roll's number is a secret until the die settles: its line waits.
+            bool logWaitsForDie = gameEvent is SaleRolled || gameEvent is DieRerolled || gameEvent is RollModified;
+            if (logLine != null && !logWaitsForDie)
             {
-                _actionLog.Add(logLine);
-                if (_actionLog.Count > 40)
-                {
-                    _actionLog.RemoveAt(0);
-                }
+                AddLogLine(logLine);
             }
+            System.Action onLanded = logLine == null ? null : () => AddLogLine(logLine);
             if (gameEvent is SaleRolled roll)
             {
-                // Played, not queued: it belongs to the tumble, which passive effects
+                // Played, not queued: it belongs to the throw, which passive effects
                 // deliberately wait behind.
                 Sfx.Play(Sfx.SaleRoll);
                 _dice.Enqueue(NameOf(roll.PlayerId), roll.Value, roll.PlayerId == _session.Seat,
                     roll.Purpose,
-                    roll.StandInstanceId is int standId ? StandName(standId) : null);
-                // Start collecting this roll's earnings for the "you earned" recap.
-                _saleEarnings = new List<string>();
-                _saleTotal = 0;
+                    roll.StandInstanceId is int standId ? StandName(standId) : null,
+                    onLanded);
+                // Start collecting this roll's earnings; they are staged as bill piles
+                // once the roll settles.
+                _rollEarnings = new Dictionary<int, int>();
+                _rollerId = roll.PlayerId;
             }
             else if (gameEvent is StandSold sold)
             {
-                _fx.QueueMoney(sold.PlayerId, sold.Earnings);
-                if (sold.PlayerId == _session.Seat && _saleEarnings != null)
-                {
-                    _saleEarnings.Add($"{StandName(sold.StandInstanceId)} +${sold.Earnings}");
-                    _saleTotal += sold.Earnings;
-                }
+                CollectEarnings(sold.PlayerId, sold.Earnings);
             }
             else if (gameEvent is DieRerolled reroll)
             {
-                Sfx.Play(Sfx.SaleRoll); // a second real tumble deserves the same sound
+                Sfx.Play(Sfx.SaleRoll); // a second real throw deserves the same sound
                 _dice.EnqueueReroll(NameOf(reroll.ByPlayerId), reroll.NewValue,
-                    reroll.ByPlayerId == _session.Seat);
+                    reroll.ByPlayerId == _session.Seat, onLanded);
             }
             else if (gameEvent is RollModified modified)
             {
                 _dice.EnqueueModifier(NameOf(modified.PlayerId), BlackMarketName(modified.SourceDefId),
-                    modified.NewValue, modified.PlayerId == _session.Seat);
+                    modified.NewValue, modified.PlayerId == _session.Seat, onLanded);
             }
             else if (gameEvent is MoneyChanged money)
             {
                 if (money.Amount < 0)
                 {
-                    // Remember who paid: the MarketRefilled that follows a purchase
-                    // carries no buyer, but Pay() always precedes it in the burst.
+                    // Remember who paid, and what: the MarketRefilled that follows a
+                    // purchase carries neither, but Pay() always precedes it in the
+                    // burst (the equip event, which also knows the price, comes after
+                    // the tantrum window — too late for the drift).
                     _lastSpenderId = money.PlayerId;
+                    _lastMarketPrice = -money.Amount;
                 }
-                _fx.QueueMoney(money.PlayerId, money.Amount);
-                if (money.PlayerId == _session.Seat && money.Amount > 0 && _saleEarnings != null)
+                if (money.Amount > 0)
                 {
-                    _saleEarnings.Add($"{money.Reason} +${money.Amount}");
-                    _saleTotal += money.Amount;
+                    CollectEarnings(money.PlayerId, money.Amount);
+                }
+                else if (!PaysWithBills(money.Reason))
+                {
+                    _fx.QueueMoney(money.PlayerId, money.Amount);
                 }
             }
             else if (gameEvent is CardDrawn drawn && drawn.PlayerId == _session.Seat)
@@ -123,8 +136,9 @@ namespace LemonadeWars.Unity
                 // shelf's own index-from-price math in TableView.RenderSupply).
                 var bragArt = _art.BraggingRights((brag.Price - 16) / 2)
                     ?? _art.Back("braggingRights");
-                _fx.QueuePurchase(bragArt, PurchaseCaption(brag.PlayerId),
-                    () => _table.BraggingShelfWorld());
+                _fx.QueuePurchase(bragArt, brag.PlayerId, brag.Price, _art.Bill,
+                    () => _table.BraggingShelfWorld(),
+                    showCard: ShowsPurchaseTheatre(brag.PlayerId));
             }
             else if (gameEvent is WhiniestBabyMoved baby && baby.ToPlayerId == _session.Seat)
             {
@@ -164,6 +178,7 @@ namespace LemonadeWars.Unity
                 // keyed there. But for free takes (Connections) this precedes the
                 // refill and is the only event naming the taker — remember them.
                 _lastSpenderId = bought.PlayerId;
+                _lastMarketPrice = bought.Price;
             }
             else if (gameEvent is MarketRefilled refilled)
             {
@@ -180,8 +195,9 @@ namespace LemonadeWars.Unity
                         ? _art.Stand(standBought.StandTypeId, topShape)
                         : _art.Stand(standBought.StandTypeId);
                 string typeId = standBought.StandTypeId;
-                _fx.QueuePurchase(standArt, PurchaseCaption(standBought.PlayerId),
-                    () => _table.StandSupplyWorld(typeId));
+                _fx.QueuePurchase(standArt, standBought.PlayerId, standBought.Price, _art.Bill,
+                    () => _table.StandSupplyWorld(typeId),
+                    showCard: ShowsPurchaseTheatre(standBought.PlayerId));
             }
             else if (gameEvent is MoneyStolen theft)
             {
@@ -206,13 +222,23 @@ namespace LemonadeWars.Unity
                 {
                     _fx.QueueSound(Sfx.AttackCard);
                 }
-                if (played.PlayerId != _session.Seat && PlayRevealTitle(played) is string revealTitle)
+                // Every Lemon play lands on the table. A reaction thrown at a staged
+                // play slaps down on top of it; anything else — a plan, an attack, or a
+                // reaction with nothing under it (Out of Stock on a roll, Profit Share
+                // after a theft) — is staged beside its player's bar, badged with who
+                // played it, and held there through any reactions, so a Tantrum is
+                // always thrown at something everyone can see. Attacks get the arrow
+                // to their victim; steals and discard takes show their loot.
+                bool onThePile = !IsStagedPlay(played.DefId) &&
+                    _playTheatre.AddResponse(_art.Lemon(played.DefId), played.DefId, played.PlayerId);
+                if (!onThePile)
                 {
-                    // Someone ELSE played a card at a player: one card-reveal beat
-                    // showing the card and naming both sides. If a response modal is
-                    // about to open for us, the window event below cancels this —
-                    // the modal tells the same story.
-                    _fx.QueueReveal(_art.Lemon(played.DefId), revealTitle);
+                    _stagedAttacker = played.PlayerId;
+                    var loot = played.DefId == "finders-keepers" && played.StolenDefId != null
+                        ? _art.BlackMarket(played.StolenDefId, played.StolenShape ?? Shape.Square)
+                        : TakenArt(played);
+                    _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId,
+                        played.TargetPlayerId ?? -1, loot);
                 }
             }
             else if (gameEvent is ResponseWindowOpened window &&
@@ -222,20 +248,40 @@ namespace LemonadeWars.Unity
             }
             else if (gameEvent is AttackRedirected redirect)
             {
+                _playTheatre.Retarget(_stagedAttacker, redirect.NewTargetId);
                 _fx.QueueToast($"{NameOf(redirect.ByPlayerId).ToUpperInvariant()} TAGS IT TO " +
                     $"{NameOf(redirect.NewTargetId).ToUpperInvariant()}!");
             }
             else if (gameEvent is AttackReflected reflect)
             {
+                // "As if you played it": the reflector owns the attack from here on.
+                _stagedAttacker = reflect.ByPlayerId;
+                _playTheatre.Retarget(reflect.ByPlayerId, reflect.NewTargetId);
                 _fx.QueueToast($"{NameOf(reflect.ByPlayerId).ToUpperInvariant()} " +
                     "REFLECTS IT BACK!");
             }
             else if (gameEvent is AttackFizzled fizzle)
             {
+                if (_playTheatre.Matches(fizzle.OwnerId, fizzle.DefId))
+                {
+                    _playTheatre.Cancel();
+                }
                 _fx.QueueToast($"{LemonName(fizzle.DefId).ToUpperInvariant()} FIZZLES!");
+            }
+            else if (gameEvent is PlayResolved resolved && _playTheatre.Matches(resolved.OwnerId, resolved.DefId))
+            {
+                _playTheatre.Resolve();
             }
             else if (gameEvent is PlayCancelled cancelled)
             {
+                if (_playTheatre.Matches(cancelled.OwnerId, cancelled.DefId))
+                {
+                    _playTheatre.Cancel();
+                }
+                else
+                {
+                    _playTheatre.CancelResponse(cancelled.OwnerId, cancelled.DefId); // a countered reaction, if it is one on the pile
+                }
                 // The Inflatable Decoy is an equipped reaction with no play event of
                 // its own — without a reveal it cancels invisibly and reads as a bug.
                 if (cancelled.WithDefId == "inflatable-decoy" && cancelled.ByPlayerId is int blocker)
@@ -249,6 +295,43 @@ namespace LemonadeWars.Unity
                 _fx.QueueToast($"{NameOf(cancelled.OwnerId).ToUpperInvariant()}'S " +
                     $"{CardName(cancelled.DefId).ToUpperInvariant()} IS CANCELLED{byWhat}!");
             }
+        }
+
+        /// <summary>Who currently owns the staged play (a reflection hands an attack over).</summary>
+        private int _stagedAttacker = -1;
+
+        /// <summary>
+        /// Plans and attacks are staged on the table; instants (responses) slap onto
+        /// them or get the reveal. False for a Black Market id (a cancelled purchase).
+        /// </summary>
+        private bool IsStagedPlay(string defId)
+        {
+            try
+            {
+                var type = _db.Lemon(defId).Type;
+                return type == LemonCardType.Plan || type == LemonCardType.Attack;
+            }
+            catch
+            {
+                return false; // not a Lemon card
+            }
+        }
+
+        /// <summary>
+        /// Art of the discard card a take is lifting, for the plays that take one:
+        /// Reduce and Reuse (a Black Market card) and Reverse Engineer (a Lemon card,
+        /// unless it drew instead). Null for everything else.
+        /// </summary>
+        private UnityEngine.Texture2D TakenArt(LemonCardPlayed played)
+        {
+            if (played.TakenDefId == null ||
+                (played.DefId != "reduce-and-reuse" && played.DefId != "reverse-engineer"))
+            {
+                return null;
+            }
+            return played.TakenIsLemon
+                ? _art.Lemon(played.TakenDefId)
+                : _art.BlackMarket(played.TakenDefId, played.TakenShape ?? Shape.Square);
         }
 
         // ------------------------------------------------- purchase theatre
@@ -290,15 +373,31 @@ namespace LemonadeWars.Unity
                 .Select(id => oldSnap?.FirstOrDefault(c => c.InstanceId == id)
                     ?? new PlayerView.CardInfo { InstanceId = id, DefId = null })
                 .ToList();
-            if (refilled.RefreshedByPlayerId != null || oldSnap == null)
+            if (oldSnap == null)
             {
-                return; // paid sweep, or no baseline yet (fresh join): no per-card fx
+                return; // no baseline yet (fresh join): nothing to animate from
+            }
+            var freshSlots = newIds
+                .Select((id, slot) => (Slot: slot, InstanceId: id))
+                .Where(entry => !oldSnap.Any(c => c.InstanceId == entry.InstanceId))
+                .ToList();
+
+            if (refilled.RefreshedByPlayerId is int refresher)
+            {
+                // The paid sweep: the dollar comes out, the whole row slides under the
+                // deck, and a fresh row is dealt out of it.
+                var swept = oldSnap
+                    .Select((card, slot) => (Slot: slot, Art: ShelfArt(card)))
+                    .Where(entry => entry.Art != null)
+                    .ToList();
+                foreach (var (slot, art) in swept)
+                {
+                    HoldStandIn(freshSlots, slot, art);
+                }
+                QueueMarketDeal(freshSlots, swept, refresher, _db.Config.BlackMarketRefreshCost);
+                return;
             }
 
-            // Cards now on the shelf that the viewer has not been shown yet.
-            var freshIds = newIds.Where(id => !oldSnap.Any(c => c.InstanceId == id)).ToList();
-
-            int departedSoFar = 0;
             for (int slot = 0; slot < oldSnap.Count; slot++)
             {
                 var card = oldSnap[slot];
@@ -306,94 +405,205 @@ namespace LemonadeWars.Unity
                 {
                     continue; // still on the shelf
                 }
-                // Pair the k-th departed card with the k-th fresh card (1:1 in practice).
-                int freshId = departedSoFar < freshIds.Count ? freshIds[departedSoFar] : -1;
-                departedSoFar++;
-                var art = card.DefId == null
-                    ? null // refilled and re-bought inside one burst: art never seen
-                    : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+                var art = ShelfArt(card); // null: refilled and re-bought inside one burst, art never seen
                 if (art == null)
                 {
                     continue; // nothing to fly — leave the refill instant (status quo)
                 }
-                if (freshId >= 0)
-                {
-                    _hiddenMarketIds.Add(freshId);
-                }
                 int originSlot = slot;   // geometric spot the departed card occupied
-                int revealId = freshId;  // capture per-flight, not per-loop
+                HoldStandIn(freshSlots, originSlot, art);
                 _fx.QueueSound(Sfx.CashRegister);
-                _fx.QueuePurchase(art, PurchaseCaption(_lastSpenderId),
+                _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
                     () => _table.MarketSlotWorld(originSlot),
-                    () => ReleaseMarketCard(revealId));
+                    null, ShowsPurchaseTheatre(_lastSpenderId),
+                    onStarted: () => DropStandIns(freshSlots));
+            }
+            // The replacement(s) are dealt from the deck once the purchase has played.
+            QueueMarketDeal(freshSlots, new List<(int Slot, UnityEngine.Texture2D Art)>(), payerId: -1, price: 0);
+        }
+
+        /// <summary>
+        /// Hide the dealt cards' slots until each flight lands, then queue the deal.
+        /// Art resolves when the effect starts, when the view has certainly caught up.
+        /// </summary>
+        private void QueueMarketDeal(List<(int Slot, int InstanceId)> dealt,
+            List<(int Slot, UnityEngine.Texture2D Art)> swept, int payerId, int price)
+        {
+            if (dealt.Count == 0 && swept.Count == 0)
+            {
+                return;
+            }
+            var deals = new List<ShelfCardFlight>();
+            foreach (var (slot, instanceId) in dealt)
+            {
+                _hiddenMarketIds.Add(instanceId);
+                deals.Add(new ShelfCardFlight
+                {
+                    Art = () => MarketArt(instanceId),
+                    SlotWorld = () => _table.MarketSlotWorld(slot),
+                    OnLanded = () => ReleaseMarketCard(instanceId),
+                });
+            }
+            var sweep = new List<ShelfCardFlight>();
+            foreach (var (slot, art) in swept)
+            {
+                sweep.Add(new ShelfCardFlight
+                {
+                    Art = () => art,
+                    SlotWorld = () => _table.MarketSlotWorld(slot),
+                });
+            }
+            _fx.QueueMarketDeal(() => _table.BlackMarketDeckWorld(), sweep, deals, payerId, price, _art.Bill,
+                onStarted: () => DropStandIns(dealt));
+        }
+
+        /// <summary>The card that left <paramref name="slot"/> keeps its place on the shelf, inert, until its effect plays.</summary>
+        private void HoldStandIn(List<(int Slot, int InstanceId)> fresh, int slot, UnityEngine.Texture2D art)
+        {
+            foreach (var (freshSlot, instanceId) in fresh)
+            {
+                if (freshSlot == slot)
+                {
+                    _marketStandIns[instanceId] = art;
+                }
             }
         }
+
+        private void DropStandIns(List<(int Slot, int InstanceId)> fresh)
+        {
+            bool dropped = false;
+            foreach (var (_, instanceId) in fresh)
+            {
+                dropped |= _marketStandIns.Remove(instanceId);
+            }
+            if (dropped)
+            {
+                _renderedRevision = -1; // the slots show their empty sockets under the flights
+            }
+        }
+
+        private UnityEngine.Texture2D ShelfArt(PlayerView.CardInfo card) =>
+            card.DefId == null ? null : _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+
+        /// <summary>Art of a card on the shelf right now, by instance; null once it is gone.</summary>
+        private UnityEngine.Texture2D MarketArt(int instanceId)
+        {
+            var card = View?.Market.FirstOrDefault(c => c.InstanceId == instanceId);
+            return card == null ? null : ShelfArt(card);
+        }
+
+        /// <summary>
+        /// A loss the bill pile already shows: a purchase (stand, Black Market card,
+        /// Bragging Rights) or a market refresh slaps its money on the table, so the
+        /// "-$X" floater would only say it again. Fines and the Swear Jar have no pile.
+        /// </summary>
+        private static bool PaysWithBills(string reason) =>
+            reason != "timeout fine" && reason != "swear jar";
+
+        /// <summary>
+        /// Whose purchases get the showcase-and-fly treatment: everyone but the viewer,
+        /// who just clicked the card and already knows what they bought (their money
+        /// still slaps down).
+        /// </summary>
+        private bool ShowsPurchaseTheatre(int buyerId) => buyerId != _session.Seat;
 
         /// <summary>Drift delivery: let the hidden refill card show itself. Fires
         /// exactly once per flight on every path (landing, skip, effects Clear).</summary>
         private void ReleaseMarketCard(int instanceId)
         {
             _hiddenMarketIds.Remove(instanceId); // -1 (no paired refill) is a no-op
+            _marketStandIns.Remove(instanceId);
             _renderedRevision = -1;              // surface the refilled card now
         }
 
-        /// <summary>Buyer's name under the drifting card; null for your own buys (you
-        /// just dragged it — the name would be noise).</summary>
-        private string PurchaseCaption(int playerId) =>
-            playerId >= 0 && playerId != _session.Seat
-                ? NameOf(playerId).ToUpperInvariant()
-                : null;
 
         /// <summary>
-        /// Roll fully resolved: recap what the viewer earned. The entries collect
-        /// across the Applies of a roll (windows can hold it open several frames),
-        /// so flush only once the pending roll is gone.
+        /// A roll's earnings stay collected across the Applies of the roll (windows can
+        /// hold it open several frames), so they are staged only once the pending roll
+        /// is gone. The viewer's own earnings ring the coins first.
         /// </summary>
-        private void FlushSaleRecap()
+        /// <summary>A roll's money is still being collected, or still sliding into bars.</summary>
+        private bool EarningsStillShowing() =>
+            _rollEarnings != null || _earningsInFlight.Values.Any(held => held > 0);
+
+        private void FlushRollEarnings()
         {
-            if (_saleEarnings == null || View == null || View.PendingRollValue != null)
+            if (_rollEarnings == null || View == null || View.PendingRollValue != null)
             {
                 return;
             }
-            if (_saleTotal > 0)
+            if (_rollEarnings.TryGetValue(_session.Seat, out int mine) && mine > 0)
             {
-                // Coins first so they ring under the recap, not after it.
                 _fx.QueueSound(Sfx.Coins);
-                _fx.QueueToast($"YOU EARN ${_saleTotal}:  " +
-                    string.Join("  ·  ", _saleEarnings).ToUpperInvariant());
             }
-            _saleEarnings = null;
+            StageRollEarnings();
+        }
+
+        /// <summary>
+        /// A gain during a roll joins that roll's pile instead of floating as "+$X";
+        /// its cash is held back from the bar until the pile lands there. Gains
+        /// outside a roll (Profit Share, refunds) still float.
+        /// </summary>
+        private void CollectEarnings(int playerId, int amount)
+        {
+            if (_rollEarnings == null)
+            {
+                _fx.QueueMoney(playerId, amount);
+                return;
+            }
+            _rollEarnings[playerId] = _rollEarnings.TryGetValue(playerId, out int sum) ? sum + amount : amount;
+            _earningsInFlight[playerId] = _earningsInFlight.TryGetValue(playerId, out int held) ? held + amount : amount;
+            _renderedRevision = -1; // the bar must show the old total from the first frame
+        }
+
+        /// <summary>
+        /// The roll has settled: every earner gets their pile in turn order from the
+        /// roller, one after another; each landing releases that player's held cash.
+        /// </summary>
+        private void StageRollEarnings()
+        {
+            var earnings = _rollEarnings;
+            _rollEarnings = null;
+            if (earnings == null || View == null)
+            {
+                return;
+            }
+            int n = View.Players.Count;
+            UnityEngine.Debug.Log("[LW] roll earnings staged: " + (earnings.Count == 0 ? "nobody earned" :
+                string.Join(", ", earnings.Select(kv => $"{NameOf(kv.Key)} +${kv.Value}"))));
+            for (int offset = 0; offset < n; offset++)
+            {
+                int playerId = (_rollerId + offset) % n;
+                if (!earnings.TryGetValue(playerId, out int amount) || amount <= 0)
+                {
+                    continue;
+                }
+                _fx.QueueEarnings(playerId, amount, _art.Bill, () =>
+                {
+                    _earningsInFlight[playerId] = System.Math.Max(0,
+                        (_earningsInFlight.TryGetValue(playerId, out int held) ? held : 0) - amount);
+                    _renderedRevision = -1; // the bar may show the new total now
+                });
+            }
         }
 
         // --------------------------------------------------------- action log
-
-        /// <summary>
-        /// The reveal headline for another player's card, or null for a plain plan
-        /// (Automation and friends change nothing at the table that needs a beat).
-        /// Attacks name the victim; responses name the card they answer.
-        /// </summary>
-        private string PlayRevealTitle(LemonCardPlayed played)
-        {
-            string by = NameOf(played.PlayerId).ToUpperInvariant();
-            string card = LemonName(played.DefId).ToUpperInvariant();
-            if (played.TargetPlayerId is int victim)
-            {
-                string victimName = victim == _session.Seat ? "YOU" : NameOf(victim).ToUpperInvariant();
-                return $"{by} ATTACKS {victimName} WITH {card}!";
-            }
-            if (played.RespondingToDefId != null && played.RespondingToOwnerId is int owner)
-            {
-                string whose = owner == _session.Seat ? "YOUR" : $"{NameOf(owner).ToUpperInvariant()}'S";
-                return $"{by} PLAYS {card} ON {whose} {CardName(played.RespondingToDefId).ToUpperInvariant()}!";
-            }
-            return _db.Lemon(played.DefId).Type == LemonCardType.Plan ? null : $"{by} PLAYS {card}!";
-        }
 
         /// <summary>
         /// Friendly one-liner for the action log; null for events too noisy to log
         /// (individual money ticks, window bookkeeping) or already folded into the
         /// line above (a run of draws grows its own line in place).
         /// </summary>
+        private void AddLogLine(string line)
+        {
+            _actionLog.Add(line);
+            if (_actionLog.Count > 40)
+            {
+                _actionLog.RemoveAt(0);
+            }
+            _renderedRevision = -1; // the log panel only redraws with the table
+        }
+
         private string LogLine(GameEvent e)
         {
             switch (e)

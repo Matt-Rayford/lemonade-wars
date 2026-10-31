@@ -18,6 +18,10 @@ namespace LemonadeWars.Unity
         public System.Action OnBraggingDrop;
 
         private RectTransform _boardPanel;
+        /// <summary>The row's left inset inside the panel and the first cell's width (see RenderBoard's AddCard calls).</summary>
+        private const int BoardFadePx = 70;
+        private const float VictoryCellWidthPx = 188f;
+        /// <summary>Horizontal nudge of the showcase off that column's centre (negative = right); tuned at the table.</summary>
         private RectTransform _boardRow;
         private RectMask2D _boardMask;
         private float _boardScroll;
@@ -187,10 +191,18 @@ namespace LemonadeWars.Unity
             }
             float overflow = _boardRow.rect.width + 12f - _boardPanel.rect.width;
             // The hand-style faded edge doubles as the "this scrolls" cue.
-            var softness = overflow > 0f ? new Vector2Int(70, 0) : Vector2Int.zero;
+            var softness = overflow > 0f ? new Vector2Int(BoardFadePx, 0) : Vector2Int.zero;
             if (_boardMask.softness != softness)
             {
                 _boardMask.softness = softness;
+            }
+            // Until the row has moved there is nothing to clip on the left, so the
+            // clip edge is pushed out past the fade: the Victory Points outline stays
+            // crisp at rest and only fades once something has scrolled under it.
+            var padding = new Vector4(_boardScroll > 0f ? 0f : -BoardFadePx, 0f, 0f, 0f);
+            if (_boardMask.padding != padding)
+            {
+                _boardMask.padding = padding;
             }
             if (overflow <= 0f)
             {
@@ -539,6 +551,25 @@ namespace LemonadeWars.Unity
             UiKit.CreateBadge((RectTransform)cell.transform, "0 VP", 13,
                 new Color(0, 0, 0, 0.55f)).color = Color.white;
             return (RectTransform)cell.transform;
+        }
+
+        /// <summary>
+        /// Where a bought (or staged) card pauses: just right of the player column,
+        /// level with the player's own bar — so the card sits beside the chip it
+        /// belongs to. Measured from the static player column, not the board row:
+        /// the row is rebuilt on every render (and has since moved right), and a
+        /// cell read before its layout pass sits wherever the row's centre was.
+        /// </summary>
+        public Vector3? PurchaseShowcaseWorld(int buyerId)
+        {
+            var bar = PlayerBarWorld(buyerId);
+            if (bar == null)
+            {
+                return null;
+            }
+            float columnRightX = _playersColumn.TransformPoint(new Vector3(_playersColumn.rect.xMax, 0, 0)).x;
+            float cardCentreX = columnRightX + VictoryCellWidthPx / 2f;
+            return new Vector3(cardCentreX, bar.Value.y, 0);
         }
     }
 }

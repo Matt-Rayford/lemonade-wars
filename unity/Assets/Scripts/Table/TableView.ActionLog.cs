@@ -23,7 +23,7 @@ namespace LemonadeWars.Unity
         {
             var zone = UiKit.CreatePanel(Root, "ActionLog", new Color(0, 0, 0, 0));
             zone.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(zone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
+            UiKit.Anchor(zone, new Vector2(LogLeft, 0.24f), new Vector2(1f, 0.695f),
                 new Vector2(4, 0), new Vector2(-10, -4));
 
             // Header pinned at the TOP in both states — toggling swaps only the +/–

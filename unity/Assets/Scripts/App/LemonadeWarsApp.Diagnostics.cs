@@ -36,6 +36,8 @@ namespace LemonadeWars.Unity
                 {
                     Debug.LogWarning("[LW] watchdog: one effect busy >8s — clearing. " + _fx.DebugState());
                     _fx.Clear();
+                    _playTheatre.Clear();
+            _playTheatre.Clear();
                     _fxBusySince = -1f;
                 }
             }
@@ -45,7 +47,7 @@ namespace LemonadeWars.Unity
             }
 
             var groups = CurrentGroups();
-            bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy;
+            bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy;
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
             bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
                                 (_picker.IsOpen && _picker.RootVisible) ||
@@ -112,7 +114,6 @@ namespace LemonadeWars.Unity
                     $"awaiting=[{string.Join(",", View.AwaitingResponse)}]");
             }
             Debug.Log("[LW DUMP]\n" + sb);
-            _statusText.text = "debug state dumped to console";
         }
     }
 }

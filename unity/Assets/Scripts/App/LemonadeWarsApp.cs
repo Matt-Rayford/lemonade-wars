@@ -63,15 +63,18 @@ namespace LemonadeWars.Unity
         private CardPreview _preview;
         private TurnBanner _turnBanner;
         private DiceRoller _dice;
+        private int _shownDiceHeadline;
         private EffectsPlayer _fx;
-        private TMP_Text _statusText;
-        private TMP_Text _topBanner;
+        private PlayTheatre _playTheatre;
         private RectTransform _turnActionRow;
+        private TMP_Text _tableMessage;
+        /// <summary>Same strip as the message: holds the End Turn button once actions are spent.</summary>
+        private RectTransform _tableActionHost;
+        /// <summary>Headline of the open response panel, shown as the table message while it is up.</summary>
+        private string _reactionBanner = "";
         private PauseMenu _pause;
         private RulebookViewer _rulebook;
         private ReactionPanel _reaction;
-        /// <summary>The open reaction's headline, shown in the yellow bar.</summary>
-        private string _reactionBanner = "";
 
         private int _renderedRevision = -1;
         private int _modalRevision = -1;
@@ -93,22 +96,36 @@ namespace LemonadeWars.Unity
             var canvas = UiKit.CreateCanvas();
             var root = (RectTransform)canvas.transform;
 
-            // Lemonade-yellow chrome across the top, black type on it.
-            var statusPanel = UiKit.CreatePanel(root, "Status", UiKit.ButtonColor);
-            UiKit.Anchor(statusPanel, new Vector2(0, 0.95f), new Vector2(1, 1));
-            _statusText = UiKit.CreateText(statusPanel, "", 18, TextAnchor.MiddleLeft,
-                UiKit.ButtonTextColor, body: true);
-            UiKit.Anchor((RectTransform)_statusText.transform, Vector2.zero, Vector2.one,
-                new Vector2(14, 0), new Vector2(-14, 0));
-            // Turn/phase banner, centered in the top bar.
-            _topBanner = UiKit.CreateText(statusPanel, "", 22, TextAnchor.MiddleCenter,
-                UiKit.ButtonTextColor);
-            UiKit.Anchor((RectTransform)_topBanner.transform, Vector2.zero, Vector2.one,
-                new Vector2(220, 0), new Vector2(-220, 0));
-
             _preview = new CardPreview(root);
             _table = new TableView(root, _art, _preview);
+
+            // The table's one line of words, in the clear strip between shelf and
+            // board; built after the table so it sits over the wallpaper.
+            _tableMessage = UiKit.CreateText(root, "", 32, TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            _tableMessage.raycastTarget = false;
+            UiKit.AddTextShadow(_tableMessage);
+            var messageRect = (RectTransform)_tableMessage.transform;
+            UiKit.Anchor(messageRect, new Vector2(0.21f, 0.697f), new Vector2(0.79f, 0.77f));
+            // The message's strip doubles as the home of the big End Turn button when
+            // there is nothing else to say; the words step aside while it is there.
+            // Anchored off the message itself, so nudging one nudges both.
+            var tableActionsGo = new GameObject("TableActions", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            tableActionsGo.transform.SetParent(root, false);
+            _tableActionHost = (RectTransform)tableActionsGo.transform;
+            UiKit.Anchor(_tableActionHost, messageRect.anchorMin, messageRect.anchorMax);
+            var tableActionsLayout = tableActionsGo.GetComponent<HorizontalLayoutGroup>();
+            tableActionsLayout.childAlignment = TextAnchor.MiddleCenter;
+            tableActionsLayout.spacing = 12f;
+            tableActionsLayout.childForceExpandWidth = false;
+            tableActionsLayout.childForceExpandHeight = false;
+            tableActionsLayout.childControlWidth = true;
+            tableActionsLayout.childControlHeight = true;
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
+            _table.UnshownMoney = id => _earningsInFlight.TryGetValue(id, out int amount) ? amount : 0;
+            _table.TheatreBusy = () =>
+                (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||
+                (_turnBanner != null && _turnBanner.IsOpen) ||
+                (_playTheatre != null && _playTheatre.IsBusy);
             _table.AimIsReaction = () => ReactionWindowDue(CurrentGroups());
             _table.OnHandCard = OpenHandMenu;
             _table.AttackTargetsFor = AttackTargets;
@@ -158,6 +175,8 @@ namespace LemonadeWars.Unity
             // A refilled market card renders as an empty slot while the purchase drift
             // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
             _table.MarketCardHidden = instanceId => _hiddenMarketIds.Contains(instanceId);
+            _table.MarketStandIn = instanceId =>
+                _marketStandIns.TryGetValue(instanceId, out var art) ? art : null;
             _table.SetVisible(false);
 
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
@@ -181,10 +200,29 @@ namespace LemonadeWars.Unity
             _lobby.OnLeave = () => BackToMenu("");
             StartCoroutine(ServerStatusLoop());
 
-            // Above the table, below the modal overlays built after it.
+            // Staged attacks sit under the effects layer, so reveal scrims cover them.
+            _playTheatre = new PlayTheatre(root,
+                playerId => _table.PlayerBarWorld(playerId),
+                playerId => _table.PlayerBarEdgeWorld(playerId),
+                playerId => _table.PurchaseShowcaseWorld(playerId),
+                (playerId, on) => _table.SetVictimGlow(playerId, on),
+                _preview,
+                UiKit.LoadTextureSharp(Path.Combine(Application.streamingAssetsPath, "icons", "steal-blank.png")),
+                NameOf);
+            _playTheatre.OnIdle = () =>
+            {
+                // Re-render so the reaction modal held behind the arrival beat opens now.
+                _renderedRevision = -1;
+                _modalRevision = -1;
+            };
+
+            // Above the table, below the modal overlays built after it. Queued reveals
+            // wait for a staged attack's arrival beat, not for its reaction window.
             _fx = new EffectsPlayer(root,
-                () => _dice.IsBusy || _turnBanner.IsOpen,
-                playerId => _table.PlayerBarWorld(playerId));
+                () => _dice.IsBusy || _turnBanner.IsOpen || _playTheatre.IsBusy,
+                playerId => _table.PlayerBarWorld(playerId),
+                playerId => _table.PlayerCashWorld(playerId),
+                buyerId => _table.PurchaseShowcaseWorld(buyerId));
             _fx.OnFinished = () =>
             {
                 // Re-render so modals held back behind the theatre open now.
@@ -228,15 +266,16 @@ namespace LemonadeWars.Unity
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
 
-            // Turn actions live top-right, in the bar: ending your turn is the button
-            // you reach for every single turn. (Bot speed moved to the pause menu.)
+            // Turn actions live top-right, on the strip of bare table between the
+            // shelf and the board: ending your turn is the button you reach for every
+            // single turn. (Bot speed moved to the pause menu.)
             var turnActionsGo = new GameObject("TurnActions", typeof(RectTransform),
                 typeof(HorizontalLayoutGroup));
             turnActionsGo.transform.SetParent(root, false);
             _turnActionRow = (RectTransform)turnActionsGo.transform;
-            // Anchored to the status bar's midline (it spans 0.95-1.0) so the row stays
-            // centered in the bar at any window height.
-            UiKit.Anchor(_turnActionRow, new Vector2(1f, 0.975f), new Vector2(1f, 0.975f));
+            // Anchored to the strip's midline (shelf rule at 0.75, board top at 0.695)
+            // so the row stays centered in it at any window height.
+            UiKit.Anchor(_turnActionRow, new Vector2(1f, 0.7225f), new Vector2(1f, 0.7225f));
             _turnActionRow.pivot = new Vector2(1f, 0.5f);
             _turnActionRow.sizeDelta = new Vector2(430f, 40f);
             _turnActionRow.anchoredPosition = new Vector2(-16f, 0f);
@@ -301,13 +340,20 @@ namespace LemonadeWars.Unity
             _picker.Tick(Input.mousePosition);
             // A roll that is still open for responses keeps its die on the table.
             _dice.Linger = View != null && View.PendingRollValue != null;
+            _dice.KeepForEarnings = EarningsStillShowing();
             _dice.Tick();
+            if (_dice.HeadlineRevision != _shownDiceHeadline)
+            {
+                _shownDiceHeadline = _dice.HeadlineRevision;
+                _renderedRevision = -1; // the banner carries the die's words
+            }
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();
-            FlushSaleRecap();
+            FlushRollEarnings();
             MaybeShowEndSummary();
             _fx.Tick();
+            _playTheatre.Tick();
             TickPresentationWatchdog();
         }
 
@@ -369,6 +415,7 @@ namespace LemonadeWars.Unity
                 _turnBanner.Hide();
                 _dice.Clear();
                 _fx.Clear();
+                _playTheatre.Clear();
                 _renderedRevision = -1;
                 _modalRevision = -1;
             }

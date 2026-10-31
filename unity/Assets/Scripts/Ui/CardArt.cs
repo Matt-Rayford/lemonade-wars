@@ -35,6 +35,17 @@ namespace LemonadeWars.Unity
             return Load(token is JArray variants ? (string)variants.First : (string)token);
         }
 
+        /// <summary>A paper bill, landscape, for $1 / $2 / $5 / $10; null for any other value.</summary>
+        public Texture2D Bill(int value)
+        {
+            string name = value == 1 ? "1-Dollar"
+                : value == 2 ? "2-Dollars"
+                : value == 5 ? "5-Dollars"
+                : value == 10 ? "10-Dollars"
+                : null;
+            return name == null ? null : Load($"money-landscape/{name}.png");
+        }
+
         public Texture2D BlackMarket(string defId, Shape shape) =>
             Load((string)_manifest["blackMarket"]?[defId]?[shape.ToString().ToLowerInvariant()]);
 

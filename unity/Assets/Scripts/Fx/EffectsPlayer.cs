@@ -28,6 +28,53 @@ namespace LemonadeWars.Unity
         /// need reading. Claims (Whiniest Baby) set their own, shorter hold.
         /// </summary>
         private const float RevealHoldSeconds = 2.0f;
+        private const float ShelfCardWidth = 154f;
+        private const float ShelfCardHeight = 216f;
+        private const float SweepSeconds = 0.175f;
+        /// <summary>Swept one at a time: the next card leaves as the last one slips under the deck.</summary>
+        private const float SweepStaggerSeconds = SweepSeconds;
+        /// <summary>A swept card fades through the last of its slide, as if passing under the deck.</summary>
+        private const float SweepFadeOutFrom = 0.55f;
+        private const float DealSeconds = 0.2f;
+        /// <summary>A dealt copy outlives its landing by a few frames, until the real card has been drawn under it.</summary>
+        private const float DealLingerSeconds = 0.06f;
+        /// <summary>Dealt one at a time: the next card leaves the deck as the last one lands.</summary>
+        private const float DealStaggerSeconds = DealSeconds;
+        /// <summary>After the refresh dollar lands, this long before the shelf starts moving.</summary>
+        private const float RefreshMoneyBeatSeconds = 0.25f;
+        /// <summary>Height a purchased card shrinks to on arrival: a little under the 82px player bar.</summary>
+        private const float PurchaseEndHeight = 60f;
+        private const float BillWidth = 207f;
+        private const float BillHeight = 148f;
+        private const int PileAmountFontSize = 40;
+        /// <summary>Black outline round the money label, in TMP font-relative units.</summary>
+        private const float PileAmountOutlineWidth = 0.25f;
+        /// <summary>The "-$X" sits this far right of the pile's top-right corner, and a little below it.</summary>
+        private const float PileAmountGapPx = 10f;
+        private const float PileAmountDropPx = 18f;
+        /// <summary>The pile lands this far right of the card's showcase spot, so the card doesn't sit squarely on it.</summary>
+        private const float BillPileRightShiftPx = 50f;
+        /// <summary>Earnings: how long the pile sits before sliding into the bar, and the clear-table breath after.</summary>
+        private const float EarningsHoldSeconds = 0.6f;
+        private const float EarningsBreathSeconds = 0.5f;
+        /// <summary>How long the viewer's own money sits on the table before fading on its own.</summary>
+        private const float OwnMoneyHoldSeconds = 0.6f;
+        /// <summary>Clear-table pause after the viewer's money has faded, before bots may act.</summary>
+        private const float OwnMoneyBreathSeconds = 0.35f;
+        private const float BillBaseTiltDegrees = 8f;
+        /// <summary>
+        /// How far a lower bill pokes out from under the one above, as a share of the
+        /// bill's half-extent in the chosen direction: enough to read its denomination,
+        /// never so far that it stops looking like one pile.
+        /// </summary>
+        private const float BillPeekMin = 0.45f;
+        private const float BillPeekMax = 0.75f;
+        /// <summary>Each lower bill is pushed out in its own direction; this is the scatter around an even spread.</summary>
+        private const float BillDirectionJitterDegrees = 25f;
+        /// <summary>A bill's turn relative to the pile's base tilt.</summary>
+        private const float BillTurnDegrees = 40f;
+        /// <summary>Neighbouring bills never sit this close in angle, or the pile reads as one flat stack.</summary>
+        private const float BillMinTurnGapDegrees = 10f;
 
         private sealed class RevealFx : Fx
         {
@@ -54,15 +101,24 @@ namespace LemonadeWars.Unity
             public int Amount;           // coin flights: floaters at both ends on arrival
             public int Count = 1;
         }
-        /// <summary>A shelf purchase: the bought card's art lifts out of its slot and
-        /// drifts away, fading — so "someone took that card" is visible instead of the
-        /// row just mutating. Like ClaimFx it announces a state change, so it is NOT
-        /// dropped by CancelPendingReveals, and its OnDelivered must always fire.</summary>
+        /// <summary>A shelf purchase: the bought card's art lifts out of its slot,
+        /// shows itself mid-table, then flies to the buyer — so "someone took that
+        /// card" is visible instead of the row just mutating. Like ClaimFx it announces
+        /// a state change, so it is NOT dropped by CancelPendingReveals, and its
+        /// OnDelivered must always fire.</summary>
         private sealed class PurchaseFx : Fx
         {
             public Texture2D Art;
-            /// <summary>Small line under the drifting card (the buyer's name); null = none.</summary>
-            public string Caption;
+            public int BuyerId;
+            /// <summary>Dollars paid; 0 for free takes, which show no money.</summary>
+            public int Price;
+            /// <summary>Bill art by denomination, resolved when the effect starts.</summary>
+            public System.Func<int, Texture2D> BillArt;
+            /// <summary>
+            /// False for the viewer's own buys: they just clicked the card, so only the
+            /// money plays — and without holding the table up.
+            /// </summary>
+            public bool ShowCard = true;
             /// <summary>Resolved when the effect STARTS (layout settles between queue
             /// and start). Null result = nothing on screen to lift from: deliver
             /// instantly with no motion.</summary>
@@ -70,6 +126,41 @@ namespace LemonadeWars.Unity
             /// <summary>Fires exactly once when the drift ends (or the fx is skipped /
             /// cleared) — the moment a suppressed refill slot may show its new card.</summary>
             public System.Action OnDelivered;
+            /// <summary>Fires when the lifted card is on screen: its shelf stand-in may go.</summary>
+            public System.Action OnStarted;
+        }
+
+        /// <summary>
+        /// A player's sale-roll earnings: a pile of bills slides in from off-screen
+        /// right to their showcase spot, holds, then slides into their bar. Blocking,
+        /// one player at a time, with a breath between players; OnArrived is the
+        /// moment their displayed cash may catch up, so it fires on every exit path.
+        /// </summary>
+        /// <summary>
+        /// The shelf changing hands with the deck: cards being swept slide under the
+        /// Black Market deck back and vanish, then each dealt card slides from the
+        /// deck to its slot. A paid refresh first slaps the refresher's dollar down.
+        /// Every deal's OnLanded fires exactly once, on every exit path.
+        /// </summary>
+        private sealed class MarketDealFx : Fx
+        {
+            public System.Func<Vector3?> DeckWorld;
+            public List<ShelfCardFlight> Sweep = new List<ShelfCardFlight>();
+            public List<ShelfCardFlight> Deals = new List<ShelfCardFlight>();
+            /// <summary>Who paid for a refresh; -1 = no money shown.</summary>
+            public int PayerId = -1;
+            public int Price;
+            public System.Func<int, Texture2D> BillArt;
+            /// <summary>Fires when the flights are on screen: stand-ins on the shelf may go.</summary>
+            public System.Action OnStarted;
+        }
+
+        private sealed class EarnFx : Fx
+        {
+            public int PlayerId;
+            public int Amount;
+            public System.Func<int, Texture2D> BillArt;
+            public System.Action OnArrived;
         }
 
         private readonly RectTransform _layer;        // floaters + flights, no scrim
@@ -78,6 +169,8 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _revealCardHost;
         private readonly System.Func<bool> _held;
         private readonly System.Func<int, Vector3?> _anchorFor;   // player id -> world
+        private readonly System.Func<int, Vector3?> _cashAnchorFor;   // player id -> cash icon world
+        private readonly System.Func<int, Vector3?> _showcaseWorld;    // buyer id -> where their card pauses
         private readonly Queue<Fx> _queue = new Queue<Fx>();
 
         private float _busyUntil;
@@ -116,11 +209,16 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <param name="cashAnchorFor">A player's cash icon; money floaters rise from it. Null falls back to the bar.</param>
+        /// <param name="showcaseWorld">Where a buyer's card pauses before sliding into their bar; null = over the bar itself.</param>
         public EffectsPlayer(RectTransform canvasRoot, System.Func<bool> held,
-            System.Func<int, Vector3?> anchorFor)
+            System.Func<int, Vector3?> anchorFor, System.Func<int, Vector3?> cashAnchorFor = null,
+            System.Func<int, Vector3?> showcaseWorld = null)
         {
             _held = held;
             _anchorFor = anchorFor;
+            _cashAnchorFor = cashAnchorFor ?? anchorFor;
+            _showcaseWorld = showcaseWorld ?? anchorFor;
 
             var go = new GameObject("Effects", typeof(RectTransform));
             go.transform.SetParent(canvasRoot, false);
@@ -208,19 +306,56 @@ namespace LemonadeWars.Unity
             });
         }
 
-        /// <summary>Drift-and-fade a purchased card's art out of its shelf slot. The
-        /// origin is a func because layout may not have settled at queue time; a null
-        /// origin at start skips the motion but still delivers.</summary>
-        public void QueuePurchase(Texture2D art, string caption, System.Func<Vector3?> origin,
-            System.Action onDelivered = null)
+        /// <summary>Showcase a purchased card out of its shelf slot, then fly it to the
+        /// buyer's bar. The origin is a func because layout may not have settled at
+        /// queue time; a null origin at start skips the motion but still delivers.</summary>
+        public void QueuePurchase(Texture2D art, int buyerId, int price, System.Func<int, Texture2D> billArt,
+            System.Func<Vector3?> origin, System.Action onDelivered = null, bool showCard = true,
+            System.Action onStarted = null)
         {
             _announceIdle = true;
             _queue.Enqueue(new PurchaseFx
             {
                 Art = art,
-                Caption = caption,
+                BuyerId = buyerId,
+                Price = price,
+                BillArt = billArt,
+                ShowCard = showCard,
                 Origin = origin,
                 OnDelivered = onDelivered,
+                OnStarted = onStarted,
+            });
+        }
+
+        /// <summary>Sweep cards under the Black Market deck and deal new ones to the shelf (see MarketDealFx).</summary>
+        public void QueueMarketDeal(System.Func<Vector3?> deckWorld, List<ShelfCardFlight> sweep,
+            List<ShelfCardFlight> deals, int payerId = -1, int price = 0,
+            System.Func<int, Texture2D> billArt = null, System.Action onStarted = null)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new MarketDealFx
+            {
+                DeckWorld = deckWorld,
+                Sweep = sweep,
+                Deals = deals,
+                PayerId = payerId,
+                Price = price,
+                BillArt = billArt,
+                OnStarted = onStarted,
+            });
+        }
+
+        /// <summary>Slap a player's roll earnings on the table and slide them into their bar.</summary>
+        public void QueueEarnings(int playerId, int amount, System.Func<int, Texture2D> billArt,
+            System.Action onArrived)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new EarnFx
+            {
+                PlayerId = playerId,
+                Amount = amount,
+                BillArt = billArt,
+                OnArrived = onArrived,
             });
         }
 
@@ -289,6 +424,15 @@ namespace LemonadeWars.Unity
                         break;
                     case PurchaseFx purchase:
                         purchase.OnDelivered?.Invoke();
+                        break;
+                    case EarnFx earn:
+                        earn.OnArrived?.Invoke();
+                        break;
+                    case MarketDealFx deal:
+                        foreach (var card in deal.Deals)
+                        {
+                            card.OnLanded?.Invoke();
+                        }
                         break;
                 }
             }
@@ -369,6 +513,12 @@ namespace LemonadeWars.Unity
                     break;
                 case PurchaseFx purchase:
                     StartPurchase(purchase);
+                    break;
+                case EarnFx earn:
+                    StartEarnings(earn);
+                    break;
+                case MarketDealFx deal:
+                    StartMarketDeal(deal);
                     break;
                 case ToastFx toast:
                     SpawnToast(toast.Text);
@@ -487,11 +637,12 @@ namespace LemonadeWars.Unity
         // --------------------------------------------------------- purchases
 
         /// <summary>
-        /// The bought card's art lifts out of its shelf slot, drifts diagonally down-left
-        /// (toward the buyers' side of the table) while swelling slightly, and fades out.
-        /// Blocking, so back-to-back bot purchases play one at a time; the busy window
-        /// covers the whole drift, and delivery fires exactly once on EVERY exit path
-        /// (natural end, skip, Clear) — a suppressed refill slot depends on it.
+        /// The bought card's art slides out of its shelf slot to a showcase spot level
+        /// with the buyer's bar, holds a beat, then slides into that bar, shrinking and
+        /// fading out. Blocking, so back-to-back bot purchases play one at a time; the
+        /// busy window covers the whole trip, and delivery fires exactly once on EVERY
+        /// exit path (leaving the showcase, skip, Clear) — a suppressed refill slot
+        /// depends on it.
         /// </summary>
         private void StartPurchase(PurchaseFx purchase)
         {
@@ -505,6 +656,31 @@ namespace LemonadeWars.Unity
                 }
             }
 
+            purchase.OnStarted?.Invoke();
+            if (!purchase.ShowCard)
+            {
+                // Your own buy: the money slaps down and clears itself. It still holds
+                // the table — bots act the moment the theatre is idle, and a bot's own
+                // purchase landing on top of your bills read as clutter — plus a breath
+                // after the fade so the next thing starts on a clear table.
+                var ownFan = BuildPurchasePile(purchase, ShowcaseSpot(purchase.BuyerId));
+                Deliver();
+                if (ownFan == null)
+                {
+                    return;
+                }
+                ownFan.AutoFadeAfterSeconds = OwnMoneyHoldSeconds;
+                _busyUntil = Time.time + BillFan.ArriveSeconds + OwnMoneyHoldSeconds +
+                    BillFan.FadeSeconds + OwnMoneyBreathSeconds;
+                _endActive = () =>
+                {
+                    if (ownFan != null)
+                    {
+                        Object.Destroy(ownFan.gameObject); // skip: no orphaned pile
+                    }
+                };
+                return;
+            }
             var world = purchase.Origin?.Invoke();
             if (world == null || purchase.Art == null)
             {
@@ -514,7 +690,6 @@ namespace LemonadeWars.Unity
 
             const float width = 154f;   // market card size: it IS the card leaving
             const float height = 216f;
-            const float duration = 0.7f;
 
             var image = UiKit.CreateCardImage(_layer, purchase.Art, width, height);
             var chip = (RectTransform)image.transform.parent;
@@ -528,35 +703,359 @@ namespace LemonadeWars.Unity
             chip.anchoredPosition = _layer.InverseTransformPoint(world.Value);
             chip.SetAsLastSibling(); // over the shelf card now shifted into this slot
 
-            if (!string.IsNullOrEmpty(purchase.Caption))
+            var showcase = ShowcaseSpot(purchase.BuyerId);
+            // The money comes out first and the card lands on top of it: the fan is
+            // built before the chip is raised, so the chip draws over the bills.
+            var fan = BuildPurchasePile(purchase, showcase);
+            chip.SetAsLastSibling();
+
+            var motion = chip.gameObject.AddComponent<PurchaseJourney>();
+            motion.Delay = fan != null ? BillFan.ArriveSeconds : 0f;
+            motion.Showcase = showcase;
+            motion.EndScale = PurchaseEndHeight / height;
+            motion.Destination = () => PurchaseDestination(purchase.BuyerId, motion.Showcase);
+            motion.OnLeaveShowcase = () =>
             {
-                // Buyer's name rides under the card; child of the chip, so the drift's
-                // CanvasGroup fades it in lockstep.
-                var label = UiKit.CreateText(chip, purchase.Caption, 20,
-                    TextAnchor.MiddleCenter, ToastColor);
-                label.raycastTarget = false;
-                label.fontStyle = TMPro.FontStyles.Bold;
-                UiKit.AddTextShadow(label);
-                var labelRect = (RectTransform)label.transform;
-                labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0f);
-                labelRect.pivot = new Vector2(0.5f, 1f);
-                labelRect.sizeDelta = new Vector2(320f, 30f);
-                labelRect.anchoredPosition = new Vector2(0, -8f);
-            }
+                Deliver(); // the shelf is visibly empty by now
+                if (fan != null)
+                {
+                    fan.BeginFade(); // the money is spent: it goes as the card goes
+                }
+            };
+            motion.OnDone = () => { };
 
-            var motion = chip.gameObject.AddComponent<PurchaseDrift>();
-            motion.Duration = duration;
-            motion.OnDone = Deliver;
-
-            _busyUntil = Time.time + duration;
+            _busyUntil = Time.time + motion.Delay + PurchaseJourney.TotalSeconds;
             _endActive = () =>
             {
                 if (chip != null)
                 {
                     Object.Destroy(chip.gameObject); // skip: no orphaned drift
                 }
+                if (fan != null)
+                {
+                    Object.Destroy(fan.gameObject);
+                }
                 Deliver(); // skip still delivers — the refill must never stay hidden
             };
+        }
+
+        private void StartMarketDeal(MarketDealFx deal)
+        {
+            var pending = new List<ShelfCardFlight>(deal.Deals);
+            void Land(ShelfCardFlight card)
+            {
+                if (pending.Remove(card))
+                {
+                    card.OnLanded?.Invoke();
+                }
+            }
+            void LandAll()
+            {
+                foreach (var card in pending.ToArray())
+                {
+                    Land(card);
+                }
+            }
+
+            var deckWorld = deal.DeckWorld?.Invoke();
+            if (deckWorld == null)
+            {
+                LandAll(); // no shelf on screen: nothing to animate
+                return;
+            }
+            Vector2 deck = _layer.InverseTransformPoint(deckWorld.Value);
+            var chips = new List<RectTransform>();
+            float clock = 0f;
+
+            BillFan fan = null;
+            if (deal.PayerId >= 0 && deal.Price > 0)
+            {
+                fan = BuildPurchasePile(deal.PayerId, deal.Price, deal.BillArt, ShowcaseSpot(deal.PayerId));
+                if (fan != null)
+                {
+                    fan.AutoFadeAfterSeconds = OwnMoneyHoldSeconds;
+                    clock = BillFan.ArriveSeconds + RefreshMoneyBeatSeconds;
+                }
+            }
+
+            int swept = 0;
+            foreach (var card in deal.Sweep)
+            {
+                var art = card.Art?.Invoke();
+                var slot = card.SlotWorld?.Invoke();
+                if (art == null || slot == null)
+                {
+                    continue;
+                }
+                var chip = BuildShelfChip(art);
+                chips.Add(chip);
+                var motion = chip.gameObject.AddComponent<FlightMotion>();
+                motion.From = _layer.InverseTransformPoint(slot.Value);
+                motion.To = deck;
+                motion.Delay = clock + swept * SweepStaggerSeconds;
+                motion.Duration = SweepSeconds;
+                motion.ArcHeight = 0f;
+                motion.VisibleWhileWaiting = true;
+                motion.FadeOutFrom = SweepFadeOutFrom;
+                swept++;
+            }
+            if (swept > 0)
+            {
+                clock += SweepSeconds + SweepStaggerSeconds * (swept - 1);
+            }
+            deal.OnStarted?.Invoke(); // the sliding copies are up: the shelf may drop its stand-ins
+
+            int dealt = 0;
+            foreach (var card in deal.Deals)
+            {
+                var art = card.Art?.Invoke();
+                var slot = card.SlotWorld?.Invoke();
+                if (art == null || slot == null)
+                {
+                    Land(card); // nothing to fly: the slot just shows what it has
+                    continue;
+                }
+                var chip = BuildShelfChip(art);
+                chips.Add(chip);
+                var motion = chip.gameObject.AddComponent<FlightMotion>();
+                motion.From = deck;
+                motion.To = _layer.InverseTransformPoint(slot.Value);
+                motion.Delay = clock + dealt * DealStaggerSeconds;
+                motion.Duration = DealSeconds;
+                motion.ArcHeight = 0f;
+                motion.LingerAfterArrivalSeconds = DealLingerSeconds;
+                var landing = card;
+                motion.OnArrive = () => Land(landing);
+                dealt++;
+            }
+            if (dealt > 0)
+            {
+                clock += DealSeconds + DealStaggerSeconds * (dealt - 1);
+            }
+
+            _busyUntil = Time.time + clock + 0.1f;
+            _endActive = () =>
+            {
+                foreach (var chip in chips)
+                {
+                    if (chip != null)
+                    {
+                        Object.Destroy(chip.gameObject); // skip: nothing left mid-air
+                    }
+                }
+                if (fan != null)
+                {
+                    Object.Destroy(fan.gameObject);
+                }
+                LandAll(); // skip still lands — a hidden slot must never stay hidden
+            };
+        }
+
+        /// <summary>A shelf-sized card chip (the market cell's own size), click-transparent.</summary>
+        private RectTransform BuildShelfChip(Texture2D art)
+        {
+            var image = UiKit.CreateCardImage(_layer, art, ShelfCardWidth, ShelfCardHeight);
+            var chip = (RectTransform)image.transform.parent;
+            foreach (var graphic in chip.GetComponentsInChildren<UnityEngine.UI.Graphic>())
+            {
+                graphic.raycastTarget = false;
+            }
+            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
+            chip.pivot = new Vector2(0.5f, 0.5f);
+            chip.sizeDelta = new Vector2(ShelfCardWidth, ShelfCardHeight);
+            return chip;
+        }
+
+        /// <summary>The bills that paid for a purchase, out of the buyer's bar, growing and fading in.</summary>
+        private BillFan BuildPurchasePile(PurchaseFx purchase, Vector2 showcase) =>
+            BuildPurchasePile(purchase.BuyerId, purchase.Price, purchase.BillArt, showcase);
+
+        private BillFan BuildPurchasePile(int buyerId, int price, System.Func<int, Texture2D> billArt, Vector2 showcase)
+        {
+            var barWorld = _anchorFor(buyerId);
+            if (barWorld == null)
+            {
+                return null;
+            }
+            var fan = BuildBillPile(price, billArt, $"-${price}", LossColor);
+            if (fan == null)
+            {
+                return null;
+            }
+            fan.From = _layer.InverseTransformPoint(barWorld.Value);
+            fan.To = showcase + new Vector2(BillPileRightShiftPx, 0);
+            fan.StartScale = PurchaseEndHeight / BillHeight;
+            ((RectTransform)fan.transform).anchoredPosition = fan.From;
+            return fan;
+        }
+
+        /// <summary>
+        /// Sale-roll earnings: the pile slides in from off-screen right, level with the
+        /// player's showcase spot, holds a beat, then slides into their bar shrinking
+        /// and fading — the purchase choreography with the money arriving instead of
+        /// leaving. Blocking through a breath after it lands, so players take turns.
+        /// </summary>
+        private void StartEarnings(EarnFx earn)
+        {
+            bool arrived = false;
+            void Arrive()
+            {
+                if (!arrived)
+                {
+                    arrived = true;
+                    earn.OnArrived?.Invoke();
+                }
+            }
+
+            var barWorld = _anchorFor(earn.PlayerId);
+            var fan = barWorld == null
+                ? null
+                : BuildBillPile(earn.Amount, earn.BillArt, $"+${earn.Amount}", GainColor);
+            if (fan == null)
+            {
+                Arrive(); // nothing to show: the cash just updates
+                return;
+            }
+            var showcase = ShowcaseSpot(earn.PlayerId) + new Vector2(BillPileRightShiftPx, 0);
+            fan.GrowAndFadeIn = false;
+            fan.From = new Vector2(_layer.rect.xMax + BillWidth, showcase.y);
+            fan.To = showcase;
+            fan.AutoFadeAfterSeconds = EarningsHoldSeconds;
+            fan.Destination = _layer.InverseTransformPoint(barWorld.Value);
+            fan.EndScale = PurchaseEndHeight / BillHeight;
+            fan.OnArrive = Arrive;
+            ((RectTransform)fan.transform).anchoredPosition = fan.From;
+
+            _busyUntil = Time.time + BillFan.ArriveSeconds + EarningsHoldSeconds +
+                BillFan.DepartSeconds + EarningsBreathSeconds;
+            _endActive = () =>
+            {
+                if (fan != null)
+                {
+                    Object.Destroy(fan.gameObject); // skip: no orphaned pile
+                }
+                Arrive(); // skip still lands the money — the cash must never stay behind
+            };
+        }
+
+        /// <summary>
+        /// A pile of bills for an amount, fanned so every one shows — the largest on top,
+        /// each lower bill shifted and turned enough to peek out from under it — with
+        /// the amount written beside it. Positioned by the caller. Null for nothing.
+        /// </summary>
+        private BillFan BuildBillPile(int amount, System.Func<int, Texture2D> billArt, string label, Color labelColor)
+        {
+            var bills = BillBreakdown.Bills(amount);
+            if (bills.Count == 0 || billArt == null)
+            {
+                return null;
+            }
+            var root = new GameObject("BillFan", typeof(RectTransform));
+            root.transform.SetParent(_layer, false);
+            var rect = (RectTransform)root.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(BillWidth, BillHeight);
+            var placements = PilePlacements(bills.Count);
+            // Smallest first, so the largest denomination ends up drawn on top.
+            for (int i = bills.Count - 1; i >= 0; i--)
+            {
+                var art = billArt(bills[i]);
+                if (art == null)
+                {
+                    continue;
+                }
+                var billGo = new GameObject($"Bill{bills[i]}", typeof(RectTransform), typeof(RawImage));
+                billGo.transform.SetParent(rect, false);
+                var bill = (RectTransform)billGo.transform;
+                bill.anchorMin = bill.anchorMax = new Vector2(0.5f, 0.5f);
+                bill.sizeDelta = new Vector2(BillWidth, BillHeight);
+                bill.anchoredPosition = new Vector2(placements[i].x, placements[i].y);
+                bill.localEulerAngles = new Vector3(0, 0, placements[i].z);
+                var image = billGo.GetComponent<RawImage>();
+                image.texture = art;
+                image.raycastTarget = false;
+            }
+            AddPileAmountLabel(rect, label, labelColor, placements);
+            return root.AddComponent<BillFan>();
+        }
+
+        /// <summary>
+        /// Big "-$X" / "+$X" hanging off the top bill's top-right corner, a child of the
+        /// pile so it moves and fades with the money: the pile shows the bills, this
+        /// says the total at a glance. The top bill, not the pile's bounding box: a
+        /// lower bill turned hard can push that box's corner into empty table.
+        /// </summary>
+        private static void AddPileAmountLabel(RectTransform pile, string text, Color color, Vector3[] placements)
+        {
+            var corner = TopRightCorner(placements[0]);
+            var label = UiKit.CreateText(pile, text, PileAmountFontSize, TextAnchor.MiddleLeft, color);
+            label.raycastTarget = false;
+            label.fontStyle = TMPro.FontStyles.Bold;
+            UiKit.AddTextOutline(label, PileAmountOutlineWidth, Color.black); // big type over busy art
+            var rect = (RectTransform)label.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0f, 0.5f);
+            rect.sizeDelta = new Vector2(200f, 72f); // generous: an outline must never be clipped by its own box
+            rect.anchoredPosition = corner + new Vector2(PileAmountGapPx, -PileAmountDropPx);
+        }
+
+        /// <summary>Where a bill's top-right corner ends up after its turn.</summary>
+        private static Vector2 TopRightCorner(Vector3 placement)
+        {
+            float radians = placement.z * Mathf.Deg2Rad;
+            float x = BillWidth / 2f;
+            float y = BillHeight / 2f;
+            return new Vector2(
+                placement.x + x * Mathf.Cos(radians) - y * Mathf.Sin(radians),
+                placement.y + x * Mathf.Sin(radians) + y * Mathf.Cos(radians));
+        }
+
+        /// <summary>
+        /// A fresh, valid pile for this many bills: offset (x, y) and turn (z), top bill
+        /// first. The top bill sits at the centre with the pile's base tilt; each lower
+        /// bill is pushed out in its own direction — spread evenly round the pile, then
+        /// scattered — far enough that its edge and a corner number show, and turned by
+        /// a random amount that never lines up with the bill above it.
+        /// </summary>
+        private static Vector3[] PilePlacements(int count)
+        {
+            var placements = new Vector3[count];
+            float baseTilt = Random.Range(-BillBaseTiltDegrees, BillBaseTiltDegrees);
+            placements[0] = new Vector3(0f, 0f, baseTilt);
+            float firstDirection = Random.Range(0f, 360f);
+            float spread = 360f / Mathf.Max(2, count - 1);
+            for (int i = 1; i < count; i++)
+            {
+                float direction = firstDirection + (i - 1) * spread +
+                    Random.Range(-BillDirectionJitterDegrees, BillDirectionJitterDegrees);
+                var unit = new Vector2(Mathf.Cos(direction * Mathf.Deg2Rad), Mathf.Sin(direction * Mathf.Deg2Rad));
+                // A rectangle's reach in a direction is the sum of its half-sides' projections.
+                float reach = BillWidth / 2f * Mathf.Abs(unit.x) + BillHeight / 2f * Mathf.Abs(unit.y);
+                var offset = unit * (reach * Random.Range(BillPeekMin, BillPeekMax));
+                float turn = baseTilt + Random.Range(-BillTurnDegrees, BillTurnDegrees);
+                float above = placements[i - 1].z;
+                if (Mathf.Abs(Mathf.DeltaAngle(turn, above)) < BillMinTurnGapDegrees)
+                {
+                    turn = above + Mathf.Sign(turn - above + 0.01f) * BillMinTurnGapDegrees;
+                }
+                placements[i] = new Vector3(offset.x, offset.y, turn);
+            }
+            return placements;
+        }
+
+        /// <summary>Where a buyer's card pauses to be read, in layer space; the layer centre when the table has no spot for them.</summary>
+        private Vector2 ShowcaseSpot(int buyerId)
+        {
+            var world = _showcaseWorld(buyerId) ?? _anchorFor(buyerId);
+            return world == null ? Vector2.zero : (Vector2)_layer.InverseTransformPoint(world.Value);
+        }
+
+        /// <summary>The buyer's bar in layer space; a bar that is off-screen keeps the card at the showcase.</summary>
+        private Vector2 PurchaseDestination(int buyerId, Vector2 fallback)
+        {
+            var world = _anchorFor(buyerId);
+            return world == null ? fallback : (Vector2)_layer.InverseTransformPoint(world.Value);
         }
 
         // ---------------------------------------------------------- flights
@@ -634,7 +1133,9 @@ namespace LemonadeWars.Unity
 
         private void SpawnMoney(int playerId, int amount, int stackIndex)
         {
-            var world = _anchorFor(playerId);
+            // From the coin on the bar, not the bar's middle: the number reads as
+            // the cash figure changing, and a loss no longer appears over the hand count.
+            var world = _cashAnchorFor(playerId) ?? _anchorFor(playerId);
             if (world == null)
             {
                 return;
@@ -651,7 +1152,7 @@ namespace LemonadeWars.Unity
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = new Vector2(220, 40);
             Vector2 local = _layer.InverseTransformPoint(world.Value);
-            rect.anchoredPosition = local + new Vector2(0, 8f + stackIndex * 26f);
+            rect.anchoredPosition = local + new Vector2(0, stackIndex * 26f);
 
             var motion = text.gameObject.AddComponent<FloaterMotion>();
             motion.Delay = stackIndex * 0.12f;

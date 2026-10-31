@@ -114,7 +114,7 @@ namespace LemonadeWars.Unity
                 (ulong)System.DateTime.Now.Ticks,
                 _soloBots.Select(b => b.Level).ToList());
             localSession.BotStepSeconds = LocalStepSeconds(PlayerPrefs.GetString(SpeedPref, "medium"));
-            localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen;
+            localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen || _playTheatre.IsBusy;
             _session = localSession;
             _session.EventEmitted += OnGameEvent;
             EnterGame();
@@ -279,6 +279,9 @@ namespace LemonadeWars.Unity
             _turnBanner.Hide();
             _dice.Clear();
             _fx.Clear();
+            _playTheatre.Clear();
+            _earningsInFlight.Clear();
+            _rollEarnings = null;
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhiniestBaby = false; // a dropped mid-flight claim must not hide it forever
             _table.SuppressSpoiledRotten = false;
@@ -286,6 +289,7 @@ namespace LemonadeWars.Unity
             // market slots empty forever (ids can collide across games), and a stale
             // snapshot would diff garbage.
             _hiddenMarketIds.Clear();
+            _marketStandIns.Clear();
             _marketSnap = null;
             _supplyTopSnap = null;
             _lastSpenderId = -1;
@@ -294,7 +298,7 @@ namespace LemonadeWars.Unity
             _wasMyTurn = false;
             _actionLog.Clear();
             _drawRunText = null;
-            _saleEarnings = null;
+            _rollEarnings = null;
             _endShown = false;
         }
 
@@ -326,6 +330,9 @@ namespace LemonadeWars.Unity
             _turnBanner.Hide();
             _dice.Clear();
             _fx.Clear();
+            _playTheatre.Clear();
+            _earningsInFlight.Clear();
+            _rollEarnings = null;
             _lobby.ShowMenu(status);
         }
 

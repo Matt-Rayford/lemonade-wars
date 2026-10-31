@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -27,6 +28,21 @@ namespace LemonadeWars.Unity
         private int _reorderSlot = -1;
         /// <summary>Card held raised after a drop until the pointer actually leaves it.</summary>
         private int _stickyRaisedId = -1;
+        /// <summary>Where a card's type sits in the fan: plans left, attacks middle, reactions right.</summary>
+        private int HandGroupRank(string defId)
+        {
+            switch (_db.Lemon(defId).Type)
+            {
+                case LemonCardType.Plan: return 0;
+                case LemonCardType.Attack: return 1;
+                case LemonCardType.Instant: return 2;
+                default: return 3;
+            }
+        }
+
+        /// <summary>How far toward fully raised a playable reaction rests while its window is open.</summary>
+        private const float ReactionRestLift = 0.5f;
+        private const float ReactionGlowPx = 26f;
         /// <summary>This pointer gesture became a real drag (aim or reorder), not a click.</summary>
         private bool _handGestureArmed;
 
@@ -62,15 +78,15 @@ namespace LemonadeWars.Unity
                 d.EligibleCardIds != null);
             var hiddenIds = drawnPickDecision?.EligibleCardIds;
 
-            // Respect the player's own arrangement (drag a card sideways to move it);
-            // cards we haven't seen yet — fresh draws — join on the right.
+            // Plans, then attacks, then reactions, left to right, alphabetical within
+            // each group so duplicates sit together — a hand you can read at a glance.
+            // The fan keeps this order on its own; a sideways drag only lasts until
+            // the next render.
             var hand = view.Hand
                 .Where(c => hiddenIds == null || !hiddenIds.Contains(c.InstanceId))
-                .OrderBy(c =>
-                {
-                    int index = _handOrder.IndexOf(c.InstanceId);
-                    return index < 0 ? int.MaxValue : index;
-                })
+                .OrderBy(c => HandGroupRank(c.DefId))
+                .ThenBy(c => _db.Lemon(c.DefId).Name)
+                .ThenBy(c => c.InstanceId)
                 .ToList();
             int count = hand.Count;
 
@@ -141,9 +157,9 @@ namespace LemonadeWars.Unity
             for (int i = 0; i < count; i++)
             {
                 var card = hand[i];
-                int optionCount = groups?.HandMoves.TryGetValue(card.InstanceId, out var moves) == true
-                    ? moves.Count
-                    : 0;
+                List<GameAction> moves = null;
+                groups?.HandMoves.TryGetValue(card.InstanceId, out moves);
+                int optionCount = moves?.Count ?? 0;
                 var texture = _art.Lemon(card.DefId);
 
                 var image = UiKit.CreateCardImage(_handHost, texture, width, height);
@@ -152,6 +168,17 @@ namespace LemonadeWars.Unity
                 frame.pivot = new Vector2(0.5f, 0f);
                 frame.sizeDelta = new Vector2(width, height);
                 float restY = peek - height;
+                // A card that can answer the open window rests half-raised and glows:
+                // an invitation you can see without a panel, still rising fully on hover.
+                if (moves != null && moves.Any(m => m is RespondToWindow))
+                {
+                    restY += (raisedY - restY) * ReactionRestLift;
+                    var glow = UiKit.CreateGlow(frame, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                        Vector2.zero, width + ReactionGlowPx * 2f, height + ReactionGlowPx * 2f,
+                        ReactionGlowColor);
+                    glow.transform.SetAsFirstSibling(); // behind the art, haloing its edge
+                    glow.SetActive(true);
+                }
                 float baseX = startX + i * spacing;
                 frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
                 var motion = frame.gameObject.AddComponent<HandCardMotion>();

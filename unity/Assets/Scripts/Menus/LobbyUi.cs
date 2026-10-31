@@ -104,6 +104,7 @@ namespace LemonadeWars.Unity
             MenuButton("My games", () => OnMyGames?.Invoke(_serverInput.text, DisplayName));
             MenuButton("Rulebook", () => OnRulebook?.Invoke());
             MenuButton("Settings", ShowSettings);
+            MenuButton("Quit", QuitApplication);
 
             _menuStatus = UiKit.CreateText(column.transform, "", 16,
                 TextAnchor.MiddleCenter, new Color(1f, 0.6f, 0.5f), body: true);
@@ -268,6 +269,16 @@ namespace LemonadeWars.Unity
         {
             ActivateOnly(_menuRoot);
             _menuStatus.text = status ?? "";
+        }
+
+        private static void QuitApplication()
+        {
+#if UNITY_EDITOR
+            // Application.Quit is a no-op inside the editor; stop Play mode instead.
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
 
         public void ShowSettings()
@@ -550,7 +561,7 @@ namespace LemonadeWars.Unity
                 var chipRect = (RectTransform)chipGo.transform;
                 chipRect.anchorMin = chipRect.anchorMax = new Vector2(1f, 0.5f);
                 chipRect.pivot = new Vector2(1f, 0.5f);
-                chipRect.sizeDelta = new Vector2(118f, 34f); // roomy enough for WAMBULANCE
+                chipRect.sizeDelta = new Vector2(148f, 34f); // WAMBULANCE with 15px of air each side
                 chipRect.anchoredPosition = new Vector2((onRemove != null ? -49f : -7f) - dotInset, 0);
                 var chipImage = chipGo.GetComponent<Image>();
                 chipImage.sprite = UiSprites.RoundedRect;

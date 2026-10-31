@@ -7,7 +7,7 @@ namespace LemonadeWars.Unity
 {
     // Attack targeting: aim a hand attack card at a player bar, armed by clicking
     // the card or by dragging it out of the hand band. Red glow on the hovered bar,
-    // red dashed arrow from the card to the bar (or the cursor while searching).
+    // red arrow from the card to the bar (or the cursor while searching).
     public sealed partial class TableView
     {
         public System.Action<int, int> OnAttackPick;         // hand id, victim player id
@@ -66,7 +66,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void BuildAttackTargeting()
         {
-            _attackRoot = UiKit.CreatePanel(Root, "AttackTargeting", new Color(0, 0, 0, 0));
+            _attackRoot = UiKit.CreatePanel(_canvasRoot, "AttackTargeting", new Color(0, 0, 0, 0));
             UiKit.Anchor(_attackRoot, Vector2.zero, Vector2.one);
             // Click mode: a click on a glowing bar fires, anywhere else disarms.
             UiKit.AddClick(_attackRoot.gameObject, FinishAttackTargeting);
@@ -119,6 +119,7 @@ namespace LemonadeWars.Unity
                     break;
                 }
             }
+            _attackRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _attackRoot.gameObject.SetActive(true);
         }
 
@@ -207,6 +208,7 @@ namespace LemonadeWars.Unity
             }
             // Force the next Tick to redraw the arrow from the (possibly new) frame.
             _attackArrowFrom = _attackArrowTo = new Vector2(float.NaN, float.NaN);
+            _attackRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _attackRoot.gameObject.SetActive(true);
         }
 
@@ -350,7 +352,7 @@ namespace LemonadeWars.Unity
             _attackArrowFrom = from;
             _attackArrowTo = to;
             UiKit.Clear(_attackArrowHost);
-            UiKit.DrawDashedArrow(_attackArrowHost, from, to, _aimArrowColor);
+            UiKit.DrawArrow(_attackArrowHost, from, to, _aimArrowColor);
         }
 
         /// <summary>Fire on the hovered bar/card, or just disarm when aimed at nothing.</summary>
@@ -427,6 +429,25 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_attackArrowHost);
             _attackRoot.gameObject.SetActive(false);
             _preview.SetDragging(false);
+        }
+
+        /// <summary>
+        /// Red attack glow on one player's bar, for a staged attack by someone else.
+        /// Rows are rebuilt on every render, so callers re-assert it while it matters.
+        /// </summary>
+        public void SetVictimGlow(int playerId, bool on)
+        {
+            foreach (var (id, _, glow) in _playerRows)
+            {
+                if (id == playerId && glow != null)
+                {
+                    if (on)
+                    {
+                        glow.GetComponent<Image>().color = AttackGlowColor;
+                    }
+                    glow.SetActive(on);
+                }
+            }
         }
     }
 }

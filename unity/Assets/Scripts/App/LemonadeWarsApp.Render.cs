@@ -6,8 +6,8 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>Revision-gated rendering: the table, status bar, turn banner and action
-    /// bars, plus the end-of-game scoreboard.</summary>
+    /// <summary>Revision-gated rendering: the table, turn banner and action bars, plus
+    /// the end-of-game scoreboard.</summary>
     public sealed partial class LemonadeWarsApp
     {
         private bool _endShown;
@@ -56,8 +56,7 @@ namespace LemonadeWars.Unity
             }
 
             // A resolved response window: the reaction panel must not outlive the
-            // stack item it was answering — and it must close BEFORE the banner is
-            // drawn, or the bar keeps narrating the old play for one more revision.
+            // stack item it was answering.
             if (_reaction.IsOpen && !ReactionWindowDue(groups))
             {
                 _reaction.Hide();
@@ -65,7 +64,6 @@ namespace LemonadeWars.Unity
 
             try
             {
-                ClearTransientStatus();
                 RenderBanner();
                 // A tumbling die withholds every affordance: the roll may still open
                 // a response window, and acting on the next turn before the sale
@@ -80,9 +78,9 @@ namespace LemonadeWars.Unity
             catch (System.Exception e)
             {
                 // A render throw must never silently brick the frame (stale action
-                // bar, half-drawn table). Name the culprit where the player looks.
+                // bar, half-drawn table).
                 Debug.LogException(e);
-                _statusText.text = $"render error: {e.GetType().Name} — check the console";
+                Debug.LogError($"render error: {e.GetType().Name} — see the exception above");
             }
             MaybeAnnounceTurn();
             // A finished player-pick (or a state that moved past it) must drop the
@@ -96,9 +94,9 @@ namespace LemonadeWars.Unity
                     _table.EndPlayerPick();
                 }
             }
-            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy)
+            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy)
             {
-                return; // decisions wait behind the ONWARD! button / the die / effects
+                return; // decisions wait behind the ONWARD! button / the die / effects / a staged attack's arrival
             }
             MaybeShowModal(groups, revision);
         }
@@ -107,7 +105,7 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy))
+            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy))
             {
                 // Let the die and effects finish first; their OnFinished forces a
                 // re-render that lands back here with the turn edge still unconsumed.
@@ -161,17 +159,6 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// The top-left of the bar carries no game info any more — it crowded the
-        /// centered turn banner (room code, title holders, "waiting on" all live on
-        /// the player bars or in the log). It only ever shows transient diagnostics
-        /// (a render error, the [D] dump), which the next good render clears.
-        /// </summary>
-        private void ClearTransientStatus()
-        {
-            _statusText.text = "";
-        }
-
-        /// <summary>
         /// The players the table is blocked on, joined for the banner — when that is
         /// not simply the active player taking an ordinary turn, not you (your own
         /// waits are the reaction panel or a modal), and not the setup stages, which
@@ -189,14 +176,23 @@ namespace LemonadeWars.Unity
             return isPlainTurn ? null : string.Join(" & ", View.ActingPlayers.Select(NameOf));
         }
 
+        /// <summary>
+        /// The one line of words the table keeps: whose turn, who is being waited on,
+        /// what card is resolving. Yellow, centred in the clear strip between the
+        /// shelf and the board, where the eye rests between the two.
+        /// </summary>
         private void RenderBanner()
         {
             string banner;
-            if (_reaction.IsOpen)
+            if (_dice.Headline is string dieHeadline)
             {
-                // The response panel's headline lives HERE while it is open: the bar
-                // was saying nearly the same thing, and the freed band keeps showing
-                // the die (or the attack) you are responding to.
+                // Whose roll is in the air — and, once it lands, the number.
+                banner = dieHeadline;
+            }
+            else if (_reaction.IsOpen)
+            {
+                // The response panel's headline lives HERE while it is open, so the
+                // panel itself can stay all cards and buttons.
                 banner = _reactionBanner;
             }
             else if (View.Stage == GameStage.Finished)
@@ -241,11 +237,11 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
-            _topBanner.text = banner;
+            _tableMessage.text = banner;
         }
 
         /// <summary>
-        /// Third-person headline for the yellow bar while a card sits on the stack:
+        /// Third-person headline for the table message while a card sits on the stack:
         /// plain plays ("Dex plays Automation"), attacks ("Dex plays Slander on Kim"),
         /// and reactions (tags, reflections, tantrums) all name the card instead of
         /// falling back to the generic "X's turn — Phase" label.
@@ -297,8 +293,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// The two "advance the game" buttons, pinned top-right in the status bar:
-        /// short labels, dark chips against the yellow.
+        /// The two "advance the game" buttons, pinned top-right on the bare table
+        /// between the shelf and the board: short labels, the table's chip look.
         /// </summary>
         private void RenderTurnActions(MoveGroups groups)
         {
@@ -310,30 +306,23 @@ namespace LemonadeWars.Unity
                 AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
                 return;
             }
-            if (groups == null || groups.IsModal)
+            if (groups == null || groups.IsModal || _turnBanner.IsOpen)
             {
-                return;
+                return; // the banner's dismiss re-renders, and the chip comes back then
             }
-            foreach (var move in groups.BarMoves)
+            var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
+            if (endTurn != null)
             {
-                string label = move is EndTurn ? "END TURN (SELL)"
-                    : move is InitialBuyEnd ? "FINISH DRAFT"
-                    : null;
-                if (label == null)
-                {
-                    continue;
-                }
-                var captured = move;
-                // End Turn stays silent: the die's own roll sound covers it.
-                AddTurnActionChip(label, () => Submit(captured),
-                    captured is EndTurn ? null : Sfx.ButtonClick);
+                // Silent: the die's own roll sound covers it. (Passing a draft visit is
+                // the big table button instead — see RenderActionBar.)
+                AddTurnActionChip("END TURN (SELL)", () => Submit(endTurn), null);
             }
         }
 
-        /// <summary>One dark, centered chip in the top-right row (End Turn, Finish Draft, Leave Game).</summary>
+        /// <summary>One centered chip in the top-right row (End Turn, Leave Game).</summary>
         private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
         {
-            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick, dark: true,
+            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick,
                 clickSound: clickSound);
             var element = button.GetComponent<LayoutElement>();
             element.minWidth = 190;
@@ -343,11 +332,23 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
 
+        /// <summary>Table-button height: fills the message strip at 1080p, never touches the shelf.</summary>
+        private const float EndTurnButtonHeightPx = 52f;
+
         private void RenderActionBar(MoveGroups groups)
         {
             UiKit.Clear(_table.ActionBar);
-            if (groups == null || groups.IsModal)
+            UiKit.Clear(_tableActionHost);
+            if (groups == null)
             {
+                return;
+            }
+            if (groups.IsModal)
+            {
+                if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0 && !TheatreHoldsModals())
+                {
+                    RenderReactionStrip(groups);
+                }
                 return;
             }
             foreach (var move in groups.BarMoves)
@@ -355,7 +356,7 @@ namespace LemonadeWars.Unity
                 if (move is RefreshMarket || move is DrawLemonCard ||
                     move is EndTurn || move is InitialBuyEnd)
                 {
-                    continue; // these live on the table / in the top bar now
+                    continue; // these live on the table / in the top-right chip row
                 }
                 var captured = move;
                 // Buttons whose ACTION has a sound stay silent, rather than clicking
@@ -369,22 +370,82 @@ namespace LemonadeWars.Unity
             var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
             if (endTurn != null && View.ActionsRemaining == 0)
             {
-                // Out of actions: the only thing left to do goes right between the
-                // board and the hand, where the eye already is (the top-right chip
-                // stays for ending early). Silent click: the sale roll has its own sound.
-                var endButton = UiKit.CreateButton(_table.ActionBar, "End Turn & Sell", 18,
-                    () => Submit(endTurn), clickSound: null, highlighted: true);
-                endButton.GetComponent<LayoutElement>().minWidth = 240;
+                // Out of actions: the only thing left to do takes over the message strip
+                // above the board, at the message's own size — "Your Turn (0 actions)"
+                // would only repeat what the button says. (The top-right chip stays for
+                // ending early.) Silent click: the sale roll has its own sound.
+                AddTableActionButton("End Turn & Sell", endTurn, clickSound: null);
             }
-            if (groups.BarMoves.Count == 0 && groups.SupplyMoves.Count > 0)
+            var passDraft = groups.BarMoves.FirstOrDefault(m => m is InitialBuyEnd);
+            if (passDraft != null)
             {
-                // Draft visits before the mandatory stand: every move is a drag, so
-                // the empty bar says what to do instead of looking broken.
-                var hint = UiKit.CreateText(_table.ActionBar,
-                    "Drag a stand from the shelf onto your row", 15,
-                    TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f), body: true);
-                hint.gameObject.AddComponent<LayoutElement>().minWidth = 320;
+                // The draft visit after the mandatory stand: buying a Black Market card
+                // is optional, so the way out is the same big button, labelled plainly.
+                AddTableActionButton("Pass", passDraft, Sfx.ButtonClick);
             }
+        }
+
+        /// <summary>
+        /// A plain response window, answered from the table: "Play a reaction or"
+        /// followed by a button per answer that is not a hand card (an Inflatable
+        /// Decoy, a die ability) and Pass. The hand cards that answer are half-raised
+        /// in the fan; clicking one plays it.
+        /// </summary>
+        private void RenderReactionStrip(MoveGroups groups)
+        {
+            _tableMessage.text = "";
+            // A theft names the thief and the numbers; everything else is "a reaction".
+            string leadText = View.TheftOnMe ? ModalTitle() : "Play a reaction or";
+            var lead = UiKit.CreateText(_tableActionHost, leadText,
+                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            lead.raycastTarget = false;
+            UiKit.AddTextShadow(lead);
+            // No fixed width: the row sizes the words to their own length, so the
+            // button sits one spacing step after the last letter.
+
+            foreach (var move in groups.ModalMoves)
+            {
+                bool fromEquipment = move is UseTurnAbility ||
+                                     (move is RespondToWindow respond && respond.EquippedInstanceId != null);
+                if (fromEquipment)
+                {
+                    AddStripButton(_session.LabelFor(move), move, Sfx.ButtonClick);
+                }
+            }
+            var pass = groups.ModalMoves.FirstOrDefault(m => m is PassWindow);
+            if (pass != null)
+            {
+                AddStripButton("Pass", pass, Sfx.ButtonClick);
+            }
+        }
+
+        /// <summary>A modal is held back while theatre plays; the reaction strip waits for the same beat.</summary>
+        private bool TheatreHoldsModals() =>
+            _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy;
+
+        private void AddStripButton(string label, GameAction move, string clickSound)
+        {
+            var button = UiKit.CreateButton(_tableActionHost, label,
+                Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
+                clickSound: clickSound, highlighted: true);
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minWidth = 170f;
+            layout.minHeight = EndTurnButtonHeightPx;
+        }
+
+        /// <summary>
+        /// The big yellow button in the message strip above the board — the one thing
+        /// to do next, in place of the words that would only repeat it.
+        /// </summary>
+        private void AddTableActionButton(string label, GameAction move, string clickSound)
+        {
+            _tableMessage.text = "";
+            var button = UiKit.CreateButton(_tableActionHost, label,
+                Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
+                clickSound: clickSound, highlighted: true);
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minWidth = 360;
+            layout.minHeight = EndTurnButtonHeightPx;
         }
 
         // ---------------------------------------------------------- game over
@@ -393,7 +454,8 @@ namespace LemonadeWars.Unity
         private void MaybeShowEndSummary()
         {
             if (View != null && View.Stage == GameStage.Finished && !_endShown &&
-                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen)
+                !_fx.IsBusy && !_dice.IsBusy && !_turnBanner.IsOpen && !_picker.IsOpen &&
+                !_playTheatre.IsBusy)
             {
                 _endShown = true;
                 ShowEndSummary();

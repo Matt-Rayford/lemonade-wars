@@ -402,6 +402,12 @@ namespace LemonadeWars.Engine.Core
                 var answered = item.RespondingToItemId is int answeredId
                     ? State.ResponseStack.FirstOrDefault(s => s.ItemId == answeredId)
                     : null;
+                BlackMarketCardInstance? stolen = null;
+                if (item.TargetEquippedInstanceId is int stolenId)
+                {
+                    State.BlackMarketInstances.TryGetValue(stolenId, out stolen);
+                }
+                var (takenDefId, takenShape, takenIsLemon) = TakenByPlay(item);
                 events.Add(new LemonCardPlayed
                 {
                     PlayerId = item.OwnerId,
@@ -410,6 +416,11 @@ namespace LemonadeWars.Engine.Core
                     TargetPlayerId = item.AttackTargetId,
                     RespondingToOwnerId = answered?.OwnerId,
                     RespondingToDefId = answered == null ? null : StackItemDefId(answered),
+                    StolenDefId = stolen?.DefId,
+                    StolenShape = stolen?.Shape,
+                    TakenDefId = takenDefId,
+                    TakenShape = takenShape,
+                    TakenIsLemon = takenIsLemon,
                 });
             }
         }
@@ -419,6 +430,31 @@ namespace LemonadeWars.Engine.Core
             item.Kind == StackItemKind.BlackMarketPurchase
                 ? State.BlackMarketInstances[item.BmInstanceId!.Value].DefId
                 : item.LemonDefId;
+
+        /// <summary>
+        /// The card a take is aimed at — a shelf card (Connections), a discarded Black
+        /// Market card (Reduce and Reuse) or a discarded Lemon card (Reverse Engineer) —
+        /// so the table can show the loot beside the play.
+        /// </summary>
+        private (string? DefId, Shape? Shape, bool IsLemon) TakenByPlay(StackItem item)
+        {
+            if (item.MarketIndex is int shelfIndex && shelfIndex >= 0 && shelfIndex < State.Market.Count)
+            {
+                var shelfCard = State.BlackMarketInstances[State.Market[shelfIndex]];
+                return (shelfCard.DefId, shelfCard.Shape, false);
+            }
+            if (item.DiscardedBmInstanceId is int discardedBm &&
+                State.BlackMarketInstances.TryGetValue(discardedBm, out var discardedBmCard))
+            {
+                return (discardedBmCard.DefId, discardedBmCard.Shape, false);
+            }
+            if (item.DiscardedLemonInstanceId is int discardedLemon &&
+                State.LemonInstances.TryGetValue(discardedLemon, out var discardedLemonCard))
+            {
+                return (discardedLemonCard.DefId, null, true);
+            }
+            return (null, null, false);
+        }
 
         /// <summary>Resolve the top stack item. Returns false if resolution paused on a decision.</summary>
         private bool ResolveTopItem(List<GameEvent> events)

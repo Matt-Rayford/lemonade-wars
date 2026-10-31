@@ -95,14 +95,18 @@ namespace LemonadeWars.Engine.Core
             }
             foreach (var draw in source.PendingDraws)
             {
-                copy.PendingDraws.Add(new PendingDraw
+                var drawCopy = new PendingDraw
                 {
                     PlayerId = draw.PlayerId,
                     Count = draw.Count,
                     CountsForRoll = draw.CountsForRoll,
                     TrackDrawnIds = draw.TrackDrawnIds,
                     Reason = draw.Reason,
-                });
+                    DiscardAfterCount = draw.DiscardAfterCount,
+                    DiscardAfterSourceInstanceId = draw.DiscardAfterSourceInstanceId,
+                };
+                drawCopy.DrawnIds.AddRange(draw.DrawnIds);
+                copy.PendingDraws.Add(drawCopy);
             }
             copy.TrackedDrawnCards.AddRange(source.TrackedDrawnCards);
             copy.UsedTurnAbilities.AddRange(source.UsedTurnAbilities);

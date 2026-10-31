@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
@@ -63,6 +64,8 @@ namespace LemonadeWars.Engine.Core
         public int PlayerId { get; set; }
         public int StandInstanceId { get; set; }
         public string StandTypeId { get; set; } = "";
+        /// <summary>Dollars paid; 0 when the stand arrived by a Rebrand swap.</summary>
+        public int Price { get; set; }
         public override string ToString() => $"P{PlayerId} bought {StandTypeId} stand";
     }
 
@@ -73,6 +76,8 @@ namespace LemonadeWars.Engine.Core
         public string DefId { get; set; } = "";
         /// <summary>Stand instance id, or null when equipped to Turf.</summary>
         public int? TargetStandInstanceId { get; set; }
+        /// <summary>Dollars paid; 0 for free takes (Connections, steals, discard recoveries).</summary>
+        public int Price { get; set; }
         public override string ToString() => $"P{PlayerId} equipped {DefId}";
     }
 
@@ -185,6 +190,20 @@ namespace LemonadeWars.Engine.Core
         /// </summary>
         public int? RespondingToOwnerId { get; set; }
         public string? RespondingToDefId { get; set; }
+        /// <summary>
+        /// Finders Keepers / That's Not Fair: the equipped Black Market card the play is
+        /// aimed at (public table info), so the table can show the loot beside the attack.
+        /// </summary>
+        public string? StolenDefId { get; set; }
+        public Shape? StolenShape { get; set; }
+        /// <summary>
+        /// Connections / Reduce and Reuse / Reverse Engineer: the shelf or discard card
+        /// the play takes — a Lemon card when TakenIsLemon. Null for a Reverse Engineer
+        /// that draws instead.
+        /// </summary>
+        public string? TakenDefId { get; set; }
+        public Shape? TakenShape { get; set; }
+        public bool TakenIsLemon { get; set; }
         public override string ToString() => $"P{PlayerId} played {DefId}" +
             (TargetPlayerId != null ? $" -> P{TargetPlayerId}" : "") +
             (RespondingToDefId != null ? $" (vs P{RespondingToOwnerId}'s {RespondingToDefId})" : "");

@@ -112,6 +112,18 @@ namespace LemonadeWars.Unity
             material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0.25f);
         }
 
+        /// <summary>
+        /// Solid outline round the glyphs. Width is in TMP's font-relative units; the
+        /// atlas padding caps how far it can reach, so keep it under about 0.35.
+        /// </summary>
+        public static void AddTextOutline(TMP_Text text, float width, Color color)
+        {
+            var material = text.fontMaterial;
+            material.EnableKeyword(ShaderUtilities.Keyword_Outline);
+            material.SetColor(ShaderUtilities.ID_OutlineColor, color);
+            material.SetFloat(ShaderUtilities.ID_OutlineWidth, width);
+        }
+
         public static Canvas CreateCanvas()
         {
             var go = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -255,9 +267,9 @@ namespace LemonadeWars.Unity
         }
 
         /// <param name="dark">
-        /// Inverse chrome for buttons sitting ON a light surface (the yellow status
-        /// bar): the normal hover paint is lemonade-yellow, which would make such a
-        /// button vanish into its background.
+        /// Inverse chrome for buttons sitting ON a light surface: the normal hover
+        /// paint is lemonade-yellow, which would make such a button vanish into its
+        /// background.
         /// </param>
         /// <param name="clickSound">Clip name, or null for a button with its own audio.</param>
         /// <param name="highlighted">The call-to-action look: lemonade-yellow at rest
@@ -572,8 +584,8 @@ namespace LemonadeWars.Unity
             relay.Clicked += () => onClick();
         }
 
-        /// <summary>Dashed arrow with a winged head, built from rotated dash Images.</summary>
-        public static void DrawDashedArrow(RectTransform host, Vector2 from, Vector2 to, Color color)
+        /// <summary>Solid arrow: a straight shaft that stops short of a two-wing head.</summary>
+        public static void DrawArrow(RectTransform host, Vector2 from, Vector2 to, Color color)
         {
             var direction = to - from;
             float length = direction.magnitude;
@@ -583,28 +595,106 @@ namespace LemonadeWars.Unity
             }
             var unit = direction / length;
             float angle = Mathf.Atan2(unit.y, unit.x) * Mathf.Rad2Deg;
-            for (float d = 18f; d < length - 24f; d += 30f)
+            float shaftLength = length - ArrowShaftStartPx - ArrowHeadInsetPx;
+            CreateStroke(host, from + unit * (ArrowShaftStartPx + shaftLength / 2f), angle, shaftLength, color);
+            DrawArrowHead(host, to, angle, color);
+        }
+
+        /// <summary>
+        /// Solid arrow along a quadratic curve. <paramref name="bulge"/> is the control
+        /// point's offset perpendicular to the chord, as a fraction of its length;
+        /// its sign picks the side. Reads as "around" rather than "through".
+        /// </summary>
+        public static void DrawCurvedArrow(RectTransform host, Vector2 from, Vector2 to,
+            float bulge, Color color)
+        {
+            var chord = to - from;
+            float length = chord.magnitude;
+            if (length < 30f)
             {
-                CreateDash(host, from + unit * d, angle, 16f, color);
+                return;
             }
-            // Arrowhead: two wings sweeping back from the tip.
+            var normal = new Vector2(-chord.y, chord.x) / length;
+            var control = (from + to) / 2f + normal * (length * bulge);
+            // A quadratic is the cubic with both handles on the one control point.
+            DrawCurvedArrow(host, from, control, control, to, color);
+        }
+
+        /// <summary>
+        /// Solid arrow along a cubic curve: <paramref name="leave"/> sets the direction
+        /// it departs <paramref name="from"/>, <paramref name="approach"/> the direction
+        /// it arrives at <paramref name="to"/>.
+        /// </summary>
+        public static void DrawCurvedArrow(RectTransform host, Vector2 from, Vector2 leave,
+            Vector2 approach, Vector2 to, Color color)
+        {
+            if ((to - from).magnitude < 30f)
+            {
+                return;
+            }
+            Vector2 Point(float u)
+            {
+                float v = 1 - u;
+                return v * v * v * from + 3 * v * v * u * leave + 3 * v * u * u * approach + u * u * u * to;
+            }
+            Vector2 Tangent(float u)
+            {
+                float v = 1 - u;
+                return 3 * v * v * (leave - from) + 6 * v * u * (approach - leave) + 3 * u * u * (to - approach);
+            }
+
+            // Short overlapping strokes along the curve read as one continuous line;
+            // the shaft starts a little in and stops short of the head.
+            const int samples = 64;
+            float curveLength = 0f;
+            for (int i = 1; i <= samples; i++)
+            {
+                curveLength += (Point(i / (float)samples) - Point((i - 1) / (float)samples)).magnitude;
+            }
+            float travelled = 0f;
+            var previous = from;
+            for (int i = 1; i <= samples; i++)
+            {
+                var point = Point(i / (float)samples);
+                float step = (point - previous).magnitude;
+                float midTravelled = travelled + step / 2f;
+                if (midTravelled >= ArrowShaftStartPx && midTravelled <= curveLength - ArrowHeadInsetPx)
+                {
+                    var tangent = Tangent((i - 0.5f) / samples);
+                    float angle = Mathf.Atan2(tangent.y, tangent.x) * Mathf.Rad2Deg;
+                    CreateStroke(host, (point + previous) / 2f, angle, step + 1.5f, color);
+                }
+                travelled += step;
+                previous = point;
+            }
+            var endTangent = Tangent(1f);
+            DrawArrowHead(host, to, Mathf.Atan2(endTangent.y, endTangent.x) * Mathf.Rad2Deg, color);
+        }
+
+        private const float ArrowThicknessPx = 4f;
+        private const float ArrowShaftStartPx = 18f;
+        private const float ArrowHeadInsetPx = 10f;
+
+        /// <summary>Two wings sweeping back from the tip.</summary>
+        private static void DrawArrowHead(RectTransform host, Vector2 tip, float angleDegrees, Color color)
+        {
             for (int sign = -1; sign <= 1; sign += 2)
             {
-                float wingAngle = angle + sign * 145f;
+                float wingAngle = angleDegrees + sign * 145f;
                 var wingDir = new Vector2(
                     Mathf.Cos(wingAngle * Mathf.Deg2Rad), Mathf.Sin(wingAngle * Mathf.Deg2Rad));
-                CreateDash(host, to + wingDir * 11f, wingAngle, 22f, color);
+                CreateStroke(host, tip + wingDir * 11f, wingAngle, 22f, color);
             }
         }
 
-        private static void CreateDash(RectTransform host, Vector2 center, float angleDegrees,
+        private static void CreateStroke(RectTransform host, Vector2 center, float angleDegrees,
             float length, Color color)
         {
-            var go = new GameObject("Dash", typeof(RectTransform), typeof(Image));
+            var go = new GameObject("Stroke", typeof(RectTransform), typeof(Image));
             go.transform.SetParent(host, false);
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(length, 6f);
+            rect.sizeDelta = new Vector2(length, ArrowThicknessPx);
             rect.anchoredPosition = center;
             rect.localEulerAngles = new Vector3(0, 0, angleDegrees);
             var image = go.GetComponent<Image>();

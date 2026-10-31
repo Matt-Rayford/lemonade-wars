@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using TMPro;
@@ -12,6 +13,17 @@ namespace LemonadeWars.Unity
     {
         /// <summary>playerId -> "easy"/"medium"/"hard" for bot seats, null for humans.</summary>
         public System.Func<int, string> BotLevelLookup;
+
+        /// <summary>
+        /// True while the table is mid-theatre (effects, die, turn banner). The turn
+        /// lemon holds its last position until then, so a bot's purchases and roll are
+        /// seen to finish before the turn visibly passes.
+        /// </summary>
+        public System.Func<bool> TheatreBusy;
+        /// <summary>Dollars a player has earned that the theatre has not delivered to their bar yet.</summary>
+        public System.Func<int, int> UnshownMoney;
+        private int _shownTurnHolder = -1;
+        private List<int> _shownAwaited;
 
         /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
         private static readonly Color[] BadgeColors =
@@ -32,14 +44,15 @@ namespace LemonadeWars.Unity
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
-        /// the player after you; you sit pinned at the bottom. The lemon is the
-        /// first-player token — it stays put all game (the banner and status line
-        /// already say whose turn it is).
+        /// the player after you; you sit pinned at the bottom. The lemon marks whose
+        /// turn it is and moves with the turn (the hourglass separately marks whoever
+        /// the table is waiting on, which mid-window is often someone else).
         /// </summary>
         private void RenderPlayers(PlayerView view)
         {
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
+            _cashIcons.Clear();
             int count = view.Players.Count;
             int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
             for (int offset = 1; offset <= count; offset++)
@@ -77,10 +90,13 @@ namespace LemonadeWars.Unity
             background.color = new Color(0, 0, 0, 0.32f);
             row.GetComponent<LayoutElement>().minHeight = 82;
 
-            // First-player lemon token, right edge — stays put for the whole game.
-            if (playerId == view.FirstPlayer && _lemonIcon != null)
+            // Turn lemon, right edge: sits with whoever holds the turn and moves with
+            // it — the drafter during setup (ActivePlayer is frozen until play starts).
+            int turnHolder = ShownTurnHolder(view);
+            var awaited = ShownAwaited(view);
+            if (playerId == turnHolder && _lemonIcon != null)
             {
-                var lemonGo = new GameObject("FirstPlayerLemon", typeof(RectTransform), typeof(RawImage));
+                var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
                 lemonGo.transform.SetParent(row.transform, false);
                 var lemonRect = (RectTransform)lemonGo.transform;
                 lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
@@ -93,31 +109,16 @@ namespace LemonadeWars.Unity
             }
 
             // Circular badge on the left: dark color hashed from the name, big initial.
-            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
-            badgeGo.transform.SetParent(row.transform, false);
-            var badgeRect = (RectTransform)badgeGo.transform;
+            var badgeRect = CreatePlayerBadge(row.transform, player.Name, 56f);
             badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0f, 0.5f);
             badgeRect.pivot = new Vector2(0f, 0.5f);
-            badgeRect.sizeDelta = new Vector2(56f, 56f);
             badgeRect.anchoredPosition = new Vector2(12f, 0);
-            var badgeImage = badgeGo.GetComponent<Image>();
-            badgeImage.sprite = UiSprites.Circle;
-            badgeImage.type = Image.Type.Simple;
-            badgeImage.preserveAspect = true;
-            badgeImage.color = BadgeColors[StableNameHash(player.Name) % BadgeColors.Length];
-            badgeImage.raycastTarget = false;
-            string initial = string.IsNullOrEmpty(player.Name)
-                ? "?"
-                : char.ToUpperInvariant(player.Name[0]).ToString();
-            var letter = UiKit.CreateText(badgeGo.transform, initial, 30,
-                TextAnchor.MiddleCenter, Color.white);
-            letter.raycastTarget = false;
-            UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+            var badgeGo = badgeRect.gameObject;
 
             // The table is waiting on this player — their turn, a reaction window,
             // a discard, a lord pick — so their badge greys out under the hourglass.
             // Several can wait at once (a window open to everyone); each gets one.
-            if (view.ActingPlayers.Contains(playerId) && !isMe)
+            if (awaited.Contains(playerId) && !isMe)
             {
                 var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
                 shadeGo.transform.SetParent(badgeGo.transform, false);
@@ -188,7 +189,13 @@ namespace LemonadeWars.Unity
             statsGo.transform.SetParent(row.transform, false);
             var stats = UiKit.Anchor((RectTransform)statsGo.transform,
                 new Vector2(0, 0), new Vector2(1, 0.56f), new Vector2(80, 4), new Vector2(-52, -1));
-            AddStatAt(stats, _cashIcon, $"${player.Money}", 0f, 36f);
+            // Cash still in flight (a sale's bills sliding to the bar) is not shown yet.
+            int shownMoney = player.Money - (UnshownMoney?.Invoke(playerId) ?? 0);
+            var cashIcon = AddStatAt(stats, _cashIcon, $"${shownMoney}", 0f, 36f);
+            if (cashIcon != null)
+            {
+                _cashIcons[playerId] = cashIcon; // money floaters rise from the coin itself
+            }
             // Hand size is targeting intel: fewer cards = fewer possible reactions.
             AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
             AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
@@ -253,14 +260,16 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>One icon-plus-count chip at a fixed column offset in the stat row.</summary>
-        private static void AddStatAt(RectTransform parent, Texture2D icon, string count,
+        /// <summary>Returns the icon's rect (null when the icon texture is missing).</summary>
+        private static RectTransform AddStatAt(RectTransform parent, Texture2D icon, string count,
             float columnX, float iconWidth)
         {
+            RectTransform iconRect = null;
             if (icon != null)
             {
                 var iconGo = new GameObject("StatIcon", typeof(RectTransform), typeof(RawImage));
                 iconGo.transform.SetParent(parent, false);
-                var iconRect = (RectTransform)iconGo.transform;
+                iconRect = (RectTransform)iconGo.transform;
                 iconRect.anchorMin = iconRect.anchorMax = new Vector2(0f, 0.5f);
                 iconRect.pivot = new Vector2(0f, 0.5f);
                 iconRect.sizeDelta = new Vector2(iconWidth, 36f);
@@ -279,6 +288,80 @@ namespace LemonadeWars.Unity
             textRect.pivot = new Vector2(0f, 0.5f);
             textRect.sizeDelta = new Vector2(60f, 34f);
             textRect.anchoredPosition = new Vector2(columnX + iconWidth + 5f, 0f);
+            return iconRect;
+        }
+
+        /// <summary>
+        /// A player's avatar: a circle in their stable name colour with their initial.
+        /// The caller anchors it; the same badge marks their bar and the cards they play.
+        /// </summary>
+        public static RectTransform CreatePlayerBadge(Transform parent, string name, float diameter)
+        {
+            var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
+            badgeGo.transform.SetParent(parent, false);
+            var badgeRect = (RectTransform)badgeGo.transform;
+            badgeRect.sizeDelta = new Vector2(diameter, diameter);
+            var badgeImage = badgeGo.GetComponent<Image>();
+            badgeImage.sprite = UiSprites.Circle;
+            badgeImage.type = Image.Type.Simple;
+            badgeImage.preserveAspect = true;
+            badgeImage.color = BadgeColors[StableNameHash(name) % BadgeColors.Length];
+            badgeImage.raycastTarget = false;
+            string initial = string.IsNullOrEmpty(name) ? "?" : char.ToUpperInvariant(name[0]).ToString();
+            var letter = UiKit.CreateText(badgeGo.transform, initial, Mathf.RoundToInt(diameter * 30f / 56f),
+                TextAnchor.MiddleCenter, Color.white);
+            letter.raycastTarget = false;
+            UiKit.Anchor((RectTransform)letter.transform, Vector2.zero, Vector2.one);
+            return badgeRect;
+        }
+
+        /// <summary>World-space middle of a player's bar's right edge — where arrows to/from the bar attach.</summary>
+        public Vector3? PlayerBarEdgeWorld(int playerId)
+        {
+            foreach (var (id, row, _) in _playerRows)
+            {
+                if (id == playerId && row != null)
+                {
+                    return row.TransformPoint(new Vector3(row.rect.xMax, row.rect.center.y, 0));
+                }
+            }
+            return null;
+        }
+
+        /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>
+        public Vector3? PlayerCashWorld(int playerId) =>
+            _cashIcons.TryGetValue(playerId, out var icon) && icon != null
+                ? icon.TransformPoint(icon.rect.center)
+                : (Vector3?)null;
+
+        /// <summary>
+        /// Who wears the hourglass this render: the players the engine is waiting on,
+        /// except that while the theatre is still playing out the previous set keeps
+        /// it — the hourglass and the lemon move together, once the last animation ends.
+        /// </summary>
+        private IReadOnlyList<int> ShownAwaited(PlayerView view)
+        {
+            bool holdBack = TheatreBusy?.Invoke() == true && _shownAwaited != null &&
+                            _shownAwaited.All(id => view.Players.Any(p => p.PlayerId == id));
+            if (!holdBack)
+            {
+                _shownAwaited = view.ActingPlayers.ToList();
+            }
+            return _shownAwaited;
+        }
+
+        /// <summary>
+        /// Whose lemon it is this render: the engine's turn holder, except that while
+        /// the theatre is still playing out the previous holder keeps it — the effects'
+        /// OnFinished forces the re-render that hands it over.
+        /// </summary>
+        private int ShownTurnHolder(PlayerView view)
+        {
+            int actual = view.CurrentInitialBuyer ?? view.ActivePlayer;
+            bool holdBack = TheatreBusy?.Invoke() == true && _shownTurnHolder >= 0 &&
+                            view.Players.Any(p => p.PlayerId == _shownTurnHolder);
+            _shownTurnHolder = holdBack ? _shownTurnHolder : actual;
+            return _shownTurnHolder;
         }
 
         /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>

@@ -33,9 +33,9 @@ namespace LemonadeWars.Unity
             var options = ToOptions(direct);
             options.AddRange(guided);
 
-            if (direct.Count == 0 && options.Count == 1)
+            if (options.Count == 1)
             {
-                options[0].OnPick(); // a lone guided flow — skip the one-button menu
+                options[0].OnPick(); // one way to play it: clicking the card IS the play
                 return;
             }
             _prompt.Show(cardName, new[] { cardArt }, options, showCancel: true);
@@ -450,7 +450,7 @@ namespace LemonadeWars.Unity
         /// <summary>
         /// Finish a play whose variants differ only by equip destination: one candidate
         /// submits directly; several open the aim-at-your-board targeting (float card +
-        /// dashed arrow), with a replace-prompt when the chosen slot is full.
+        /// arrow), with a replace-prompt when the chosen slot is full.
         /// </summary>
         private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
         {

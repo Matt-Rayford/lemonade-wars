@@ -29,9 +29,10 @@ namespace LemonadeWars.Unity
             var decision = View.MyDecisions.FirstOrDefault();
             if (decision == null)
             {
-                // A stack play to react to, or a settled die you may still tweak
-                // (Out of Stock, Downsell, Sugared Up, Take Two).
-                return (View.StackTop != null || View.PendingRollValue != null) &&
+                // A stack play to react to, a settled die you may still tweak
+                // (Out of Stock, Downsell, Sugared Up, Take Two), or money just
+                // stolen from you (Profit Share) — all answered from the table.
+                return (View.StackTop != null || View.PendingRollValue != null || View.TheftOnMe) &&
                        View.AwaitingResponse.Contains(View.ViewerId);
             }
             // Bouncer resolves AFTER its attack leaves the stack, so it has no stack
@@ -90,6 +91,16 @@ namespace LemonadeWars.Unity
                 return;
             }
             bool IsPassMove(GameAction m) => m is SkipFreePlay || m is PassWindow;
+            if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0)
+            {
+                // A plain response window: the hand's reaction cards sit half-raised to
+                // be clicked, and the message strip offers the rest (see RenderActionBar).
+                // The side panel stays for retargets and strike-backs, which need their
+                // own pages.
+                _reaction.Hide();
+                _prompt.Hide();
+                return;
+            }
             if (ReactionWindowDue(groups))
             {
                 // A stack-top window: react from the log column with the table live.

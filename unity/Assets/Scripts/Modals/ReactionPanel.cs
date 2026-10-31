@@ -38,7 +38,7 @@ namespace LemonadeWars.Unity
             // The band is only claimed when there ARE cards to show; a roll response
             // leaves it to the die, which lingers there while you decide.
             _cardZone = UiKit.CreatePanel(_root, "ReactionCards", new Color(0.04f, 0.05f, 0.08f, 0.93f));
-            UiKit.Anchor(_cardZone, new Vector2(0f, 0.695f), new Vector2(1f, 0.95f)); // the shelf's band
+            UiKit.Anchor(_cardZone, new Vector2(0f, 0.75f), new Vector2(1f, 1f)); // the shelf's band
 
             var stripGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             stripGo.transform.SetParent(_cardZone, false);
