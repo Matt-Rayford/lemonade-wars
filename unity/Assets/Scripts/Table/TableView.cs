@@ -16,6 +16,14 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed partial class TableView
     {
+        /// <summary>
+        /// The board band's horizontal span (canvas fractions). Pushed right of centre
+        /// so the staged-card column beside the player bars has room to breathe; the
+        /// action log takes whatever is left on the right.
+        /// </summary>
+        public const float BoardLeft = 0.313f; // VP cell (after the row inset) flush with the hand's first card
+        public const float BoardRight = 0.83f;
+
         // Callbacks shared by more than one subsystem (single-subsystem ones live in
         // their partial).
         public System.Func<bool> CanDrawLemon;      // hand draw slot + lemon pile chip
@@ -123,7 +131,7 @@ namespace LemonadeWars.Unity
             // Its top stays below the shelf rule: the bare strip between them is
             // breathing room (and hosts the turn-action chips, top-right).
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
-            UiKit.Anchor(board, new Vector2(0.21f, 0.21f), new Vector2(0.79f, 0.695f),
+            UiKit.Anchor(board, new Vector2(BoardLeft, 0.21f), new Vector2(BoardRight, 0.695f),
                 new Vector2(3, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
@@ -152,7 +160,7 @@ namespace LemonadeWars.Unity
             // Persistent actions: a floating button strip above the hand's peek band.
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
             actions.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(actions, new Vector2(0.21f, 0.17f), new Vector2(0.79f, 0.22f),
+            UiKit.Anchor(actions, new Vector2(BoardLeft, 0.17f), new Vector2(BoardRight, 0.22f),
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);

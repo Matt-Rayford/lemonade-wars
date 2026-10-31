@@ -22,7 +22,6 @@ namespace LemonadeWars.Unity
         private const float BoardRowInsetPx = 6f;
         private const float VictoryCellWidthPx = 188f;
         /// <summary>Horizontal nudge of the showcase off that column's centre (negative = right); tuned at the table.</summary>
-        private const float ShowcaseLeftShiftPx = -10f;
         private RectTransform _boardRow;
         private RectMask2D _boardMask;
         private float _boardScroll;
@@ -547,12 +546,11 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Where a bought (or staged attack) card pauses: left of the board's first
-        /// column (the victory-point slot), level with the player's own bar — so the
-        /// card sits right beside the row it is about to slide into. Measured from the
-        /// board PANEL, not the row's first cell: the row is rebuilt on every render and
-        /// a cell read before its layout pass sits wherever the row's centre happened to
-        /// be, which made the spot creep.
+        /// Where a bought (or staged) card pauses: just right of the player column,
+        /// level with the player's own bar — so the card sits beside the chip it
+        /// belongs to. Measured from the static player column, not the board row:
+        /// the row is rebuilt on every render (and has since moved right), and a
+        /// cell read before its layout pass sits wherever the row's centre was.
         /// </summary>
         public Vector3? PurchaseShowcaseWorld(int buyerId)
         {
@@ -561,9 +559,9 @@ namespace LemonadeWars.Unity
             {
                 return null;
             }
-            float columnX = _boardPanel.TransformPoint(new Vector3(
-                _boardPanel.rect.xMin + BoardRowInsetPx + VictoryCellWidthPx / 2f - ShowcaseLeftShiftPx, 0, 0)).x;
-            return new Vector3(columnX, bar.Value.y, 0);
+            float columnRightX = _playersColumn.TransformPoint(new Vector3(_playersColumn.rect.xMax, 0, 0)).x;
+            float cardCentreX = columnRightX + VictoryCellWidthPx / 2f;
+            return new Vector3(cardCentreX, bar.Value.y, 0);
         }
     }
 }
