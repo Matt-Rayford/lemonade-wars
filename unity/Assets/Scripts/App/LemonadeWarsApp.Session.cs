@@ -70,17 +70,12 @@ namespace LemonadeWars.Unity
         // ------------------------------------------------------------ flows
 
         /// <summary>
-        /// Default server URL from StreamingAssets/client-config.json (gitignored; written
-        /// by tools/sync_unity.sh, baked into builds, editable post-build). The last URL a
-        /// player actually connected to takes precedence.
+        /// Server URL from StreamingAssets/client-config.json (gitignored; written by
+        /// tools/sync_unity.sh, baked into builds, editable post-build). Players cannot
+        /// change it in-app.
         /// </summary>
         private static string LoadConfiguredServerUrl()
         {
-            string remembered = PlayerPrefs.GetString("lw_server", "");
-            if (!string.IsNullOrEmpty(remembered))
-            {
-                return remembered;
-            }
             try
             {
                 string path = Path.Combine(Application.streamingAssetsPath, "client-config.json");
@@ -151,7 +146,6 @@ namespace LemonadeWars.Unity
             _pendingName = name;
             _pendingCode = code;
             _pendingToken = token;
-            PlayerPrefs.SetString("lw_server", url);
             PlayerPrefs.SetString("lw_name", name);
             _screen = Screen.Lobby;
             _lobbyRevision = -1;

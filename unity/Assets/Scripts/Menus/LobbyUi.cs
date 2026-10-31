@@ -26,9 +26,10 @@ namespace LemonadeWars.Unity
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;
-        public System.Action<string> OnSaveSettings;           // display name
+        public System.Action<string> OnSaveSettings;           // display name, on every edit
 
-        public string ServerUrl => _serverInput.text;
+        /// <summary>Baked into the build from client-config.json; players never edit it.</summary>
+        public string ServerUrl { get; }
         public bool MenuVisible => _menuRoot.gameObject.activeSelf;
 
         /// <summary>The name used at the table, from Settings; never empty.</summary>
@@ -54,7 +55,6 @@ namespace LemonadeWars.Unity
                 ("Benny", "medium"), ("Cleo", "medium"), ("Dex", "medium"),
             };
         private readonly TMP_InputField _displayNameInput;
-        private readonly TMP_InputField _serverInput;
         private readonly TMP_InputField _codeInput;
         private readonly TMP_Text _lobbyTitle;
         private readonly RectTransform _lobbySeatList;
@@ -68,8 +68,9 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _hostControls;
         private bool _myReady;
 
-        public LobbyUi(RectTransform canvasRoot, string defaultServerUrl, string defaultName)
+        public LobbyUi(RectTransform canvasRoot, string serverUrl, string defaultName)
         {
+            ServerUrl = serverUrl;
             // ------------------------------------------------------- menu
             _menuRoot = UiKit.CreatePanel(canvasRoot, "Menu", UiKit.TableColor);
             UiKit.Anchor(_menuRoot, Vector2.zero, Vector2.one);
@@ -99,9 +100,9 @@ namespace LemonadeWars.Unity
             }
 
             MenuButton("Play vs bots (offline)", ShowSoloSetup);
-            MenuButton("Host online room", () => OnHost?.Invoke(_serverInput.text, DisplayName));
+            MenuButton("Host online room", () => OnHost?.Invoke(ServerUrl, DisplayName));
             MenuButton("Join room", ShowJoin);
-            MenuButton("My games", () => OnMyGames?.Invoke(_serverInput.text, DisplayName));
+            MenuButton("My games", () => OnMyGames?.Invoke(ServerUrl, DisplayName));
             MenuButton("Rulebook", () => OnRulebook?.Invoke());
             MenuButton("Settings", ShowSettings);
             MenuButton("Quit", QuitApplication);
@@ -125,16 +126,25 @@ namespace LemonadeWars.Unity
             settingsLayout.childControlHeight = true;
             settingsLayout.childControlWidth = true;
 
-            var nameLabel = UiKit.CreateText(settingsColumn.transform,
-                "Display Name — shown at the table on your turn", 16,
+            var nameRow = new GameObject("UsernameRow",
+                typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+            nameRow.transform.SetParent(settingsColumn.transform, false);
+            var nameRowSize = nameRow.GetComponent<LayoutElement>();
+            nameRowSize.preferredHeight = 44;
+            nameRowSize.flexibleHeight = 0; // force-expanding children would otherwise claim the column's slack
+            var nameRowLayout = nameRow.GetComponent<HorizontalLayoutGroup>();
+            nameRowLayout.spacing = 12;
+            nameRowLayout.childAlignment = TextAnchor.MiddleLeft;
+            nameRowLayout.childForceExpandWidth = false;
+            nameRowLayout.childForceExpandHeight = false;
+            nameRowLayout.childControlWidth = true;
+            nameRowLayout.childControlHeight = true;
+            var nameLabel = UiKit.CreateText(nameRow.transform, "Username:", 18,
                 TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
-            nameLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
-            _displayNameInput = UiKit.CreateInput(settingsColumn.transform, "Display Name", defaultName);
-
-            var serverLabel = UiKit.CreateText(settingsColumn.transform,
-                "Server URL", 16, TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
-            serverLabel.gameObject.AddComponent<LayoutElement>().minHeight = 24;
-            _serverInput = UiKit.CreateInput(settingsColumn.transform, "Server", defaultServerUrl);
+            nameLabel.gameObject.AddComponent<LayoutElement>().preferredWidth = 110;
+            _displayNameInput = UiKit.CreateInput(nameRow.transform, "Display Name", defaultName);
+            _displayNameInput.GetComponent<LayoutElement>().flexibleWidth = 1;
+            _displayNameInput.onValueChanged.AddListener(_ => OnSaveSettings?.Invoke(DisplayName));
 
             var volumeLabel = UiKit.CreateText(settingsColumn.transform, "", 16,
                 TextAnchor.MiddleLeft, new Color(0.8f, 0.8f, 0.8f), body: true);
@@ -153,11 +163,7 @@ namespace LemonadeWars.Unity
                 Sfx.Play(Sfx.ButtonClick); // audition the new level on every stop
             });
 
-            UiKit.CreateButton(settingsColumn.transform, "Save & back", 20, () =>
-            {
-                OnSaveSettings?.Invoke(DisplayName);
-                ShowMenu("");
-            });
+            UiKit.CreateButton(settingsColumn.transform, "Back", 20, () => ShowMenu(""));
             _settingsRoot.gameObject.SetActive(false);
 
             // --------------------------------------------------- join room
@@ -189,7 +195,7 @@ namespace LemonadeWars.Unity
                 new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.38f));
             UiKit.CreateButton(joinActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(joinActions, "Join", 20,
-                () => OnJoin?.Invoke(_serverInput.text, DisplayName,
+                () => OnJoin?.Invoke(ServerUrl, DisplayName,
                     _codeInput.text.Trim().ToUpperInvariant()));
             _joinRoot.gameObject.SetActive(false);
 
