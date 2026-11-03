@@ -39,6 +39,7 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _root;
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
+        private readonly RectTransform _bodyHost;
         private RectTransform _cancelHost;
         private TMP_Text _moreHint;
 
@@ -96,7 +97,22 @@ namespace LemonadeWars.Unity
             _cancelHost = UiKit.CreatePanel(listHost, "CancelRow", new Color(0, 0, 0, 0));
             UiKit.Anchor(_cancelHost, new Vector2(0, 0), new Vector2(1, 0.14f));
 
+            // A caller-built body (the scoreboard) takes the whole middle, above the footer.
+            _bodyHost = UiKit.CreatePanel(_root, "Body", new Color(0, 0, 0, 0));
+            _bodyHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(_bodyHost, new Vector2(0.04f, 0.12f), new Vector2(0.96f, 0.87f));
+
             _root.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// A prompt whose middle the caller lays out itself (the end-game scoreboard),
+        /// with a row of named exits along the bottom. Esc dismisses it.
+        /// </summary>
+        public void ShowBody(string title, System.Action<RectTransform> buildBody, IReadOnlyList<Option> footer)
+        {
+            Show(title, null, new List<Option>(), showCancel: false, footer: footer);
+            buildBody(_bodyHost);
         }
 
         /// <summary>
@@ -110,6 +126,7 @@ namespace LemonadeWars.Unity
             IsOpen = true;
             _title.text = title;
 
+            UiKit.Clear(_bodyHost);
             UiKit.Clear(_cardStrip);
             if (cards != null && cards.Count > 0)
             {

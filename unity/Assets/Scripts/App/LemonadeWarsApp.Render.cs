@@ -323,10 +323,7 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_turnActionRow);
             if (View.Stage == GameStage.Finished)
             {
-                // Back on the board after the scoreboard: the exit lives where the
-                // sale chip did, so leaving is never a hunt.
-                AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
-                return;
+                return; // the scoreboard carries the exit; Esc's pause menu has the other
             }
             if (groups == null || groups.IsModal || _turnBanner.IsOpen)
             {
@@ -531,39 +528,141 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private const float ScoreCardWidthPx = 150f;
+        private const float ScoreCardHeightPx = 210f;
+        /// <summary>Each card tucked behind the front one peeks this much above it (the board's tuck).</summary>
+        private const float ScoreTuckPeekPx = 40f;
+        private const float ScoreBadgePx = 64f;
+        private const float ScoreColumnSpacingPx = 36f;
+
         /// <summary>
-        /// Game over: announce the winner and reveal everyone's full score — in-game VP
-        /// plus the secret Lemon Lords, met or missed.
+        /// Game over: announce the winner and line everyone up left to right by score
+        /// (money breaks ties), each under their avatar with their Victory Point cards
+        /// stacked — in-game points plus the secret Lemon Lords they actually met.
+        /// Hover (or Alt) reads any card full-size.
         /// </summary>
         private void ShowEndSummary()
         {
             _prompt.Hide();
-            var rows = View.Players
-                .Select(p =>
-                {
-                    int lordVp = p.FinishedLords.Count(l => l.Met);
-                    int total = p.InGameVictoryPoints + lordVp;
-                    string lords = p.FinishedLords.Count > 0
-                        ? "   [" + string.Join(", ", p.FinishedLords.Select(l =>
-                            _db.Title(l.TitleId).Name + (l.Met ? " +1" : " —"))) + "]"
-                        : "";
-                    return (total, label: $"{p.Name} — {total} VP{lords}");
-                })
-                .OrderByDescending(r => r.total)
-                .ToList();
             string winners = string.Join(" & ", View.Winners.Select(NameOf));
             string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
             // Two real exits instead of a lone "Cancel": look the final boards over,
             // or head back to the menu.
-            _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
-                new List<Texture2D>(),
-                rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
-                showCancel: false,
-                footer: new[]
+            _prompt.ShowBody($"{winners.ToUpperInvariant()} {verb} LEMONADE WARS!", BuildScoreboard,
+                new[]
                 {
                     new Prompt.Option("Return to Board", () => { }),
                     new Prompt.Option("Leave Game", () => BackToMenu("")),
                 });
+        }
+
+        private void BuildScoreboard(RectTransform host)
+        {
+            var rowGo = new GameObject("Standings", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            rowGo.transform.SetParent(host, false);
+            UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
+            var row = rowGo.GetComponent<HorizontalLayoutGroup>();
+            row.spacing = ScoreColumnSpacingPx;
+            row.childAlignment = TextAnchor.UpperCenter;
+            row.childForceExpandWidth = false;
+            row.childForceExpandHeight = false;
+            row.childControlWidth = true;
+            row.childControlHeight = true;
+
+            var standings = View.Players
+                .Select(p => (Player: p, Total: p.InGameVictoryPoints + p.FinishedLords.Count(l => l.Met)))
+                .OrderByDescending(s => s.Total)
+                .ThenByDescending(s => s.Player.Money)
+                .ToList();
+            foreach (var (player, total) in standings)
+            {
+                BuildScoreColumn((RectTransform)rowGo.transform, player, total);
+            }
+        }
+
+        private void BuildScoreColumn(RectTransform row, PlayerView.PlayerPanel player, int total)
+        {
+            var columnGo = new GameObject("Score", typeof(RectTransform), typeof(VerticalLayoutGroup),
+                typeof(LayoutElement));
+            columnGo.transform.SetParent(row, false);
+            var column = columnGo.GetComponent<VerticalLayoutGroup>();
+            column.spacing = 6f;
+            column.childAlignment = TextAnchor.UpperCenter;
+            column.childForceExpandWidth = false;
+            column.childForceExpandHeight = false;
+            column.childControlWidth = true;
+            column.childControlHeight = true;
+            columnGo.GetComponent<LayoutElement>().preferredWidth = ScoreCardWidthPx + 40f;
+
+            var badge = TableView.CreatePlayerBadge(columnGo.transform, player.Name, ScoreBadgePx);
+            var badgeElement = badge.gameObject.AddComponent<LayoutElement>();
+            badgeElement.preferredWidth = ScoreBadgePx;
+            badgeElement.preferredHeight = ScoreBadgePx;
+
+            var name = UiKit.CreateText(columnGo.transform, player.Name.ToUpperInvariant(), 20,
+                TextAnchor.MiddleCenter, Color.white);
+            name.raycastTarget = false;
+            UiKit.AddTextShadow(name);
+            name.gameObject.AddComponent<LayoutElement>().minHeight = 26f;
+
+            string points = total == 1 ? "1 VP" : $"{total} VP";
+            var score = UiKit.CreateText(columnGo.transform, $"{points}  ·  ${player.Money}", 16,
+                TextAnchor.MiddleCenter, UiKit.ButtonColor, body: true);
+            score.raycastTarget = false;
+            UiKit.AddTextShadow(score);
+            score.gameObject.AddComponent<LayoutElement>().minHeight = 22f;
+
+            BuildScoreStack(columnGo.transform, ScoreCardArts(player));
+        }
+
+        /// <summary>The cards that scored, front to back: First Dibs, Bragging Rights, then met Lemon Lords.</summary>
+        private List<Texture2D> ScoreCardArts(PlayerView.PlayerPanel player)
+        {
+            var arts = new List<Texture2D>();
+            foreach (string titleId in player.FirstDibsClaimed)
+            {
+                arts.Add(_art.Title(titleId));
+            }
+            for (int i = 0; i < player.BraggingRights; i++)
+            {
+                arts.Add(_art.BraggingRights(i) ?? _art.Back("braggingRights"));
+            }
+            foreach (var lord in player.FinishedLords)
+            {
+                if (lord.Met)
+                {
+                    arts.Add(_art.Title(lord.TitleId));
+                }
+            }
+            return arts;
+        }
+
+        /// <summary>
+        /// The VP column's stack, free-standing: the front card at the bottom, each
+        /// card behind it peeking out above, every one readable on hover.
+        /// </summary>
+        private void BuildScoreStack(Transform parent, List<Texture2D> arts)
+        {
+            int tucked = Mathf.Max(0, arts.Count - 1);
+            var stackGo = new GameObject("Stack", typeof(RectTransform), typeof(LayoutElement));
+            stackGo.transform.SetParent(parent, false);
+            var stackElement = stackGo.GetComponent<LayoutElement>();
+            stackElement.preferredWidth = ScoreCardWidthPx;
+            stackElement.preferredHeight = ScoreCardHeightPx + tucked * ScoreTuckPeekPx;
+            var stack = (RectTransform)stackGo.transform;
+
+            // Deepest card first, so each next one draws over the sliver behind it.
+            for (int i = arts.Count - 1; i >= 0; i--)
+            {
+                var image = UiKit.CreateCardImage(stack, arts[i], ScoreCardWidthPx, ScoreCardHeightPx);
+                var frame = (RectTransform)image.transform.parent;
+                frame.GetComponent<LayoutElement>().ignoreLayout = true;
+                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+                frame.pivot = new Vector2(0.5f, 0f);
+                frame.sizeDelta = new Vector2(ScoreCardWidthPx, ScoreCardHeightPx);
+                frame.anchoredPosition = new Vector2(0f, i * ScoreTuckPeekPx);
+                _preview.Attach(image.gameObject, arts[i]);
+            }
         }
     }
 }
