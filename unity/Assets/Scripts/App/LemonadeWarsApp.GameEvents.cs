@@ -667,14 +667,22 @@ namespace LemonadeWars.Unity
 
         /// <summary>
         /// A gain during a roll joins that roll's pile instead of floating as "+$X";
-        /// its cash is held back from the bar until the pile lands there. Gains
-        /// outside a roll (Profit Share, refunds) still float.
+        /// its cash is held back from the bar until the pile lands there. A gain
+        /// outside a roll (a Doorbuster Sale, a card or stand sold, a refund) gets a
+        /// pile of its own straight away, held back from the bar the same way.
         /// </summary>
         private void CollectEarnings(int playerId, int amount)
         {
             if (_rollEarnings == null)
             {
-                _fx.QueueMoney(playerId, amount);
+                _earningsInFlight[playerId] = _earningsInFlight.TryGetValue(playerId, out int pending) ? pending + amount : amount;
+                _renderedRevision = -1;
+                _fx.QueueEarnings(playerId, amount, _art.Bill, () =>
+                {
+                    _earningsInFlight[playerId] = System.Math.Max(0,
+                        (_earningsInFlight.TryGetValue(playerId, out int held) ? held : 0) - amount);
+                    _renderedRevision = -1;
+                });
                 return;
             }
             _rollEarnings[playerId] = _rollEarnings.TryGetValue(playerId, out int sum) ? sum + amount : amount;

@@ -97,9 +97,13 @@ namespace LemonadeWars.Unity
                     _table.EndPlayerPick();
                 }
             }
-            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy)
+            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy || TurnHandoverPending())
             {
-                return; // decisions wait behind the ONWARD! button / the die / effects / a staged attack's arrival
+                // Decisions wait behind the ONWARD! button / the die / effects / a staged
+                // attack's arrival — and behind a turn handover the banner is still
+                // waiting to announce, or the Whiniest Baby's keep-choice would open
+                // over the previous roll's payout, before "Your Turn".
+                return;
             }
             MaybeShowModal(groups, revision);
         }
@@ -574,7 +578,6 @@ namespace LemonadeWars.Unity
         private const float ScoreCardGapPx = 8f;
         private const float ScoreNameColumnPx = 210f;
         private const float ScoreRowPaddingPx = 10f;
-        private static readonly Color ScoreRowColor = new Color(0.08f, 0.10f, 0.15f, 0.70f);
 
         /// <summary>
         /// Game over: announce the winner and rank everyone top to bottom by score
@@ -595,7 +598,8 @@ namespace LemonadeWars.Unity
                 {
                     new Prompt.Option("Return to Board", () => { }),
                     new Prompt.Option("Leave Game", () => BackToMenu("")),
-                });
+                },
+                titleColor: UiKit.ButtonColor);
         }
 
         private void BuildScoreboard(RectTransform host)
@@ -632,14 +636,9 @@ namespace LemonadeWars.Unity
         private void BuildScoreRow(RectTransform list, PlayerView.PlayerPanel player, int total,
             float rowHeight, float cardHeight)
         {
-            var rowGo = new GameObject("Score", typeof(RectTransform), typeof(Image),
+            var rowGo = new GameObject("Score", typeof(RectTransform),
                 typeof(HorizontalLayoutGroup), typeof(LayoutElement));
             rowGo.transform.SetParent(list, false);
-            var slab = rowGo.GetComponent<Image>();
-            slab.sprite = UiSprites.RoundedRect;
-            slab.type = Image.Type.Sliced;
-            slab.color = ScoreRowColor;
-            slab.raycastTarget = false;
             var row = rowGo.GetComponent<HorizontalLayoutGroup>();
             row.spacing = 14f;
             row.padding = new RectOffset((int)ScoreRowPaddingPx * 2, (int)ScoreRowPaddingPx * 2, 0, 0);

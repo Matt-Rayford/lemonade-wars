@@ -111,9 +111,11 @@ namespace LemonadeWars.Unity
         /// A prompt whose middle the caller lays out itself (the end-game scoreboard),
         /// with a row of named exits along the bottom. Esc dismisses it.
         /// </summary>
-        public void ShowBody(string title, System.Action<RectTransform> buildBody, IReadOnlyList<Option> footer)
+        public void ShowBody(string title, System.Action<RectTransform> buildBody, IReadOnlyList<Option> footer,
+            Color? titleColor = null)
         {
             Show(title, null, new List<Option>(), showCancel: false, footer: footer);
+            _title.color = titleColor ?? Color.white;
             _optionScroll.gameObject.SetActive(false); // no empty option box under the body
             buildBody(_bodyHost);
         }
@@ -128,6 +130,7 @@ namespace LemonadeWars.Unity
         {
             IsOpen = true;
             _title.text = title;
+            _title.color = Color.white;
 
             _optionScroll.gameObject.SetActive(true);
             UiKit.Clear(_bodyHost);
