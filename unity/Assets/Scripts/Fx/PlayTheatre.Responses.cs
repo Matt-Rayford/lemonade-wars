@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -18,6 +19,8 @@ namespace LemonadeWars.Unity
         private const float SpreadStepFraction = 0.7f;
         private const float SpreadSeconds = 0.18f;
 
+        private const float PileReturnSeconds = 0.3f;
+
         private sealed class StagedResponse
         {
             public RectTransform Chip;
@@ -25,7 +28,12 @@ namespace LemonadeWars.Unity
             public int OwnerId;
             public string DefId;
             public float TurnDegrees;
+            /// <summary>A card the viewer put on the pile themselves (a Rummage Sale pick); -1 for a reaction.</summary>
+            public int Key = -1;
         }
+
+        /// <summary>A keyed pile card was clicked: the owner decides whether it comes back off.</summary>
+        public System.Action<int> OnPileCardClicked;
 
         private readonly List<StagedResponse> _responses = new List<StagedResponse>();
         private float _slapUntil;
@@ -67,6 +75,88 @@ namespace LemonadeWars.Unity
             });
             _slapUntil = Time.time + SlapMotion.SlapSeconds + ReactionBreathSeconds;
             return true;
+        }
+
+        /// <summary>
+        /// The viewer's own pick slapped onto the staged play from a spot on the
+        /// board (a Rummage Sale card leaving its stand): no badge, clickable, and
+        /// keyed so it can be sent back. False when nothing is staged to land on.
+        /// </summary>
+        public bool AddPileCard(Texture2D art, int key, Vector3 fromWorld)
+        {
+            bool pileOpen = _phase == Phase.Arriving || _phase == Phase.Holding;
+            if (!pileOpen || art == null)
+            {
+                return false;
+            }
+            var chip = BuildChip(art);
+            chip.SetAsLastSibling();
+            float turnDegrees = Random.Range(-ResponseTurnDegrees, ResponseTurnDegrees);
+            chip.localEulerAngles = new Vector3(0, 0, turnDegrees);
+            var motion = chip.gameObject.AddComponent<SlapMotion>();
+            motion.From = Local(fromWorld);
+            motion.To = _chip.anchoredPosition + new Vector2(
+                Random.Range(-ResponseScatterPx, ResponseScatterPx),
+                Random.Range(-ResponseScatterPx, ResponseScatterPx));
+            chip.anchoredPosition = motion.From;
+            // The art is the raycast target (and already relays hover for the
+            // magnifier), so the click handler must sit on it, not on the frame.
+            UiKit.AddClick(chip.GetComponentInChildren<RawImage>().gameObject,
+                () => OnPileCardClicked?.Invoke(key));
+            _responses.Add(new StagedResponse
+            {
+                Chip = chip,
+                Motion = motion,
+                OwnerId = -1,
+                DefId = "",
+                TurnDegrees = turnDegrees,
+                Key = key,
+            });
+            return true;
+        }
+
+        /// <summary>A keyed pile card goes back where it came from, straightening as it flies.</summary>
+        public void ReturnPileCard(int key, Vector3? toWorld)
+        {
+            for (int i = _responses.Count - 1; i >= 0; i--)
+            {
+                var response = _responses[i];
+                if (response.Key != key)
+                {
+                    continue;
+                }
+                _responses.RemoveAt(i);
+                if (response.Chip == null)
+                {
+                    return;
+                }
+                if (toWorld == null)
+                {
+                    Object.Destroy(response.Chip.gameObject);
+                    return;
+                }
+                _preview.Hide();
+                Object.Destroy(response.Motion);
+                response.Chip.localEulerAngles = Vector3.zero;
+                response.Chip.GetComponent<CanvasGroup>().blocksRaycasts = false;
+                var flight = response.Chip.gameObject.AddComponent<FlightMotion>();
+                flight.From = response.Chip.anchoredPosition;
+                flight.To = Local(toWorld.Value);
+                flight.Duration = PileReturnSeconds;
+                flight.ArcHeight = 0f;
+                flight.VisibleWhileWaiting = true;
+                flight.FadeOutFrom = 0.7f;
+                return;
+            }
+        }
+
+        /// <summary>Every keyed card flies home (the sale was called off).</summary>
+        public void ReturnAllPileCards(System.Func<int, Vector3?> homeWorld)
+        {
+            foreach (var key in _responses.Where(r => r.Key >= 0).Select(r => r.Key).ToList())
+            {
+                ReturnPileCard(key, homeWorld(key));
+            }
         }
 
         /// <summary>A reaction that was itself cancelled (a counter-Tantrum) fades off the pile.</summary>
@@ -113,10 +203,11 @@ namespace LemonadeWars.Unity
             // it simply draws over the loot until it folds back.
         }
 
-        private bool PointerOverPile()
+        /// <summary>The pointer rests on the staged card or anything piled on it (fanned or not).</summary>
+        public bool PointerOverPile()
         {
             Vector2 pointer = Input.mousePosition;
-            if (RectTransformUtility.RectangleContainsScreenPoint(_chip, pointer))
+            if (_chip != null && RectTransformUtility.RectangleContainsScreenPoint(_chip, pointer))
             {
                 return true;
             }

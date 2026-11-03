@@ -68,9 +68,15 @@ namespace LemonadeWars.Unity
             new Dictionary<string, RectTransform>();
         /// <summary>The Bragging Rights shelf cell, null while sold out.</summary>
         private RectTransform _braggingAnchor;
+        /// <summary>The Lemon pile's card frame (the DRAW chip lives on it): where a drawn card lifts from.</summary>
+        private RectTransform _lemonPileAnchor;
         /// <summary>Shelf art by stand type / for Bragging Rights: what a held or gliding ghost wears.</summary>
         private readonly Dictionary<string, Texture2D> _supplyArt = new Dictionary<string, Texture2D>();
         public Texture2D BraggingArt { get; private set; }
+
+        /// <summary>The art on top of a supply pile right now; null once it is sold out.</summary>
+        public Texture2D SupplyArtOf(string standTypeId) =>
+            _supplyArt.TryGetValue(standTypeId, out var art) ? art : null;
         /// <summary>The Black Market deck back on the shelf — where swept cards go and dealt cards come from.</summary>
         private RectTransform _blackMarketDeckAnchor;
 
@@ -83,6 +89,7 @@ namespace LemonadeWars.Unity
             _marketSlotAnchors.Clear();
             _supplyAnchors.Clear();
             _braggingAnchor = null;
+            _lemonPileAnchor = null;
             BraggingArt = null;
             _supplyArt.Clear();
             _blackMarketDeckAnchor = null;
@@ -513,9 +520,13 @@ namespace LemonadeWars.Unity
 
             if (!blackMarket)
             {
+                _lemonPileAnchor = frame;
                 BuildDrawChip(frame);
             }
         }
+
+        /// <summary>World centre of the Lemon pile on the shelf.</summary>
+        public Vector3? LemonPileWorld() => CellCenterWorld(_lemonPileAnchor);
 
         /// <summary>
         /// Full-width chip on a card's bottom edge: square top, bottom corners tracing

@@ -53,6 +53,7 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
             _cashIcons.Clear();
+            _avatarBadges.Clear();
             int count = view.Players.Count;
             int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
             for (int offset = 1; offset <= count; offset++)
@@ -114,6 +115,7 @@ namespace LemonadeWars.Unity
             badgeRect.pivot = new Vector2(0f, 0.5f);
             badgeRect.anchoredPosition = new Vector2(12f, 0);
             var badgeGo = badgeRect.gameObject;
+            _avatarBadges[playerId] = badgeRect; // an attack's arrow lands on the chip itself
 
             // The table is waiting on this player — their turn, a reaction window,
             // a discard, a lord pick — so their badge greys out under the hourglass.
@@ -315,17 +317,16 @@ namespace LemonadeWars.Unity
             return badgeRect;
         }
 
-        /// <summary>World-space middle of a player's bar's right edge — where arrows to/from the bar attach.</summary>
-        public Vector3? PlayerBarEdgeWorld(int playerId)
+        /// <summary>World-space centre of a player's avatar chip and a point on its rim (for its radius in any space).</summary>
+        public (Vector3 Center, Vector3 Rim)? PlayerAvatarWorld(int playerId)
         {
-            foreach (var (id, row, _) in _playerRows)
+            if (!_avatarBadges.TryGetValue(playerId, out var badge) || badge == null)
             {
-                if (id == playerId && row != null)
-                {
-                    return row.TransformPoint(new Vector3(row.rect.xMax, row.rect.center.y, 0));
-                }
+                return null;
             }
-            return null;
+            var center = badge.TransformPoint(badge.rect.center);
+            var rim = badge.TransformPoint(new Vector3(badge.rect.xMax, badge.rect.center.y, 0));
+            return (center, rim);
         }
 
         /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>

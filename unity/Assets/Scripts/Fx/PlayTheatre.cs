@@ -30,6 +30,10 @@ namespace LemonadeWars.Unity
         private const float EndHeight = 60f;
         private const float ArrowRefreshThresholdSq = 4f;
         private const float ArrowEdgeGapPx = 10f;
+        /// <summary>The arrowhead stops this far outside the victim's avatar rim, aimed at its centre.</summary>
+        private const float ArrowTipGapPx = 3f;
+        /// <summary>The arrow's last handle sits beside and below (or above) the chip: it climbs into it from the card's side.</summary>
+        private const float ArrowApproachFraction = 0.55f;
         private const float BadgeDiameterPx = 41f;
         /// <summary>The badge's centre sits this far inside the card's top-left corner: overlapping the edge, not hiding it.</summary>
         private const float BadgeInsetPx = 10f;
@@ -37,14 +41,14 @@ namespace LemonadeWars.Unity
         private const float GrabIconSizePx = 75f;
         /// <summary>The hand's centre above the loot's top edge: high enough that only the thumb tip overlaps the card.</summary>
         private const float GrabIconLiftPx = 10f;
-        /// <summary>How far the arrow's handles reach, as a share of its span: a visible sweep, not a loop.</summary>
-        private const float ArrowBulge = 0.5f;
+        /// <summary>How far the arrow's handles reach, as a share of its span: a tall sweep under (or over) the bars, not a loop.</summary>
+        private const float ArrowBulge = 0.8f;
         private static readonly Color ArrowColor = new Color(0.95f, 0.27f, 0.21f);
 
         private readonly RectTransform _layer;
         private readonly RectTransform _arrowHost;
         private readonly System.Func<int, Vector3?> _barWorld;
-        private readonly System.Func<int, Vector3?> _barEdgeWorld;
+        private readonly System.Func<int, (Vector3 Center, Vector3 Rim)?> _avatarWorld;
         private readonly System.Func<int, Vector3?> _showcaseWorld;
         private readonly System.Action<int, bool> _victimGlow;
         private readonly CardPreview _preview;
@@ -70,6 +74,11 @@ namespace LemonadeWars.Unity
         private string _defId = "";
         private bool _resolveWhenReady;
         private bool _cancelWhenReady;
+        private System.Func<Vector3?> _resolveDestination;
+        private float _resolveEndScale = 1f;
+        private System.Action _resolveArrived;
+        private float _departEndScale;
+        private bool _departFades;
         private bool _wasBusy;
         private Vector2 _drawnTargetEnd;
         private bool _targetArrowDrawn;
@@ -82,14 +91,15 @@ namespace LemonadeWars.Unity
         /// <param name="preview">The table's magnifier, so the staged card reads on hover / Alt like any other.</param>
         /// <param name="grabIcon">The hand that hovers over stolen loot; null = loot shows bare.</param>
         /// <param name="nameOf">A player's display name, for the avatar pinned to the card they played.</param>
+        /// <param name="avatarWorld">A player's avatar chip (centre and rim): where an attack's arrow lands.</param>
         public PlayTheatre(RectTransform canvasRoot, System.Func<int, Vector3?> barWorld,
-            System.Func<int, Vector3?> barEdgeWorld, System.Func<int, Vector3?> showcaseWorld,
+            System.Func<int, (Vector3 Center, Vector3 Rim)?> avatarWorld, System.Func<int, Vector3?> showcaseWorld,
             System.Action<int, bool> victimGlow, CardPreview preview, Texture2D grabIcon,
             System.Func<int, string> nameOf)
         {
             _nameOf = nameOf;
             _barWorld = barWorld;
-            _barEdgeWorld = barEdgeWorld;
+            _avatarWorld = avatarWorld;
             _showcaseWorld = showcaseWorld;
             _victimGlow = victimGlow;
             _preview = preview;
@@ -204,6 +214,25 @@ namespace LemonadeWars.Unity
         /// <summary>The attack landed: slide into the victim once the minimum hold is over.</summary>
         public void Resolve() => _resolveWhenReady = IsActive;
 
+        /// <summary>
+        /// Resolve, but slide to a spot read at departure (a bought card's tucked place
+        /// on the stand it joined) at the given scale, without the shrink-and-fade; the
+        /// bar is the fallback when the spot is off the viewed board. The callback
+        /// fires once on every exit path, so whatever waits on the arrival never waits forever.
+        /// </summary>
+        public void ResolveTo(System.Func<Vector3?> destinationWorld, float endScale, System.Action onArrive)
+        {
+            if (!IsActive)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            _resolveDestination = destinationWorld;
+            _resolveEndScale = endScale;
+            _resolveArrived = onArrive;
+            _resolveWhenReady = true;
+        }
+
         /// <summary>The attack was cancelled: fade in place once the minimum hold is over.</summary>
         public void Cancel() => _cancelWhenReady = IsActive;
 
@@ -225,6 +254,10 @@ namespace LemonadeWars.Unity
             _resolveWhenReady = false;
             _cancelWhenReady = false;
             _targetArrowDrawn = false;
+            _resolveDestination = null;
+            var arrived = _resolveArrived;
+            _resolveArrived = null;
+            arrived?.Invoke();
         }
 
         public void Tick()
@@ -278,10 +311,15 @@ namespace LemonadeWars.Unity
                         }
                         else if (_resolveWhenReady)
                         {
-                            // An attack lands on its victim; a take goes home with its player.
+                            // An attack lands on its victim; a take goes home with its player;
+                            // a bought card slides to its place on the stand when that is in view.
                             var owner = _barWorld(_attackerId);
                             var target = _targetId >= 0 ? _barWorld(_targetId) : owner;
-                            _to = target == null ? _showcase : Local(target.Value);
+                            var spot = _resolveDestination?.Invoke();
+                            _departFades = spot == null;
+                            _departEndScale = spot == null ? EndHeight / CardHeight : _resolveEndScale;
+                            _to = spot != null ? Local(spot.Value)
+                                : target == null ? _showcase : Local(target.Value);
                             // The loot is the player's now: it slides into their bar.
                             _lootTo = owner == null ? _lootShowcase : Local(owner.Value);
                             UiKit.Clear(_arrowHost);
@@ -301,8 +339,8 @@ namespace LemonadeWars.Unity
                     float f = Mathf.Clamp01(t / DepartSeconds);
                     float eased = Ease(f);
                     _chip.anchoredPosition = Vector2.Lerp(_showcase, _to, eased);
-                    _chip.localScale = Vector3.one * Mathf.Lerp(1f, EndHeight / CardHeight, eased);
-                    _group.alpha = f < 0.5f ? 1f : 1f - (f - 0.5f) * 2f;
+                    _chip.localScale = Vector3.one * Mathf.Lerp(1f, _departEndScale, eased);
+                    _group.alpha = !_departFades ? 1f : f < 0.5f ? 1f : 1f - (f - 0.5f) * 2f;
                     if (_loot != null)
                     {
                         _loot.anchoredPosition = Vector2.Lerp(_lootShowcase, _lootTo, eased);
@@ -348,34 +386,40 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void RedrawArrows(bool force)
         {
-            var targetEdge = _targetId >= 0 ? _barEdgeWorld(_targetId) : null;
-            if (targetEdge == null)
+            var avatar = _targetId >= 0 ? _avatarWorld(_targetId) : null;
+            if (avatar == null)
             {
                 return; // a take points at nobody
             }
-            Vector2 targetEnd = Local(targetEdge.Value);
+            Vector2 chipCenter = Local(avatar.Value.Center);
+            float chipRadius = (Local(avatar.Value.Rim) - chipCenter).magnitude;
             bool arrowDue = _phase == Phase.Holding;
             if (!force && arrowDue == _targetArrowDrawn &&
-                (targetEnd - _drawnTargetEnd).sqrMagnitude < ArrowRefreshThresholdSq)
+                (chipCenter - _drawnTargetEnd).sqrMagnitude < ArrowRefreshThresholdSq)
             {
                 return;
             }
-            _drawnTargetEnd = targetEnd;
+            _drawnTargetEnd = chipCenter;
             _targetArrowDrawn = arrowDue;
             UiKit.Clear(_arrowHost);
             if (!arrowDue)
             {
                 return;
             }
-            // Leave straight up (or down) out of the card's edge facing the victim, then
-            // sweep round to arrive at their bar side-on: the arrow never crosses the art.
+            // Leave straight up (or down) out of the card's edge facing the victim, sweep
+            // tall under (or over) the bars, then climb into their avatar chip from the
+            // card's side, aimed at its middle: the arrow never crosses the art.
             Vector2 card = _chip.anchoredPosition;
-            float up = targetEnd.y >= card.y ? 1f : -1f;
+            float up = chipCenter.y >= card.y ? 1f : -1f;
+            float side = card.x >= chipCenter.x ? 1f : -1f;
             Vector2 exit = card + new Vector2(0, up * (CardHeight / 2f + ArrowEdgeGapPx));
-            float reach = (targetEnd - exit).magnitude * ArrowBulge;
+            float reach = (chipCenter - exit).magnitude * ArrowBulge;
             Vector2 leave = exit + new Vector2(0, up * reach);
-            Vector2 approach = targetEnd + new Vector2(reach, 0);
-            UiKit.DrawCurvedArrow(_arrowHost, exit, leave, approach, targetEnd, ArrowColor);
+            // The last handle sits on the card's side of the chip AND on the same side
+            // the sweep went (below when it dipped, above when it rose): one bend, a U.
+            Vector2 approach = chipCenter + new Vector2(side, up).normalized * (reach * ArrowApproachFraction);
+            Vector2 tip = chipCenter + (approach - chipCenter).normalized * (chipRadius + ArrowTipGapPx);
+            UiKit.DrawCurvedArrow(_arrowHost, exit, leave, approach, tip, ArrowColor);
         }
 
         /// <summary>Red attack glow on the victim's bar while the card is staged; off on every exit path.</summary>

@@ -27,6 +27,11 @@ namespace LemonadeWars.Unity
         /// <summary>Where the viewer's lifted card came to rest (a stand, the turf): a
         /// contested purchase stages itself from there, not from the empty slot.</summary>
         private UnityEngine.Vector3? _liftedCardLanding;
+        /// <summary>Cards drawn into the hand / equipped onto a stand whose flight has not landed: drawn invisible in place.</summary>
+        private readonly HashSet<int> _handCardsInFlight = new HashSet<int>();
+        private readonly HashSet<int> _equippedInFlight = new HashSet<int>();
+        /// <summary>A contested purchase's card arrives at this size relative to the staged chip (tucked card over stage card).</summary>
+        private const float TuckedOverStagedScale = 188f / 154f;
         // For a hidden refill id: the art of the card its slot used to hold, drawn
         // inert there until the effect that sweeps or lifts it is on screen.
         private readonly Dictionary<int, UnityEngine.Texture2D> _marketStandIns =
@@ -75,6 +80,12 @@ namespace LemonadeWars.Unity
                     roll.Purpose,
                     roll.StandInstanceId is int standId ? StandName(standId) : null,
                     onLanded);
+                // Two rolls can share one burst (a turn's sale roll, then the next
+                // player's Spoiled Rotten roll at their turn start): the first roll's
+                // collected earnings are staged NOW, or their held cash would never
+                // be released — a die parked for the whole turn, bars showing less
+                // than the players have.
+                StageRollEarnings();
                 // Start collecting this roll's earnings; they are staged as bill piles
                 // once the roll settles.
                 _rollEarnings = new Dictionary<int, int>();
@@ -119,6 +130,26 @@ namespace LemonadeWars.Unity
             {
                 // Queued, not played: the turn-start draw waits behind ONWARD!.
                 _fx.QueueSound(Sfx.CardDraw);
+                if (drawn.Reason != DrawReason.TurnStart)
+                {
+                    // A draw you caused (the action, an upgrade's draw): the card flies
+                    // face-up from the pile into its place in the fan, which holds the
+                    // slot open for it. The turn-start draw stays behind the banner.
+                    int drawnId = drawn.InstanceId;
+                    _handCardsInFlight.Add(drawnId);
+                    _renderedRevision = -1;
+                    _table.GlideCardToHand(_art.Lemon(drawn.DefId), _table.LemonPileWorld(), drawnId, () =>
+                    {
+                        _handCardsInFlight.Remove(drawnId);
+                        _renderedRevision = -1;
+                    });
+                }
+            }
+            else if (gameEvent is CardDrawn othersDraw)
+            {
+                // Someone else's draw: a face-down card leaves the pile and shrinks
+                // into their chip — you see that they drew, never what.
+                _table.GlideCardToPlayer(_art.Back("lemon"), _table.LemonPileWorld(), othersDraw.PlayerId);
             }
             else if (gameEvent is TimeoutDrawn timeout && timeout.PlayerId == _session.Seat)
             {
@@ -187,7 +218,17 @@ namespace LemonadeWars.Unity
                 _lastMarketPrice = bought.Price;
                 if (_playTheatre.Matches(bought.PlayerId, bought.DefId))
                 {
-                    _playTheatre.Resolve(); // the contested purchase survived: it slides home
+                    // The contested purchase survived: the staged card slides to its
+                    // tucked place on the stand (or the bar, off the viewed board),
+                    // and the stand shows the card only once it has arrived.
+                    int equippedId = bought.InstanceId;
+                    _equippedInFlight.Add(equippedId);
+                    _renderedRevision = -1;
+                    _playTheatre.ResolveTo(() => _table.EquippedCardWorld(equippedId), TuckedOverStagedScale, () =>
+                    {
+                        _equippedInFlight.Remove(equippedId);
+                        _renderedRevision = -1;
+                    });
                 }
             }
             else if (gameEvent is MarketRefilled refilled)
@@ -241,7 +282,10 @@ namespace LemonadeWars.Unity
                 // to their victim; steals and discard takes show their loot.
                 bool onThePile = !IsStagedPlay(played.DefId) &&
                     _playTheatre.AddResponse(_art.Lemon(played.DefId), played.DefId, played.PlayerId);
-                if (!onThePile)
+                bool preStaged = played.PlayerId == _session.Seat && _preStagedDefId == played.DefId &&
+                    _playTheatre.Matches(_session.Seat, played.DefId);
+                _preStagedDefId = null;
+                if (!onThePile && !preStaged)
                 {
                     _stagedAttacker = played.PlayerId;
                     var loot = played.DefId == "finders-keepers" && played.StolenDefId != null

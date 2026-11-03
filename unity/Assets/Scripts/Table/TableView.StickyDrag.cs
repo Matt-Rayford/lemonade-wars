@@ -240,6 +240,79 @@ namespace LemonadeWars.Unity
             };
         }
 
+        /// <summary>Draws in one burst (draw 2) leave the pile one after another, not as one card.</summary>
+        private const float DrawStaggerSeconds = 0.12f;
+        private const float DrawToChipFadeFrom = 0.6f;
+        private int _drawFlightFrame = -1;
+        private int _drawFlightsThisFrame;
+
+        /// <summary>
+        /// Another player's draw: a face-down card leaves the pile and shrinks into
+        /// their avatar chip, fading as it lands — the hand it joins is not yours to see.
+        /// </summary>
+        public void GlideCardToPlayer(Texture2D backArt, Vector3? fromWorld, int playerId)
+        {
+            var avatar = PlayerAvatarWorld(playerId);
+            if (fromWorld == null || backArt == null || avatar == null)
+            {
+                return;
+            }
+            var ghost = BuildShelfGhost(backArt);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = _canvasRoot.InverseTransformPoint(avatar.Value.Center);
+            float chipDiameter = 2f * (motion.To - (Vector2)_canvasRoot.InverseTransformPoint(avatar.Value.Rim)).magnitude;
+            motion.EndScale = chipDiameter / GhostWidthPx;
+            motion.Duration = ShelfGlideSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.FadeOutFrom = DrawToChipFadeFrom;
+            motion.Delay = NextDrawDelay();
+        }
+
+        private float NextDrawDelay()
+        {
+            if (_drawFlightFrame != Time.frameCount)
+            {
+                _drawFlightFrame = Time.frameCount;
+                _drawFlightsThisFrame = 0;
+            }
+            return DrawStaggerSeconds * _drawFlightsThisFrame++;
+        }
+
+        /// <summary>
+        /// A drawn Lemon card flies face-up from the pile into its place in the fan.
+        /// The hand renders the card invisible in its slot first, so the destination
+        /// is read the frame the flight starts, once the fan has been laid out.
+        /// </summary>
+        public void GlideCardToHand(Texture2D art, Vector3? fromWorld, int instanceId, System.Action onArrive)
+        {
+            if (fromWorld == null || art == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            var ghost = BuildShelfGhost(art);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = motion.From;
+            motion.Duration = ShelfGlideSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.Delay = NextDrawDelay();
+            motion.OnStart = () =>
+            {
+                var placement = HandCardPlacement(instanceId);
+                if (placement == null)
+                {
+                    return; // nowhere to land: the flight ends where it began and the hold lifts
+                }
+                motion.To = _canvasRoot.InverseTransformPoint(placement.Value.Center);
+                motion.EndScale = placement.Value.Width / GhostWidthPx;
+            };
+            motion.OnArrive = () => onArrive?.Invoke();
+        }
+
         private RectTransform BuildShelfGhost(Texture2D art)
         {
             var image = UiKit.CreateCardImage(_canvasRoot, art, GhostWidthPx, GhostHeightPx);

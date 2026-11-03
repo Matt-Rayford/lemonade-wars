@@ -58,6 +58,7 @@ namespace LemonadeWars.Unity
         private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
             _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
         private readonly Dictionary<int, RectTransform> _cashIcons = new Dictionary<int, RectTransform>();
+        private readonly Dictionary<int, RectTransform> _avatarBadges = new Dictionary<int, RectTransform>();
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
             new List<(int, RectTransform, GameObject)>();
         private readonly List<(int Id, RectTransform Strip, GameObject Glow)> _equipCells =
@@ -250,7 +251,7 @@ namespace LemonadeWars.Unity
         /// <summary>True while something Esc-cancellable is up (aiming, equip, discards).</summary>
         public bool HasActiveOverlay =>
             _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf ||
-            StickyDragActive;
+            StickyDragActive || RummagePickActive;
 
         /// <summary>
         /// Esc: dismiss whichever aiming/browsing overlay is up — same outcome as
@@ -276,6 +277,11 @@ namespace LemonadeWars.Unity
             if (StickyDragActive)
             {
                 CancelStickyDrag();
+                return;
+            }
+            if (RummagePickActive)
+            {
+                OnRummageCancel?.Invoke();
                 return;
             }
             if (_discardOverlay.gameObject.activeSelf)

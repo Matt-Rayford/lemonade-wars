@@ -171,6 +171,8 @@ namespace LemonadeWars.Unity
             // A refilled market card renders as an empty slot while the purchase drift
             // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
             _table.MarketCardHidden = instanceId => _hiddenMarketIds.Contains(instanceId);
+            _table.HandCardInvisible = instanceId => _handCardsInFlight.Contains(instanceId);
+            _table.EquippedCardInvisible = instanceId => _equippedInFlight.Contains(instanceId);
             _table.MarketStandIn = instanceId =>
                 _marketStandIns.TryGetValue(instanceId, out var art) ? art : null;
             _table.SetVisible(false);
@@ -200,7 +202,7 @@ namespace LemonadeWars.Unity
             // effects exist), so a reveal still covers them.
             _playTheatre = new PlayTheatre(root,
                 playerId => _table.PlayerBarWorld(playerId),
-                playerId => _table.PlayerBarEdgeWorld(playerId),
+                playerId => _table.PlayerAvatarWorld(playerId),
                 playerId => _table.PurchaseShowcaseWorld(playerId),
                 (playerId, on) => _table.SetVictimGlow(playerId, on),
                 _preview,
@@ -330,6 +332,7 @@ namespace LemonadeWars.Unity
             TickGameHotkeys(escConsumed);
 
             _table.TickStickyDrag(Input.mousePosition);
+            _table.TickRummagePick(Input.mousePosition);
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);

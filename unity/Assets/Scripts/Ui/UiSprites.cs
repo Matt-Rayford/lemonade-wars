@@ -88,12 +88,24 @@ namespace LemonadeWars.Unity
             {
                 if (_glowRing == null)
                 {
-                    _glowRing = Generate(192, 20f, 60f, border: 88f,
-                        pixelsPerUnit: 200f, outline: 6f);
+                    _glowRing = Generate(GlowRingSizePx, 20f, GlowRingFalloffPx, border: 88f,
+                        pixelsPerUnit: GlowRingPixelsPerUnit, outline: 6f);
                 }
                 return _glowRing;
             }
         }
+
+        private const int GlowRingSizePx = 192;
+        private const float GlowRingFalloffPx = 60f;
+        private const float GlowRingPixelsPerUnit = 200f;
+
+        /// <summary>
+        /// How far inside a GlowRing image's rect its bright rim sits, in UI units:
+        /// size the image this much larger than a card on every side and the rim
+        /// lands on the card's edge, glowing outward.
+        /// </summary>
+        public static float GlowRingRimInset =>
+            (GlowRingFalloffPx + 2f) * 100f / GlowRingPixelsPerUnit;
 
         /// <summary>
         /// Magnifying glass: a ring with a handle running down-right, drawn white so any

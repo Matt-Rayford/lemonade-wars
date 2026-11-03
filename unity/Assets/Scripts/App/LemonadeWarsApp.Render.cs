@@ -11,6 +11,8 @@ namespace LemonadeWars.Unity
     public sealed partial class LemonadeWarsApp
     {
         private bool _endShown;
+        /// <summary>What the message strip last said: held over while a turn change waits on theatre.</summary>
+        private string _lastShownBanner;
 
         private void RenderIfChanged()
         {
@@ -107,9 +109,12 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy))
+            if (myTurn && !_wasMyTurn &&
+                (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy ||
+                 View.PendingRollValue != null || EarningsStillShowing()))
             {
-                // Let the die and effects finish first; their OnFinished forces a
+                // Let the die and effects finish first, and the previous roll close
+                // and pay out: their OnFinished / landings / revision bump force a
                 // re-render that lands back here with the turn edge still unconsumed.
                 return;
             }
@@ -234,7 +239,9 @@ namespace LemonadeWars.Unity
             }
             else if (View.Stage == GameStage.InitialBuys)
             {
-                banner = $"Setup draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
+                banner = View.CurrentInitialBuyer == View.ViewerId
+                    ? "Setup Draft — Your Turn"
+                    : $"Setup Draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
             }
             else if (View.ActivePlayer == View.ViewerId)
             {
@@ -244,6 +251,14 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
+            if (IsMyTurn() && !_wasMyTurn && TheatreHoldsModals() && _lastShownBanner != null)
+            {
+                // The previous player's effects are still playing and the Your Turn
+                // banner is waiting on them (see MaybeAnnounceTurn): the strip keeps
+                // saying whose turn it WAS until the turn visibly changes hands.
+                banner = _lastShownBanner;
+            }
+            _lastShownBanner = banner;
             _tableMessage.text = banner;
         }
 
@@ -346,8 +361,14 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_table.ActionBar);
             UiKit.Clear(_tableActionHost);
+            DropStaleRummageSale(groups);
             if (groups == null)
             {
+                return;
+            }
+            if (_rummage != null)
+            {
+                RenderRummageStrip();
                 return;
             }
             if (groups.IsModal)

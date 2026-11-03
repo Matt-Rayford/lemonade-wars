@@ -62,11 +62,22 @@ namespace LemonadeWars.Unity
             var ownStandPlays = all.OfType<PlayLemonCard>()
                 .Where(m => m.TargetStandInstanceId != null &&
                             m.TargetEquippedInstanceId == null).Cast<GameAction>().ToList();
+            var rummageSales = all.OfType<PlayLemonCard>()
+                .Where(m => m.SelectedInstanceIds.Count > 0 && IsRummageSale(m)).Cast<GameAction>().ToList();
             direct = all
                 .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
-                            !equipSteals.Contains(m) && !ownStandPlays.Contains(m)).ToList();
+                            !equipSteals.Contains(m) && !ownStandPlays.Contains(m) &&
+                            !rummageSales.Contains(m)).ToList();
 
             var options = new List<Prompt.Option>();
+            if (rummageSales.Count > 0)
+            {
+                // Rummage Sale: pick the cards to sell off your real board, with the
+                // card staged and the running total in the strip (see RummageSale).
+                int rummageCard = ((PlayLemonCard)rummageSales[0]).CardInstanceId;
+                options.Add(new Prompt.Option("Choose cards to sell on your board...",
+                    () => BeginRummageSale(rummageCard)));
+            }
             if (ownStandPlays.Count > 0)
             {
                 // Doorbuster Sale / Rebrand: the target is one of YOUR stands, so
@@ -351,24 +362,12 @@ namespace LemonadeWars.Unity
 
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
             string cardName = _db.Lemon(card?.DefId ?? "").Name;
-            if (onVictim.Count == 1 && onVictim[0] is RespondToWindow)
-            {
-                // A window response aimed at a bar (Tag redirect): the deliberate
-                // aim-and-click is the confirmation — a blur prompt here would sit on
-                // top of the live reaction panel and could be eaten by online updates.
-                Submit(onVictim[0]);
-                return;
-            }
             if (onVictim.Count == 1)
             {
-                // Point of no return: confirm before the attack actually fires.
-                _prompt.Show($"Play {cardName} on {NameOf(victimId)}?",
-                    new[] { _art.Lemon(card?.DefId ?? "") },
-                    new List<Prompt.Option>
-                    {
-                        new Prompt.Option("YES!", () => Submit(onVictim[0])),
-                    },
-                    showCancel: true);
+                // One way to hit this victim (HOA Violation, a Tag redirect): the
+                // deliberate aim-and-release IS the confirmation — the card stages
+                // itself on the table, where a Tantrum can still answer it.
+                Submit(onVictim[0]);
                 return;
             }
             if (onVictim.Cast<PlayLemonCard>().All(m => m.TargetEquippedInstanceId != null))
@@ -605,8 +604,15 @@ namespace LemonadeWars.Unity
             }
             var card = View.Market[marketIndex];
             var art = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
-            var destinations = moves.OfType<BuyBlackMarket>()
-                .Select(m => m.TargetStandInstanceId).Distinct().ToList();
+            var buys = moves.OfType<BuyBlackMarket>().ToList();
+            // One place with room decides it, even when full stands would also take
+            // the card by replacing something: nobody double-clicks to trash a card.
+            var destinations = buys.Where(b => b.ReplaceInstanceId == null)
+                .Select(b => b.TargetStandInstanceId).Distinct().ToList();
+            if (destinations.Count == 0)
+            {
+                destinations = buys.Select(b => b.TargetStandInstanceId).Distinct().ToList();
+            }
             ShowOwnBoard();
             // The slot is measured while the card still sits in it, then empties: the
             // card itself leaves the shelf, not a copy of it.
@@ -628,16 +634,25 @@ namespace LemonadeWars.Unity
             _table.BeginMarketStickyDrag(marketIndex, art);
         }
 
-        /// <summary>Double-click on a supply pile: the stand rides the cursor until a click
+        /// <summary>Double-click on a supply pile: with one place it can go (your first
+        /// stand) it glides straight there; otherwise it rides the cursor until a click
         /// places it in your row, exactly where a drag would have dropped it.</summary>
         private void OnSupplyDoubleClick(string standTypeId)
         {
             _preview.Hide();
-            if (CurrentGroups()?.SupplyMoves.ContainsKey(standTypeId) != true)
+            var groups = CurrentGroups();
+            if (groups == null || !groups.SupplyMoves.TryGetValue(standTypeId, out var moves))
             {
                 return;
             }
             ShowOwnBoard();
+            if (moves.Count == 1)
+            {
+                var only = moves[0];
+                _table.GlideShelfCard(_table.SupplyArtOf(standTypeId), _table.StandSupplyWorld(standTypeId),
+                    _table.NextStandSlotWorld(), () => Submit(only));
+                return;
+            }
             _table.BeginSupplyStickyDrag(standTypeId);
         }
 
