@@ -49,10 +49,16 @@ namespace LemonadeWars.Unity
             var groups = CurrentGroups();
             bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy;
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
+            // Table-live surfaces answer a modal without a modal: the message-strip
+            // buttons (reactions, the Timeout fine, Rummage Sale), a held card, the
+            // aim layers and the discard browser all count as the modal being shown.
             bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
                                 (_picker.IsOpen && _picker.RootVisible) ||
                                 _table.PlayerPickActive ||
-                                _reaction.IsOpen;
+                                _reaction.IsOpen ||
+                                _tableActionHost.childCount > 0 ||
+                                _table.StickyDragActive || _table.EquipTargetingActive ||
+                                _table.DiscardPickerOpen || _table.RummagePickActive;
             bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
             bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
                                 (_picker.IsOpen && !_picker.RootVisible);

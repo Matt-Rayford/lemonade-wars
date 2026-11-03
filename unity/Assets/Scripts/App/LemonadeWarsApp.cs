@@ -357,6 +357,7 @@ namespace LemonadeWars.Unity
             MaybeShowEndSummary();
             _fx.Tick();
             _playTheatre.Tick();
+            SyncTimeoutCard();
             TickPresentationWatchdog();
         }
 
@@ -381,9 +382,9 @@ namespace LemonadeWars.Unity
         /// </summary>
         private bool TickRulebookKeys()
         {
-            if (!_rulebook.IsOpen)
+            if (_rulebook == null || !_rulebook.IsOpen)
             {
-                return false;
+                return false; // null after an editor domain reload mid-play: nothing to drive
             }
             if (Input.GetKeyDown(KeyCode.LeftArrow))
             {

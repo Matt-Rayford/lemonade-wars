@@ -77,7 +77,6 @@ namespace LemonadeWars.Unity
                 _table.SetLog(_actionLog);
                 RenderActionBar(actionable);
                 RenderTurnActions(actionable);
-                SyncTimeoutCard();
             }
             catch (System.Exception e)
             {
@@ -109,9 +108,7 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn &&
-                (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy ||
-                 View.PendingRollValue != null || EarningsStillShowing()))
+            if (TurnHandoverPending())
             {
                 // Let the die and effects finish first, and the previous roll close
                 // and pay out: their OnFinished / landings / revision bump force a
@@ -139,6 +136,15 @@ namespace LemonadeWars.Unity
             Sfx.Play(Sfx.YourTurn); // played, not queued: it announces the banner itself
             _turnBanner.Show(TurnSubtitle());
         }
+
+        /// <summary>
+        /// The view says it is your turn but the table has not handed it over yet: the
+        /// previous player's theatre, roll or payout is still playing. The strip and
+        /// the Your Turn banner both wait on exactly this.
+        /// </summary>
+        private bool TurnHandoverPending() =>
+            IsMyTurn() && !_wasMyTurn &&
+            (TheatreHoldsModals() || View.PendingRollValue != null || EarningsStillShowing());
 
         private static string ActionsLabel(int count) => count == 1 ? "1 action" : $"{count} actions";
 
@@ -251,7 +257,7 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
-            if (IsMyTurn() && !_wasMyTurn && TheatreHoldsModals() && _lastShownBanner != null)
+            if (TurnHandoverPending() && _lastShownBanner != null)
             {
                 // The previous player's effects are still playing and the Your Turn
                 // banner is waiting on them (see MaybeAnnounceTurn): the strip keeps
@@ -358,25 +364,36 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_table.ActionBar);
             UiKit.Clear(_tableActionHost);
-            DropStaleRummageSale(groups);
+            DropStaleAssetSale(groups);
             if (groups == null)
             {
                 return;
             }
-            if (_rummage != null)
+            if (_sale != null)
             {
-                RenderRummageStrip();
+                RenderSaleStrip();
                 return;
             }
             if (groups.IsModal)
             {
-                if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0 && !TheatreHoldsModals())
+                if (ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision()) &&
+                    !TheatreHoldsModals())
                 {
                     RenderReactionStrip(groups);
                 }
                 else if (TimeoutFineDue() && !TheatreHoldsModals())
                 {
-                    RenderTimeoutStrip(groups);
+                    if (TimeoutNeedsSale())
+                    {
+                        // Short of the fine: pick what to sell off your board, as a
+                        // Rummage Sale is picked, instead of the engine choosing for you.
+                        BeginTimeoutSale();
+                        RenderSaleStrip();
+                    }
+                    else
+                    {
+                        RenderTimeoutStrip(groups);
+                    }
                 }
                 return;
             }
@@ -423,8 +440,9 @@ namespace LemonadeWars.Unity
         private void RenderReactionStrip(MoveGroups groups)
         {
             _tableMessage.text = "";
-            // A theft names the thief and the numbers; everything else is "a reaction".
-            string leadText = View.TheftOnMe ? ModalTitle() : "Play a reaction or";
+            // A theft names the thief and the numbers, a free play names what
+            // provoked it; everything else is "a reaction".
+            string leadText = View.TheftOnMe || IsFreePlayDecision() ? ModalTitle() : "Play a reaction or";
             var lead = UiKit.CreateText(_tableActionHost, leadText,
                 Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
             lead.raycastTarget = false;
@@ -445,6 +463,11 @@ namespace LemonadeWars.Unity
             if (pass != null)
             {
                 AddStripButton("Pass", pass, Sfx.ButtonClick);
+            }
+            var skip = groups.ModalMoves.FirstOrDefault(m => m is SkipFreePlay);
+            if (skip != null)
+            {
+                AddStripButton("Skip", skip, Sfx.ButtonClick);
             }
         }
 
@@ -472,14 +495,30 @@ namespace LemonadeWars.Unity
             AddStripButton(label, payment, Sfx.ButtonClick);
         }
 
-        /// <summary>The Timeout card lies on the table for as long as the fine is owed.</summary>
+        /// <summary>A Timeout that fined nobody still lies on the table this long after landing.</summary>
+        private const float TimeoutCardLingerSeconds = 1.6f;
+
+        /// <summary>
+        /// The Timeout card lies on the table from its landing until the fine is paid
+        /// (a beat, if it fined nobody) — never under the turn banner, never while it
+        /// is still flying in, and not while its owner sells for it (the sale stages
+        /// it beside their bar instead). Settled every frame: nothing here re-renders.
+        /// </summary>
         private void SyncTimeoutCard()
         {
-            if (View.TimeoutFinePlayerId != null && !TheatreHoldsModals())
+            if (View == null)
             {
-                _table.ShowTimeoutCard(_art.Lemon("timeout"));
+                return;
             }
-            else
+            bool owed = View.TimeoutFinePlayerId != null;
+            bool lingering = Time.time - _timeoutCardShownAt < TimeoutCardLingerSeconds;
+            bool wanted = (owed || lingering) && !_turnBanner.IsOpen && !_timeoutCardInFlight && !TimeoutSaleActive;
+            if (wanted && !_table.TimeoutCardShown)
+            {
+                _timeoutCardShownAt = Time.time;
+                _table.ShowTimeoutCard(_art.Lemon(TimeoutDefId));
+            }
+            else if (!wanted)
             {
                 _table.HideTimeoutCard();
             }
@@ -528,18 +567,21 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private const float ScoreCardWidthPx = 150f;
-        private const float ScoreCardHeightPx = 210f;
-        /// <summary>Each card tucked behind the front one peeks this much above it (the board's tuck).</summary>
-        private const float ScoreTuckPeekPx = 40f;
-        private const float ScoreBadgePx = 64f;
-        private const float ScoreColumnSpacingPx = 36f;
+        private const float ScoreRowMaxHeightPx = 140f;
+        private const float ScoreRowMinHeightPx = 80f;
+        private const float ScoreRowSpacingPx = 10f;
+        private const float ScoreCardAspect = 5f / 7f;
+        private const float ScoreCardGapPx = 8f;
+        private const float ScoreNameColumnPx = 210f;
+        private const float ScoreRowPaddingPx = 10f;
+        private static readonly Color ScoreRowColor = new Color(0.08f, 0.10f, 0.15f, 0.70f);
 
         /// <summary>
-        /// Game over: announce the winner and line everyone up left to right by score
-        /// (money breaks ties), each under their avatar with their Victory Point cards
-        /// stacked — in-game points plus the secret Lemon Lords they actually met.
-        /// Hover (or Alt) reads any card full-size.
+        /// Game over: announce the winner and rank everyone top to bottom by score
+        /// (money breaks ties), each row an avatar, the name and totals, and every
+        /// card that scored laid side by side — in-game points plus the secret Lemon
+        /// Lords they actually met. Rows shrink to fit the table, so five players with
+        /// full hands of titles still fit on one screen. Hover (or Alt) reads any card.
         /// </summary>
         private void ShowEndSummary()
         {
@@ -558,64 +600,107 @@ namespace LemonadeWars.Unity
 
         private void BuildScoreboard(RectTransform host)
         {
-            var rowGo = new GameObject("Standings", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            rowGo.transform.SetParent(host, false);
-            UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
-            var row = rowGo.GetComponent<HorizontalLayoutGroup>();
-            row.spacing = ScoreColumnSpacingPx;
-            row.childAlignment = TextAnchor.UpperCenter;
-            row.childForceExpandWidth = false;
-            row.childForceExpandHeight = false;
-            row.childControlWidth = true;
-            row.childControlHeight = true;
-
             var standings = View.Players
                 .Select(p => (Player: p, Total: p.InGameVictoryPoints + p.FinishedLords.Count(l => l.Met)))
                 .OrderByDescending(s => s.Total)
                 .ThenByDescending(s => s.Player.Money)
                 .ToList();
+
+            float available = host.rect.height > 0f ? host.rect.height : 800f;
+            float rowHeight = Mathf.Clamp(
+                (available - (standings.Count - 1) * ScoreRowSpacingPx) / standings.Count,
+                ScoreRowMinHeightPx, ScoreRowMaxHeightPx);
+            float cardHeight = rowHeight - 2f * ScoreRowPaddingPx;
+
+            var listGo = new GameObject("Standings", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            listGo.transform.SetParent(host, false);
+            UiKit.Anchor((RectTransform)listGo.transform, Vector2.zero, Vector2.one);
+            var list = listGo.GetComponent<VerticalLayoutGroup>();
+            list.spacing = ScoreRowSpacingPx;
+            list.childAlignment = TextAnchor.UpperCenter;
+            list.childForceExpandWidth = true;
+            list.childForceExpandHeight = false;
+            list.childControlWidth = true;
+            list.childControlHeight = true;
+
             foreach (var (player, total) in standings)
             {
-                BuildScoreColumn((RectTransform)rowGo.transform, player, total);
+                BuildScoreRow((RectTransform)listGo.transform, player, total, rowHeight, cardHeight);
             }
         }
 
-        private void BuildScoreColumn(RectTransform row, PlayerView.PlayerPanel player, int total)
+        private void BuildScoreRow(RectTransform list, PlayerView.PlayerPanel player, int total,
+            float rowHeight, float cardHeight)
         {
-            var columnGo = new GameObject("Score", typeof(RectTransform), typeof(VerticalLayoutGroup),
+            var rowGo = new GameObject("Score", typeof(RectTransform), typeof(Image),
+                typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+            rowGo.transform.SetParent(list, false);
+            var slab = rowGo.GetComponent<Image>();
+            slab.sprite = UiSprites.RoundedRect;
+            slab.type = Image.Type.Sliced;
+            slab.color = ScoreRowColor;
+            slab.raycastTarget = false;
+            var row = rowGo.GetComponent<HorizontalLayoutGroup>();
+            row.spacing = 14f;
+            row.padding = new RectOffset((int)ScoreRowPaddingPx * 2, (int)ScoreRowPaddingPx * 2, 0, 0);
+            row.childAlignment = TextAnchor.MiddleLeft;
+            row.childForceExpandWidth = false;
+            row.childForceExpandHeight = false;
+            row.childControlWidth = true;
+            row.childControlHeight = true;
+            rowGo.GetComponent<LayoutElement>().preferredHeight = rowHeight;
+
+            float badge = Mathf.Min(64f, cardHeight * 0.6f);
+            var avatar = TableView.CreatePlayerBadge(rowGo.transform, player.Name, badge);
+            var avatarElement = avatar.gameObject.AddComponent<LayoutElement>();
+            avatarElement.preferredWidth = badge;
+            avatarElement.preferredHeight = badge;
+
+            var labelsGo = new GameObject("Labels", typeof(RectTransform), typeof(VerticalLayoutGroup),
                 typeof(LayoutElement));
-            columnGo.transform.SetParent(row, false);
-            var column = columnGo.GetComponent<VerticalLayoutGroup>();
-            column.spacing = 6f;
-            column.childAlignment = TextAnchor.UpperCenter;
-            column.childForceExpandWidth = false;
-            column.childForceExpandHeight = false;
-            column.childControlWidth = true;
-            column.childControlHeight = true;
-            columnGo.GetComponent<LayoutElement>().preferredWidth = ScoreCardWidthPx + 40f;
+            labelsGo.transform.SetParent(rowGo.transform, false);
+            var labels = labelsGo.GetComponent<VerticalLayoutGroup>();
+            labels.spacing = 2f;
+            labels.childAlignment = TextAnchor.MiddleLeft;
+            labels.childForceExpandWidth = false; // force-expanding children made the block flexible, pushing the cards to the far edge
+            labels.childForceExpandHeight = false;
+            labels.childControlWidth = true;
+            labels.childControlHeight = true;
+            var labelsElement = labelsGo.GetComponent<LayoutElement>();
+            labelsElement.preferredWidth = ScoreNameColumnPx;
+            labelsElement.flexibleWidth = 0f;
 
-            var badge = TableView.CreatePlayerBadge(columnGo.transform, player.Name, ScoreBadgePx);
-            var badgeElement = badge.gameObject.AddComponent<LayoutElement>();
-            badgeElement.preferredWidth = ScoreBadgePx;
-            badgeElement.preferredHeight = ScoreBadgePx;
-
-            var name = UiKit.CreateText(columnGo.transform, player.Name.ToUpperInvariant(), 20,
-                TextAnchor.MiddleCenter, Color.white);
+            var name = UiKit.CreateText(labelsGo.transform, player.Name.ToUpperInvariant(), 22,
+                TextAnchor.MiddleLeft, Color.white);
             name.raycastTarget = false;
             UiKit.AddTextShadow(name);
-            name.gameObject.AddComponent<LayoutElement>().minHeight = 26f;
+            name.gameObject.AddComponent<LayoutElement>().minHeight = 28f;
 
             string points = total == 1 ? "1 VP" : $"{total} VP";
-            var score = UiKit.CreateText(columnGo.transform, $"{points}  ·  ${player.Money}", 16,
-                TextAnchor.MiddleCenter, UiKit.ButtonColor, body: true);
+            var score = UiKit.CreateText(labelsGo.transform, $"{points}  ·  ${player.Money}", 17,
+                TextAnchor.MiddleLeft, UiKit.ButtonColor, body: true);
             score.raycastTarget = false;
             UiKit.AddTextShadow(score);
             score.gameObject.AddComponent<LayoutElement>().minHeight = 22f;
 
-            BuildScoreStack(columnGo.transform, ScoreCardArts(player));
+            var cardsGo = new GameObject("Cards", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            cardsGo.transform.SetParent(rowGo.transform, false);
+            var cards = cardsGo.GetComponent<HorizontalLayoutGroup>();
+            cards.spacing = ScoreCardGapPx;
+            cards.childAlignment = TextAnchor.MiddleLeft;
+            cards.childForceExpandWidth = false;
+            cards.childForceExpandHeight = false;
+            cards.childControlWidth = true;
+            cards.childControlHeight = true;
+            float cardWidth = cardHeight * ScoreCardAspect;
+            foreach (var art in ScoreCardArts(player))
+            {
+                var image = UiKit.CreateCardImage(cardsGo.transform, art, cardWidth, cardHeight);
+                _preview.Attach(image.gameObject, art);
+            }
         }
 
-        /// <summary>The cards that scored, front to back: First Dibs, Bragging Rights, then met Lemon Lords.</summary>
+        /// <summary>The cards that scored, in order: First Dibs, Bragging Rights, then met Lemon Lords.</summary>
         private List<Texture2D> ScoreCardArts(PlayerView.PlayerPanel player)
         {
             var arts = new List<Texture2D>();
@@ -635,34 +720,6 @@ namespace LemonadeWars.Unity
                 }
             }
             return arts;
-        }
-
-        /// <summary>
-        /// The VP column's stack, free-standing: the front card at the bottom, each
-        /// card behind it peeking out above, every one readable on hover.
-        /// </summary>
-        private void BuildScoreStack(Transform parent, List<Texture2D> arts)
-        {
-            int tucked = Mathf.Max(0, arts.Count - 1);
-            var stackGo = new GameObject("Stack", typeof(RectTransform), typeof(LayoutElement));
-            stackGo.transform.SetParent(parent, false);
-            var stackElement = stackGo.GetComponent<LayoutElement>();
-            stackElement.preferredWidth = ScoreCardWidthPx;
-            stackElement.preferredHeight = ScoreCardHeightPx + tucked * ScoreTuckPeekPx;
-            var stack = (RectTransform)stackGo.transform;
-
-            // Deepest card first, so each next one draws over the sliver behind it.
-            for (int i = arts.Count - 1; i >= 0; i--)
-            {
-                var image = UiKit.CreateCardImage(stack, arts[i], ScoreCardWidthPx, ScoreCardHeightPx);
-                var frame = (RectTransform)image.transform.parent;
-                frame.GetComponent<LayoutElement>().ignoreLayout = true;
-                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
-                frame.pivot = new Vector2(0.5f, 0f);
-                frame.sizeDelta = new Vector2(ScoreCardWidthPx, ScoreCardHeightPx);
-                frame.anchoredPosition = new Vector2(0f, i * ScoreTuckPeekPx);
-                _preview.Attach(image.gameObject, arts[i]);
-            }
         }
     }
 }

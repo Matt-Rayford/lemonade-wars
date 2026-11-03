@@ -30,6 +30,9 @@ namespace LemonadeWars.Unity
         /// <summary>Cards drawn into the hand / equipped onto a stand whose flight has not landed: drawn invisible in place.</summary>
         private readonly HashSet<int> _handCardsInFlight = new HashSet<int>();
         private readonly HashSet<int> _equippedInFlight = new HashSet<int>();
+        /// <summary>The drawn Timeout is still on its way from the pile to the middle of the table.</summary>
+        private bool _timeoutCardInFlight;
+        private float _timeoutCardShownAt = -100f; // well before any landing, so nothing lingers at boot
         /// <summary>A contested purchase's card arrives at this size relative to the staged chip (tucked card over stage card).</summary>
         private const float TuckedOverStagedScale = 188f / 154f;
         // For a hidden refill id: the art of the card its slot used to hold, drawn
@@ -130,19 +133,26 @@ namespace LemonadeWars.Unity
             {
                 // Queued, not played: the turn-start draw waits behind ONWARD!.
                 _fx.QueueSound(Sfx.CardDraw);
-                if (drawn.Reason != DrawReason.TurnStart)
+                // The card flies face-up from the pile into its place in the fan, which
+                // holds the slot open for it. A draw you clicked flies now; the
+                // turn-start draw waits in the queue behind the banner, so the card is
+                // seen drawn once the turn is yours.
+                int drawnId = drawn.InstanceId;
+                var drawnArt = _art.Lemon(drawn.DefId);
+                _handCardsInFlight.Add(drawnId);
+                _renderedRevision = -1;
+                void Fly() => _table.GlideCardToHand(drawnArt, _table.LemonPileWorld(), drawnId, () =>
                 {
-                    // A draw you caused (the action, an upgrade's draw): the card flies
-                    // face-up from the pile into its place in the fan, which holds the
-                    // slot open for it. The turn-start draw stays behind the banner.
-                    int drawnId = drawn.InstanceId;
-                    _handCardsInFlight.Add(drawnId);
+                    _handCardsInFlight.Remove(drawnId);
                     _renderedRevision = -1;
-                    _table.GlideCardToHand(_art.Lemon(drawn.DefId), _table.LemonPileWorld(), drawnId, () =>
-                    {
-                        _handCardsInFlight.Remove(drawnId);
-                        _renderedRevision = -1;
-                    });
+                });
+                if (drawn.Reason == DrawReason.TurnStart)
+                {
+                    _fx.QueueCallback(Fly);
+                }
+                else
+                {
+                    Fly();
                 }
             }
             else if (gameEvent is CardDrawn othersDraw)
@@ -151,9 +161,22 @@ namespace LemonadeWars.Unity
                 // into their chip — you see that they drew, never what.
                 _table.GlideCardToPlayer(_art.Back("lemon"), _table.LemonPileWorld(), othersDraw.PlayerId);
             }
-            else if (gameEvent is TimeoutDrawn timeout && timeout.PlayerId == _session.Seat)
+            else if (gameEvent is TimeoutDrawn)
             {
+                // Everyone sees the Timeout come off the pile and land mid-table, after
+                // the banner if it opened a turn. The table holds for the flight, so
+                // the discard and fine decisions it raises open once it has landed.
                 _fx.QueueSound(Sfx.CardDraw);
+                _timeoutCardInFlight = true;
+                var timeoutArt = _art.Lemon(TimeoutDefId);
+                void Land()
+                {
+                    _timeoutCardInFlight = false;
+                    _timeoutCardShownAt = UnityEngine.Time.time;
+                    _table.ShowTimeoutCard(timeoutArt);
+                }
+                _fx.QueueHold(() => _table.GlideTimeoutToCenter(timeoutArt, _table.LemonPileWorld(), Land),
+                    TableView.TimeoutFlightSeconds + 0.15f, onSkipped: Land);
             }
             else if (gameEvent is TitleClaimed title && title.PlayerId == _session.Seat)
             {

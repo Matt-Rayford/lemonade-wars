@@ -59,7 +59,13 @@ namespace LemonadeWars.Engine.Core
                         // this SAME entry — so tracking (the Whiniest Baby's keep
                         // pool), roll-counting, and queue position all carry over.
                         // The baby always ends up choosing between real cards.
-                        entry.Count++;
+                        // Unless nothing but Timeouts is left to draw: then the
+                        // replacement can never arrive, and owing it would draw the
+                        // same Timeout again forever (the deck is dry, in effect).
+                        if (AnyRealLemonCardToDraw())
+                        {
+                            entry.Count++;
+                        }
                         return;
                     }
                 }
@@ -93,6 +99,11 @@ namespace LemonadeWars.Engine.Core
                 EligibleCardIds = eligible,
             }, events);
         }
+
+        /// <summary>A non-Timeout card remains in the deck or the discard it would reshuffle from.</summary>
+        private bool AnyRealLemonCardToDraw() =>
+            State.LemonDeck.Concat(State.LemonDiscard)
+                .Any(id => Db.Lemon(State.LemonInstances[id].DefId).Type != LemonCardType.Timeout);
 
         /// <summary>Draw one card for the player. Returns false when a Timeout paused the game.</summary>
         private bool DrawOneCard(PlayerState player, DrawReason reason, List<GameEvent> events)

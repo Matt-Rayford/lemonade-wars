@@ -122,14 +122,8 @@ namespace LemonadeWars.Engine.Ai
         private double[] RootValues(Data.CardDatabase db, GameState sampled, int playerId,
             List<GameAction> candidates, Stopwatch stopwatch, long deadlineMs)
         {
-            var steps = new StepOutcome[candidates.Count];
-            var values = new double[candidates.Count];
             var parent = Game.FromState(db, sampled);
-            for (int i = 0; i < candidates.Count; i++)
-            {
-                steps[i] = Step(parent, candidates[i], playerId);
-                values[i] = steps[i].Value;
-            }
+            var (steps, values) = Evaluate(parent, candidates, playerId, stopwatch, deadlineMs);
 
             foreach (int i in TopIndices(values, Math.Max(1, _config.RootBeam)))
             {
@@ -162,12 +156,9 @@ namespace LemonadeWars.Engine.Ai
             }
             var children = Candidates(world, playerId, world.LegalMovesFor(playerId))
                 .Where(move => !IsStopMove(move)).ToList();
-            var steps = new StepOutcome[children.Count];
-            var values = new double[children.Count];
+            var (steps, values) = Evaluate(world, children, playerId, stopwatch, deadlineMs);
             for (int i = 0; i < children.Count; i++)
             {
-                steps[i] = Step(world, children[i], playerId);
-                values[i] = steps[i].Value;
                 if (!double.IsNaN(values[i]))
                 {
                     best = Math.Max(best, values[i]);
@@ -351,7 +342,42 @@ namespace LemonadeWars.Engine.Ai
                     : (1 - CancelChance) * onSuccess + CancelChance * onCancel;
         }
 
-        private StepOutcome Step(Game parent, GameAction move, int playerId)
+        /// <summary>
+        /// Every candidate stepped and valued, within the budget. All of them get the
+        /// one-ply read first (apply, settle, evaluate — cheap). Then, with round
+        /// lookahead on, the most promising are re-valued through the lookahead in
+        /// that order until the deadline passes; the rest keep their one-ply read. A
+        /// twelve-card hand with dozens of targets therefore costs the clock, never
+        /// the table — an unbudgeted root once ran a Hard think past the session's
+        /// five-second watchdog over and over, and the game stopped.
+        /// </summary>
+        private (StepOutcome[] Steps, double[] Values) Evaluate(Game parent, List<GameAction> candidates,
+            int playerId, Stopwatch stopwatch, long deadlineMs)
+        {
+            var steps = new StepOutcome[candidates.Count];
+            var values = new double[candidates.Count];
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                steps[i] = Step(parent, candidates[i], playerId, lookahead: false);
+                values[i] = steps[i].Value;
+            }
+            if (!_config.RoundLookahead)
+            {
+                return (steps, values);
+            }
+            foreach (int i in TopIndices(values, candidates.Count))
+            {
+                if (stopwatch.ElapsedMilliseconds > deadlineMs)
+                {
+                    break;
+                }
+                steps[i] = WithLookahead(steps[i], playerId);
+                values[i] = steps[i].Value;
+            }
+            return (steps, values);
+        }
+
+        private StepOutcome Step(Game parent, GameAction move, int playerId, bool lookahead)
         {
             var success = Game.FromState(parent.Db, SearchTools.CloneState(parent.State));
             try
@@ -367,15 +393,30 @@ namespace LemonadeWars.Engine.Ai
             {
                 return StepOutcome.Illegal;
             }
-            double successValue = Leaf(success, playerId);
+            double successValue = Value(success, playerId, lookahead);
             if (cancelChance <= 0)
             {
                 return new StepOutcome(success, null, successValue, successValue, 0);
             }
             var cancelled = CancelledWorld(parent, move, playerId);
             return new StepOutcome(success, cancelled, successValue,
-                Leaf(cancelled, playerId), cancelChance);
+                Value(cancelled, playerId, lookahead), cancelChance);
         }
+
+        /// <summary>The same step, its worlds re-read through the round lookahead.</summary>
+        private StepOutcome WithLookahead(StepOutcome step, int playerId)
+        {
+            if (step.Success == null)
+            {
+                return step;
+            }
+            double successValue = Leaf(step.Success, playerId);
+            double cancelledValue = step.Cancelled == null ? successValue : Leaf(step.Cancelled, playerId);
+            return new StepOutcome(step.Success, step.Cancelled, successValue, cancelledValue, step.CancelChance);
+        }
+
+        private double Value(Game world, int playerId, bool lookahead) =>
+            lookahead ? Leaf(world, playerId) : _evaluator.Evaluate(world, playerId);
 
         /// <summary>Best continuation from both branches of a step, blended by the cancel odds.</summary>
         private double Deepen(StepOutcome step, int playerId, int depth, Stopwatch stopwatch, long deadlineMs)

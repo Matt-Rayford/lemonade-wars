@@ -40,6 +40,7 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
         private readonly RectTransform _bodyHost;
+        private readonly RectTransform _optionScroll;
         private RectTransform _cancelHost;
         private TMP_Text _moreHint;
 
@@ -85,6 +86,7 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(listHost, new Vector2(0.27f, 0.03f), new Vector2(0.73f, 0.44f));
             var scrollHost = UiKit.CreatePanel(listHost, "OptionScroll", new Color(0, 0, 0, 0));
             UiKit.Anchor(scrollHost, new Vector2(0, 0.17f), new Vector2(1, 1));
+            _optionScroll = scrollHost;
             _optionList = UiKit.CreateScrollList(scrollHost);
             _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
 
@@ -112,6 +114,7 @@ namespace LemonadeWars.Unity
         public void ShowBody(string title, System.Action<RectTransform> buildBody, IReadOnlyList<Option> footer)
         {
             Show(title, null, new List<Option>(), showCancel: false, footer: footer);
+            _optionScroll.gameObject.SetActive(false); // no empty option box under the body
             buildBody(_bodyHost);
         }
 
@@ -126,6 +129,7 @@ namespace LemonadeWars.Unity
             IsOpen = true;
             _title.text = title;
 
+            _optionScroll.gameObject.SetActive(true);
             UiKit.Clear(_bodyHost);
             UiKit.Clear(_cardStrip);
             if (cards != null && cards.Count > 0)

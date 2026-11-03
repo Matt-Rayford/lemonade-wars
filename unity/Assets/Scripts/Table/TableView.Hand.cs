@@ -183,9 +183,13 @@ namespace LemonadeWars.Unity
                 {
                     image.color = new Color(1f, 1f, 1f, 0f); // its flight is the card for now
                 }
-                // A card that can answer the open window rests half-raised and glows:
-                // an invitation you can see without a panel, still rising fully on hover.
-                if (!invisible && moves != null && moves.Any(m => m is RespondToWindow))
+                // A card that can answer the open window — a reaction, or an attack a
+                // Bouncer lets you strike back with — rests half-raised and glows: an
+                // invitation you can see without a panel, still rising fully on hover.
+                bool answersWindow = moves != null &&
+                    (moves.Any(m => m is RespondToWindow) ||
+                     (groups != null && groups.IsModal && moves.Any(m => m is PlayLemonCard)));
+                if (!invisible && answersWindow)
                 {
                     restY += (raisedY - restY) * ReactionRestLift;
                     var glow = UiKit.CreateGlow(frame, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),

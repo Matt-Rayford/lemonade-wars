@@ -446,7 +446,7 @@ namespace LemonadeWars.Unity
                 m => ((PlayLemonCard)m).EquipStandInstanceId);
 
         private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture,
-            System.Func<GameAction, int?> destinationOf)
+            System.Func<GameAction, int?> destinationOf, System.Action onCancel = null)
         {
             if (candidates.Count == 1)
             {
@@ -478,7 +478,8 @@ namespace LemonadeWars.Unity
             // The destinations are YOUR stands: the card rides the cursor over your
             // own board until a click on a lit stand places it (letting go drops the play).
             ShowOwnBoard();
-            _table.BeginStickyPlace(texture, new HashSet<int?>(byDest.Keys), pickDestination, () => { });
+            _table.BeginStickyPlace(texture, new HashSet<int?>(byDest.Keys), pickDestination,
+                onCancel ?? (() => { }));
         }
 
         /// <summary>

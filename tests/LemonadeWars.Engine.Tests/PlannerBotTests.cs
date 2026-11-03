@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 using Xunit;
 
 namespace LemonadeWars.Engine.Tests
@@ -14,6 +15,69 @@ namespace LemonadeWars.Engine.Tests
     public class PlannerBotTests
     {
         private static PlannerBot QuickPlanner(ulong seed = 1) => new PlannerBot(seed, new PlannerConfig { BudgetMs = 60, Worlds = 1 });
+
+        [Fact]
+        public void HardPlannerStaysNearItsBudgetWithABigHand()
+        {
+            var played = Game.Create(TestData.Db, new[] { "Plan", "G1", "G2", "G3" }, 4242);
+            var greedy = new GreedyBot();
+            // The LAST time the planner's seat had its own Play phase with nothing
+            // pending before the greedy game ended: boards full of stands and upgrades.
+            Game game = null;
+            int applied = 0;
+            while (played.State.Stage != GameStage.Finished && applied++ < 2000)
+            {
+                var s0 = played.State;
+                if (s0.Stage == GameStage.Playing && s0.Phase == TurnPhase.Play && s0.ActivePlayer == 0 &&
+                    s0.ActionsRemaining >= 2 &&
+                    s0.PendingDecisions.Count == 0 && s0.AwaitingResponse.Count == 0)
+                {
+                    game = Game.FromState(TestData.Db, SearchTools.CloneState(s0));
+                }
+                int actor = played.ActingPlayers()[0];
+                played.Apply(greedy.Choose(played, actor));
+            }
+            Assert.NotNull(game);
+
+            // A fistful of the widest cards: every steal times every tucked card times
+            // every destination, every attack times every victim, every Rummage combo —
+            // the move list a late-game bot actually faces.
+            var state = game.State;
+            var wanted = new[]
+            {
+                "finders-keepers", "finders-keepers", "finders-keepers",
+                "thats-not-fair", "thats-not-fair", "thats-not-fair", "thats-not-fair",
+                "rummage-sale", "rummage-sale", "reduce-and-reuse", "reduce-and-reuse",
+                "taxes", "taxes", "hoa-violation",
+            };
+            var hand = state.Players[0].Hand;
+            hand.Clear();
+            var taken = new HashSet<int>();
+            foreach (string defId in wanted)
+            {
+                int id = state.LemonInstances.Values
+                    .First(c => c.DefId == defId && !taken.Contains(c.InstanceId)).InstanceId;
+                taken.Add(id);
+                state.LemonDeck.Remove(id);
+                state.LemonDiscard.Remove(id);
+                foreach (var p in state.Players)
+                {
+                    p.Hand.Remove(id);
+                }
+                hand.Add(id);
+            }
+            int moveCount = game.LegalMovesFor(0).Count;
+            Assert.True(moveCount > 40, $"the hand only produced {moveCount} moves");
+
+            var bot = new PlannerBot(1, new PlannerConfig
+            {
+                BudgetMs = 300, Worlds = 6, RootBeam = 6, RoundLookahead = true,
+            });
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            bot.Choose(game, 0);
+            Assert.True(stopwatch.ElapsedMilliseconds < 2500,
+                $"a 300ms budget over {moveCount} moves took {stopwatch.ElapsedMilliseconds}ms: the planner is not watching its clock");
+        }
 
         [Fact]
         public void PlannerFinishesAFullGameAgainstGreedy()

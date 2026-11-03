@@ -120,7 +120,8 @@ namespace LemonadeWars.Unity
                 if (vpFrame != null)
                 {
                     _vpGlow = UiKit.CreateGlow(vpFrame, new Vector2(0.5f, 0.5f),
-                        new Vector2(0.5f, 0.5f), Vector2.zero, 188 + 26, 263 + 26, DropGlowHot);
+                        new Vector2(0.5f, 0.5f), Vector2.zero,
+                        188 + DropGlowHotPx, 263 + DropGlowHotPx, DropGlowHot);
                 }
                 vpCell.gameObject.AddComponent<DropTarget>().BraggingDropped =
                     () => OnBraggingDrop?.Invoke();
@@ -362,11 +363,11 @@ namespace LemonadeWars.Unity
             target.HoverChanged = OnDropTargetHover;
 
             var top = new Vector2(0.5f, 1f);
-            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 30),
-                188 + 60, 263 + 60, DropGlowWide);
+            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, DropGlowWidePx / 2f),
+                188 + DropGlowWidePx, 263 + DropGlowWidePx, DropGlowWide);
             wide.transform.SetAsFirstSibling();
-            var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
-                188 + 28, 263 + 28, DropGlowHot);
+            var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, DropGlowHotPx / 2f),
+                188 + DropGlowHotPx, 263 + DropGlowHotPx, DropGlowHot);
             hot.transform.SetSiblingIndex(1);
 
             _dropGlows.Add((standInstanceId, wide));
@@ -565,12 +566,15 @@ namespace LemonadeWars.Unity
         /// Returns the created card rects, index-aligned with the input.
         /// </summary>
         private const float TuckPeek = 40f; // the top icon bar, minus a hair — 5 stacks fit
+        /// <summary>Total extra size of a board cell's drop glows (wide halo / hot ring): the halo past the card on both sides together.</summary>
+        private const float DropGlowWidePx = 45f;
+        private const float DropGlowHotPx = 21f;
         /// <summary>How far an aim ring may show past a tucked strip's sides and top; never below it.</summary>
-        private const float AimRingReachPx = 36f;
+        private const float AimRingReachPx = 28f;
         /// <summary>The rim sits this far outside the card's edge.</summary>
         private const float AimRingOutsetPx = 2f;
         /// <summary>How far below the strip the ring may show: enough for its rounded bottom corners, not its side glow.</summary>
-        private const float AimRingCornerReachPx = 14f;
+        private const float AimRingCornerReachPx = 8f;
 
         private List<RectTransform> AddTuckedStack(RectTransform cell, List<Texture2D> textures)
         {

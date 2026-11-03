@@ -313,6 +313,30 @@ namespace LemonadeWars.Unity
             return DrawStaggerSeconds * _drawFlightsThisFrame++;
         }
 
+        public const float TimeoutFlightSeconds = 0.45f;
+
+        /// <summary>
+        /// A drawn Timeout flies face-up from the pile to the middle of the table,
+        /// growing to the size it will lie at; the caller shows the real card on arrival.
+        /// </summary>
+        public void GlideTimeoutToCenter(Texture2D art, Vector3? fromWorld, System.Action onArrive)
+        {
+            if (fromWorld == null || art == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            var ghost = BuildShelfGhost(art);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = Vector2.zero;
+            motion.EndScale = TimeoutCardWidthPx / GhostWidthPx;
+            motion.Duration = TimeoutFlightSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.OnArrive = () => onArrive?.Invoke();
+        }
+
         /// <summary>
         /// A drawn Lemon card flies face-up from the pile into its place in the fan.
         /// The hand renders the card invisible in its slot first, so the destination
