@@ -239,20 +239,10 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            string cardName = LemonName(
-                View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId)?.DefId ?? "");
-            int victim = FindEquipOwner(equippedId);
-            bool trashes = TargetsForDiscardOnly(variants);
+            // The aimed click on the card is the confirmation: That's Not Fair fires
+            // outright; Finders Keepers goes on to pick where the loot lands.
             var art = _art.BlackMarket(info.DefId, info.Shape ?? Shape.Square);
-            _prompt.Show(
-                $"Play {cardName} on {NameOf(victim)}'s {BlackMarketName(info.DefId)}?",
-                new[] { art },
-                new List<Prompt.Option>
-                {
-                    new Prompt.Option(trashes ? "Discard it!" : "Take it!",
-                        () => ResolveEquipDestination(variants, art)),
-                },
-                showCancel: true);
+            ResolveEquipDestination(variants, art);
         }
 
         private GameAction RefreshMove() =>
@@ -485,17 +475,10 @@ namespace LemonadeWars.Unity
                 pickDestination(byDest.Keys.First());
                 return;
             }
-            // The destinations are YOUR stands: arm first, THEN snap home if the view
-            // is on a rival's board — the retained aim rides through the synchronous
-            // render, which also keeps MaybeShowModal stood down during it.
-            _table.BeginEquipTargeting(texture,
-                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
-            if (_table.ViewedBoardPlayer >= 0)
-            {
-                _table.ViewedBoardPlayer = -1;
-                _renderedRevision = -1;
-                RenderIfChanged();
-            }
+            // The destinations are YOUR stands: the card rides the cursor over your
+            // own board until a click on a lit stand places it (letting go drops the play).
+            ShowOwnBoard();
+            _table.BeginStickyPlace(texture, new HashSet<int?>(byDest.Keys), pickDestination, () => { });
         }
 
         /// <summary>

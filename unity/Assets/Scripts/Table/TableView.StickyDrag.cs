@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -13,7 +14,7 @@ namespace LemonadeWars.Unity
         private const float GhostHeightPx = 210f;
         private const float GhostAlpha = 0.92f;
         private const float GhostReturnSeconds = 0.25f;
-        private const float ShelfGlideSeconds = 0.3f;
+        private const float ShelfGlideSeconds = 0.5f;
         /// <summary>A returning ghost starts fading this far along its glide home.</summary>
         private const float GhostReturnFadeFrom = 0.6f;
 
@@ -30,11 +31,30 @@ namespace LemonadeWars.Unity
         private int _stickyMarketIndex;
         private string _stickySupplyTypeId;
         private Vector3? _stickyHomeWorld;
+        /// <summary>Placement mode: where the held card goes on a stand click; null for a shelf purchase.</summary>
+        private System.Action<int?> _stickyPlace;
+        private System.Action _stickyPlaceCancel;
         private int? _stickyHover;
         private bool _stickyHoverAny;
         /// <summary>The double-click that armed the hold must not also drop it.</summary>
         private bool _stickySawRelease;
         private int _shelfGlidesInFlight;
+
+        /// <summary>
+        /// A card with no shelf slot behind it (a take from the discard, the shelf or
+        /// a rival's board) rides the cursor until a click on one of the lit stands
+        /// places it; a click anywhere else lets it go. Replaces the dimmed aim layer
+        /// for "which of your stands gets this card" choices.
+        /// </summary>
+        public void BeginStickyPlace(Texture2D art, ISet<int?> validTargets,
+            System.Action<int?> onPlace, System.Action onCancel)
+        {
+            ArmSticky(DragKind.MarketCard, art, null);
+            _stickyPlace = onPlace;
+            _stickyPlaceCancel = onCancel;
+            SetValidDropTargets(validTargets);
+            _preview.SetDragging(true);
+        }
 
         public void BeginMarketStickyDrag(int marketIndex, Texture2D art)
         {
@@ -137,8 +157,16 @@ namespace LemonadeWars.Unity
             }
             int marketIndex = _stickyMarketIndex;
             int? target = _stickyHover;
+            var place = _stickyPlace;
             Object.Destroy(EndStickyDrag().gameObject);
-            OnMarketDrop?.Invoke(marketIndex, target);
+            if (place != null)
+            {
+                place(target);
+            }
+            else
+            {
+                OnMarketDrop?.Invoke(marketIndex, target);
+            }
         }
 
         private void DropStickySupplyStand(Vector2 screenPosition)
@@ -163,11 +191,13 @@ namespace LemonadeWars.Unity
                 return;
             }
             var home = _stickyHomeWorld;
+            var letGo = _stickyPlaceCancel;
             var ghost = EndStickyDrag();
             if (home == null)
             {
                 Object.Destroy(ghost.gameObject);
                 OnStickyReturned?.Invoke();
+                letGo?.Invoke();
                 return;
             }
             var motion = ghost.gameObject.AddComponent<FlightMotion>();
@@ -199,9 +229,12 @@ namespace LemonadeWars.Unity
         {
             var ghost = _stickyGhost;
             _stickyGhost = null;
+            _stickyPlace = null;
+            _stickyPlaceCancel = null;
             if (_stickyKind == DragKind.MarketCard)
             {
-                OnMarketDragEnd?.Invoke();
+                OnMarketDragEnd?.Invoke(); // the app drops the previews and the drop glows
+                ClearDropHighlights();
             }
             else
             {

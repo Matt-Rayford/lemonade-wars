@@ -535,20 +535,22 @@ namespace LemonadeWars.Unity
                 var strip = (RectTransform)stripGo.transform;
                 UiKit.Anchor(strip, new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(0, -TuckPeek), new Vector2(0, 0));
-                // The ring is clipped flat at the strip's bottom edge: three sides
-                // only, as if its outline ran on under the card tucked in front.
+                // A full rounded ring around the strip, clipped just below it: the
+                // bottom corners round off into the card tucked in front instead of
+                // the sides ending in a flat cut, and the glow stops at its shoulders.
                 var maskGo = new GameObject("AimGlowMask", typeof(RectTransform), typeof(RectMask2D));
                 maskGo.transform.SetParent(strip, false);
                 var mask = (RectTransform)maskGo.transform;
                 UiKit.Anchor(mask, Vector2.zero, Vector2.one,
-                    new Vector2(-AimRingReachPx, 0f), new Vector2(AimRingReachPx, AimRingReachPx));
+                    new Vector2(-AimRingReachPx, -AimRingCornerReachPx),
+                    new Vector2(AimRingReachPx, AimRingReachPx));
                 // Sized so the ring's rim sits just outside the card's edge and glows
                 // outward, instead of painting the strip it is meant to outline.
                 float rimOut = UiSprites.GlowRingRimInset + AimRingOutsetPx;
                 var glow = UiKit.CreateGlow(mask, new Vector2(0.5f, 0.5f),
                     new Vector2(0.5f, 0.5f),
-                    new Vector2(0f, -(AimRingReachPx + AimRingUnderhangPx) / 2f),
-                    188f + 2f * rimOut, TuckPeek + 2f * rimOut + AimRingUnderhangPx, AttackGlowColor);
+                    new Vector2(0f, -(AimRingReachPx - AimRingCornerReachPx) / 2f),
+                    188f + 2f * rimOut, TuckPeek + 2f * rimOut, AttackGlowColor);
                 // Ring, not fill: the strip IS the card's face — a solid glow would
                 // paint over exactly what the player is trying to aim at.
                 glow.GetComponent<Image>().sprite = UiSprites.GlowRing;
@@ -567,8 +569,8 @@ namespace LemonadeWars.Unity
         private const float AimRingReachPx = 36f;
         /// <summary>The rim sits this far outside the card's edge.</summary>
         private const float AimRingOutsetPx = 2f;
-        /// <summary>The ring runs this far on below the strip, so its whole bottom stroke lies under the clip edge and only the sides reach it.</summary>
-        private const float AimRingUnderhangPx = 48f;
+        /// <summary>How far below the strip the ring may show: enough for its rounded bottom corners, not its side glow.</summary>
+        private const float AimRingCornerReachPx = 14f;
 
         private List<RectTransform> AddTuckedStack(RectTransform cell, List<Texture2D> textures)
         {
