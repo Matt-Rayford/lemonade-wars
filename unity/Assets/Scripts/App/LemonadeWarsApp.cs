@@ -326,6 +326,7 @@ namespace LemonadeWars.Unity
             TickLobby();
             TickTurnAlertFade();
             TickGamesListRefresh();
+            TickTableColor();
 
             bool escConsumed = TickRulebookKeys();
 
