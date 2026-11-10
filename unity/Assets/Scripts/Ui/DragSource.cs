@@ -7,12 +7,17 @@ namespace LemonadeWars.Unity
     /// <summary>
     /// Draggable table object (market card or supply stand): lifts with a glow on hover,
     /// spawns a ghost that follows the pointer while dragging. Drop resolution happens in
-    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>.
+    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>. A double-click is the
+    /// no-drag shortcut: the owner decides where the purchase lands.
     /// </summary>
     public sealed class DragSource : MonoBehaviour,
-        IPointerEnterHandler, IPointerExitHandler,
+        IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler,
         IBeginDragHandler, IDragHandler, IEndDragHandler
     {
+        private const float GhostWidthPx = 150f;
+        private const float GhostHeightPx = 210f;
+        private const float GhostAlpha = 0.92f;
+
         public DragKind Kind;
         public int MarketIndex;
         public string SupplyTypeId = "";
@@ -24,6 +29,7 @@ namespace LemonadeWars.Unity
         public System.Func<bool> CanAct;
         public System.Action DragStarted;
         public System.Action DragEnded;
+        public System.Action DoubleClicked;
 
         public bool Dragging { get; private set; }
 
@@ -46,6 +52,17 @@ namespace LemonadeWars.Unity
             }
         }
 
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            if (eventData.button != PointerEventData.InputButton.Left || eventData.clickCount != 2 ||
+                Dragging || CanAct == null || !CanAct())
+            {
+                return;
+            }
+            SetHover(false);
+            DoubleClicked?.Invoke();
+        }
+
         public void OnBeginDrag(PointerEventData eventData)
         {
             if (CanAct == null || !CanAct())
@@ -54,14 +71,15 @@ namespace LemonadeWars.Unity
             }
             Dragging = true;
 
-            var ghostGo = new GameObject("DragGhost", typeof(RectTransform), typeof(RawImage));
-            ghostGo.transform.SetParent(CanvasRoot, false);
-            _ghost = (RectTransform)ghostGo.transform;
-            _ghost.sizeDelta = new Vector2(150, 210);
-            var image = ghostGo.GetComponent<RawImage>();
-            image.texture = Texture;
+            var image = UiKit.CreateCardImage(CanvasRoot, Texture, GhostWidthPx, GhostHeightPx);
             image.raycastTarget = false; // drops must reach the targets underneath
-            image.color = new Color(1f, 1f, 1f, 0.92f);
+            image.color = new Color(1f, 1f, 1f, GhostAlpha);
+            _ghost = (RectTransform)image.transform.parent;
+            _ghost.name = "DragGhost";
+            _ghost.GetComponent<Image>().raycastTarget = false;
+            _ghost.anchorMin = _ghost.anchorMax = new Vector2(0.5f, 0.5f);
+            _ghost.pivot = new Vector2(0.5f, 0.5f);
+            _ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
             _ghost.position = eventData.position;
 
             DragStarted?.Invoke();

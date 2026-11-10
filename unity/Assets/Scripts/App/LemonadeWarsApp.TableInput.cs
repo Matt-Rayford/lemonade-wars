@@ -62,11 +62,22 @@ namespace LemonadeWars.Unity
             var ownStandPlays = all.OfType<PlayLemonCard>()
                 .Where(m => m.TargetStandInstanceId != null &&
                             m.TargetEquippedInstanceId == null).Cast<GameAction>().ToList();
+            var rummageSales = all.OfType<PlayLemonCard>()
+                .Where(m => m.SelectedInstanceIds.Count > 0 && IsRummageSale(m)).Cast<GameAction>().ToList();
             direct = all
                 .Where(m => !bmTakes.Contains(m) && !lemonTakes.Contains(m) &&
-                            !equipSteals.Contains(m) && !ownStandPlays.Contains(m)).ToList();
+                            !equipSteals.Contains(m) && !ownStandPlays.Contains(m) &&
+                            !rummageSales.Contains(m)).ToList();
 
             var options = new List<Prompt.Option>();
+            if (rummageSales.Count > 0)
+            {
+                // Rummage Sale: pick the cards to sell off your real board, with the
+                // card staged and the running total in the strip (see RummageSale).
+                int rummageCard = ((PlayLemonCard)rummageSales[0]).CardInstanceId;
+                options.Add(new Prompt.Option("Choose cards to sell on your board...",
+                    () => BeginRummageSale(rummageCard)));
+            }
             if (ownStandPlays.Count > 0)
             {
                 // Doorbuster Sale / Rebrand: the target is one of YOUR stands, so
@@ -228,20 +239,10 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            string cardName = LemonName(
-                View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId)?.DefId ?? "");
-            int victim = FindEquipOwner(equippedId);
-            bool trashes = TargetsForDiscardOnly(variants);
+            // The aimed click on the card is the confirmation: That's Not Fair fires
+            // outright; Finders Keepers goes on to pick where the loot lands.
             var art = _art.BlackMarket(info.DefId, info.Shape ?? Shape.Square);
-            _prompt.Show(
-                $"Play {cardName} on {NameOf(victim)}'s {BlackMarketName(info.DefId)}?",
-                new[] { art },
-                new List<Prompt.Option>
-                {
-                    new Prompt.Option(trashes ? "Discard it!" : "Take it!",
-                        () => ResolveEquipDestination(variants, art)),
-                },
-                showCancel: true);
+            ResolveEquipDestination(variants, art);
         }
 
         private GameAction RefreshMove() =>
@@ -351,24 +352,12 @@ namespace LemonadeWars.Unity
 
             var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
             string cardName = _db.Lemon(card?.DefId ?? "").Name;
-            if (onVictim.Count == 1 && onVictim[0] is RespondToWindow)
-            {
-                // A window response aimed at a bar (Tag redirect): the deliberate
-                // aim-and-click is the confirmation — a blur prompt here would sit on
-                // top of the live reaction panel and could be eaten by online updates.
-                Submit(onVictim[0]);
-                return;
-            }
             if (onVictim.Count == 1)
             {
-                // Point of no return: confirm before the attack actually fires.
-                _prompt.Show($"Play {cardName} on {NameOf(victimId)}?",
-                    new[] { _art.Lemon(card?.DefId ?? "") },
-                    new List<Prompt.Option>
-                    {
-                        new Prompt.Option("YES!", () => Submit(onVictim[0])),
-                    },
-                    showCancel: true);
+                // One way to hit this victim (HOA Violation, a Tag redirect): the
+                // deliberate aim-and-release IS the confirmation — the card stages
+                // itself on the table, where a Tantrum can still answer it.
+                Submit(onVictim[0]);
                 return;
             }
             if (onVictim.Cast<PlayLemonCard>().All(m => m.TargetEquippedInstanceId != null))
@@ -452,16 +441,21 @@ namespace LemonadeWars.Unity
         /// submits directly; several open the aim-at-your-board targeting (float card +
         /// arrow), with a replace-prompt when the chosen slot is full.
         /// </summary>
-        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture)
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture) =>
+            ResolveEquipDestination(candidates, texture,
+                m => ((PlayLemonCard)m).EquipStandInstanceId);
+
+        private void ResolveEquipDestination(List<GameAction> candidates, Texture2D texture,
+            System.Func<GameAction, int?> destinationOf, System.Action onCancel = null)
         {
             if (candidates.Count == 1)
             {
                 Submit(candidates[0]);
                 return;
             }
-            var byDest = candidates.Cast<PlayLemonCard>()
-                .GroupBy(m => m.EquipStandInstanceId)
-                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            var byDest = candidates
+                .GroupBy(destinationOf)
+                .ToDictionary(g => g.Key, g => g.ToList());
             System.Action<int?> pickDestination = destId =>
             {
                 var atDest = byDest[destId];
@@ -481,17 +475,11 @@ namespace LemonadeWars.Unity
                 pickDestination(byDest.Keys.First());
                 return;
             }
-            // The destinations are YOUR stands: arm first, THEN snap home if the view
-            // is on a rival's board — the retained aim rides through the synchronous
-            // render, which also keeps MaybeShowModal stood down during it.
-            _table.BeginEquipTargeting(texture,
-                new HashSet<int?>(byDest.Keys), pickDestination, () => { });
-            if (_table.ViewedBoardPlayer >= 0)
-            {
-                _table.ViewedBoardPlayer = -1;
-                _renderedRevision = -1;
-                RenderIfChanged();
-            }
+            // The destinations are YOUR stands: the card rides the cursor over your
+            // own board until a click on a lit stand places it (letting go drops the play).
+            ShowOwnBoard();
+            _table.BeginStickyPlace(texture, new HashSet<int?>(byDest.Keys), pickDestination,
+                onCancel ?? (() => { }));
         }
 
         /// <summary>
@@ -563,16 +551,125 @@ namespace LemonadeWars.Unity
                 .Where(m => m.TargetStandInstanceId == standInstanceId)
                 .Cast<GameAction>()
                 .ToList();
+            var card = View.Market[marketIndex];
             if (matching.Count == 1)
             {
+                if (_liftedMarketIds.Contains(card.InstanceId) && _liftedCardLanding == null)
+                {
+                    _liftedCardLanding = Input.mousePosition; // a held card buys from under the cursor
+                }
                 Submit(matching[0]);
             }
-            else if (matching.Count > 1)
+            else
             {
-                var card = View.Market[marketIndex];
-                _prompt.Show("That slot is full — replace which card?",
-                    new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
-                    ToOptions(matching), showCancel: true);
+                // A question (or nothing to buy) in between: the card waits on its slot.
+                RestoreMarketCard(card.InstanceId);
+                if (matching.Count > 1)
+                {
+                    _prompt.Show("That slot is full — replace which card?",
+                        new[] { _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square) },
+                        ToOptions(matching), showCancel: true);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Double-click on a shelf card buys it without the drag. One legal home: the
+        /// card glides from its slot to that stand and the buy lands on arrival. Several:
+        /// the card rides the cursor and the next click on a lit stand places it.
+        /// </summary>
+        private void OnMarketDoubleClick(int marketIndex)
+        {
+            _preview.Hide();
+            var groups = CurrentGroups();
+            if (groups == null || !groups.MarketMoves.TryGetValue(marketIndex, out var moves))
+            {
+                return;
+            }
+            var card = View.Market[marketIndex];
+            var art = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
+            var buys = moves.OfType<BuyBlackMarket>().ToList();
+            // One place with room decides it, even when full stands would also take
+            // the card by replacing something: nobody double-clicks to trash a card.
+            var destinations = buys.Where(b => b.ReplaceInstanceId == null)
+                .Select(b => b.TargetStandInstanceId).Distinct().ToList();
+            if (destinations.Count == 0)
+            {
+                destinations = buys.Select(b => b.TargetStandInstanceId).Distinct().ToList();
+            }
+            ShowOwnBoard();
+            // The slot is measured while the card still sits in it, then empties: the
+            // card itself leaves the shelf, not a copy of it.
+            var slotWorld = _table.MarketSlotWorld(marketIndex);
+            int instanceId = card.InstanceId;
+            LiftMarketCard(instanceId);
+            if (destinations.Count == 1)
+            {
+                int? destination = destinations[0];
+                var landing = _table.DropCellWorld(destination);
+                _table.GlideShelfCard(art, slotWorld, landing, () =>
+                {
+                    _liftedCardLanding = landing;
+                    OnMarketDrop(marketIndex, destination);
+                });
+                return;
+            }
+            _table.OnStickyReturned = () => RestoreMarketCard(instanceId);
+            _table.BeginMarketStickyDrag(marketIndex, art);
+        }
+
+        /// <summary>Double-click on a supply pile: with one place it can go (your first
+        /// stand) it glides straight there; otherwise it rides the cursor until a click
+        /// places it in your row, exactly where a drag would have dropped it.</summary>
+        private void OnSupplyDoubleClick(string standTypeId)
+        {
+            _preview.Hide();
+            var groups = CurrentGroups();
+            if (groups == null || !groups.SupplyMoves.TryGetValue(standTypeId, out var moves))
+            {
+                return;
+            }
+            ShowOwnBoard();
+            if (moves.Count == 1)
+            {
+                var only = moves[0];
+                _table.GlideShelfCard(_table.SupplyArtOf(standTypeId), _table.StandSupplyWorld(standTypeId),
+                    _table.NextStandSlotWorld(), () => Submit(only));
+                return;
+            }
+            _table.BeginSupplyStickyDrag(standTypeId);
+        }
+
+        /// <summary>Double-click on Bragging Rights: it glides onto your VP column, then buys.</summary>
+        private void OnBraggingDoubleClick()
+        {
+            _preview.Hide();
+            if (CurrentGroups()?.BraggingMoves.Count > 0 != true)
+            {
+                return;
+            }
+            ShowOwnBoard();
+            _table.GlideShelfCard(_table.BraggingArt, _table.BraggingShelfWorld(),
+                _table.VictoryCellWorld(), BuyBraggingRights);
+        }
+
+        private void BuyBraggingRights()
+        {
+            var moves = CurrentGroups()?.BraggingMoves;
+            if (moves != null && moves.Count > 0)
+            {
+                Submit(moves[0]);
+            }
+        }
+
+        /// <summary>Shelf purchases land on YOUR board: snap the view home from a rival's.</summary>
+        private void ShowOwnBoard()
+        {
+            if (_table.ViewedBoardPlayer >= 0)
+            {
+                _table.ViewedBoardPlayer = -1;
+                _renderedRevision = -1;
+                RenderIfChanged();
             }
         }
 

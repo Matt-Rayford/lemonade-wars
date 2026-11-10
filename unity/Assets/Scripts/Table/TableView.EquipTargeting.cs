@@ -13,6 +13,9 @@ namespace LemonadeWars.Unity
         /// stands down on it exactly like an open prompt (see MaybeShowModal).</summary>
         public bool EquipTargetingActive => _targetingPick != null;
 
+        /// <summary>Extra size of the hot ring on the hovered aim target, both sides together.</summary>
+        private const float AimGlowPx = 21f;
+
         private RectTransform _targetingRoot;
         private RectTransform _targetingCardHost;
         private RectTransform _targetingCopiesHost;
@@ -205,7 +208,7 @@ namespace LemonadeWars.Unity
                             cardFrame.TransformPoint(cardFrame.rect.center));
                         UiKit.CreateGlow(_targetingCopiesHost,
                             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
-                            cardFrame.rect.width + 30, cardFrame.rect.height + 30, DropGlowHot);
+                            cardFrame.rect.width + AimGlowPx, cardFrame.rect.height + AimGlowPx, DropGlowHot);
 
                         var world = cell.TransformPoint(
                             new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
@@ -221,19 +224,22 @@ namespace LemonadeWars.Unity
         private void TickEquippedCardPick(Vector2 screenPosition)
         {
             int? hover = null;
-            foreach (var (id, strip, glow) in _equipCells)
+            foreach (var (id, strip, _) in _equipCells)
             {
-                bool valid = _targetingEquipValid.Contains(id);
-                if (glow != null)
-                {
-                    // Re-asserted every tick: a re-render rebuilds the cells with
-                    // their aim rings off, and the retained pick must light them.
-                    glow.SetActive(valid);
-                }
-                if (valid && hover == null &&
+                if (_targetingEquipValid.Contains(id) && strip != null &&
                     RectTransformUtility.RectangleContainsScreenPoint(strip, screenPosition))
                 {
                     hover = id;
+                    break;
+                }
+            }
+            foreach (var (id, _, glow) in _equipCells)
+            {
+                if (glow != null)
+                {
+                    // Only the card under the pointer rings (re-asserted every tick: a
+                    // re-render rebuilds the cells with their rings off).
+                    glow.SetActive(hover == id);
                 }
             }
             bool any = hover != null;
@@ -257,7 +263,7 @@ namespace LemonadeWars.Unity
                         strip.TransformPoint(strip.rect.center));
                     UiKit.CreateGlow(_targetingCopiesHost,
                         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
-                        strip.rect.width + 26, strip.rect.height + 26, DropGlowHot);
+                        strip.rect.width + AimGlowPx, strip.rect.height + AimGlowPx, DropGlowHot);
                     var world = strip.TransformPoint(
                         new Vector3(strip.rect.center.x, strip.rect.yMax, 0));
                     UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,

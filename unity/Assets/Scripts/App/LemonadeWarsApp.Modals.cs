@@ -36,9 +36,16 @@ namespace LemonadeWars.Unity
                        View.AwaitingResponse.Contains(View.ViewerId);
             }
             // Bouncer resolves AFTER its attack leaves the stack, so it has no stack
-            // top — but picking who to hit back needs the table just as much.
-            return decision.Kind == DecisionKind.AttackRetarget ||
-                   decision.Kind == DecisionKind.BouncerAttack;
+            // top — but picking who to hit back needs the table just as much; so does
+            // Smear Campaign's free play.
+            return decision.Kind == DecisionKind.AttackRetarget || IsFreePlayDecision();
+        }
+
+        /// <summary>A Bouncer strike-back or Smear Campaign's free play: "play a card from your hand, or skip".</summary>
+        private bool IsFreePlayDecision()
+        {
+            var kind = View.MyDecisions.FirstOrDefault()?.Kind;
+            return kind == DecisionKind.BouncerAttack || kind == DecisionKind.FreePlayOffer;
         }
 
         private void MaybeShowModal(MoveGroups groups, int revision)
@@ -54,7 +61,7 @@ namespace LemonadeWars.Unity
             string signature = ModalTitle() + "|" +
                 string.Join("|", groups.ModalMoves.Select(m => _session.LabelFor(m)));
             bool surfaceOpen = _prompt.IsOpen || _picker.IsOpen || _reaction.IsOpen ||
-                _table.DiscardPickerOpen || _table.EquipTargetingActive;
+                _table.DiscardPickerOpen || _table.EquipTargetingActive || _table.StickyDragActive;
             if (surfaceOpen && signature == _modalSignature)
             {
                 _modalRevision = revision;
@@ -66,15 +73,23 @@ namespace LemonadeWars.Unity
             }
             _modalRevision = revision;
             _modalSignature = signature;
-            if (_table.DiscardPickerOpen || _table.EquipTargetingActive)
+            if (_table.DiscardPickerOpen || _table.EquipTargetingActive || _table.StickyDragActive)
             {
                 // The choice this grid/aim was serving changed under it — drop the
                 // stale surface (silently: its cancel callback would reopen it)
                 // before the fresh modal replaces it.
                 _table.DismissModalOverlays();
             }
-            if (TryAutoForcedPlay(groups, revision))
+            if (TryAutoForcedPlay(groups, revision) || TryAutoPassEmptyWindow(groups, revision))
             {
+                return;
+            }
+            if (TimeoutFineDue())
+            {
+                // Answered from the table: the card lies in the middle for everyone,
+                // the message strip carries the Pay button (see RenderTimeoutStrip).
+                _reaction.Hide();
+                _prompt.Hide();
                 return;
             }
             _autoModalOpen = true;
@@ -91,12 +106,12 @@ namespace LemonadeWars.Unity
                 return;
             }
             bool IsPassMove(GameAction m) => m is SkipFreePlay || m is PassWindow;
-            if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0)
+            if (ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision()))
             {
-                // A plain response window: the hand's reaction cards sit half-raised to
-                // be clicked, and the message strip offers the rest (see RenderActionBar).
-                // The side panel stays for retargets and strike-backs, which need their
-                // own pages.
+                // A plain response window, or a free play: the hand's answering cards
+                // sit half-raised to be clicked, and the message strip offers the rest
+                // (see RenderActionBar). The side panel stays for retargets that are
+                // not card picks, which need their own page.
                 _reaction.Hide();
                 _prompt.Hide();
                 return;
@@ -110,6 +125,10 @@ namespace LemonadeWars.Unity
                     .OrderBy(m => IsPassMove(m) ? 1 : 0)
                     .ToList();
                 var kind = View.MyDecisions.FirstOrDefault()?.Kind;
+                if (kind == DecisionKind.AttackRetarget && TryBeginRetargetPick(groups))
+                {
+                    return;
+                }
                 _prompt.Hide();
                 _reactionBanner = ModalTitle();
                 _reaction.Show(ModalCards(), GroupedPlayOptions(reactionMoves, tableLive: true),
@@ -265,6 +284,36 @@ namespace LemonadeWars.Unity
             Submit(only);
             return true;
         }
+
+        private int _autoPassRevision = -1;
+
+        /// <summary>
+        /// A response window whose ONLY move is Pass is not a choice: pass it without
+        /// a screen. The engine should never open one, but a playtester met a blank
+        /// "Your choice — Pass" prompt after using an Inflatable Decoy, and a lone
+        /// Pass must never be a modal the table waits on. Once per revision: online,
+        /// the revision stands still until the server answers.
+        /// </summary>
+        private bool TryAutoPassEmptyWindow(MoveGroups groups, int revision)
+        {
+            if (!IsPassOnlyWindow(groups))
+            {
+                return false;
+            }
+            if (_autoPassRevision != revision)
+            {
+                _autoPassRevision = revision;
+                _prompt.Hide();
+                _reaction.Hide();
+                Submit(groups.ModalMoves[0]);
+            }
+            return true;
+        }
+
+        /// <summary>The viewer is being awaited by a window and has nothing to answer it with but Pass.</summary>
+        private bool IsPassOnlyWindow(MoveGroups groups) =>
+            groups != null && View.MyDecisions.Count == 0 &&
+            groups.ModalMoves.Count == 1 && groups.ModalMoves[0] is PassWindow;
 
         /// <summary>
         /// "Choose who to rob" aims at the player bars instead of opening a modal:
@@ -473,6 +522,54 @@ namespace LemonadeWars.Unity
                 picked => accept(picked.Select(i => capturedPool[i].InstanceId).ToList()));
             return true;
         }
+
+        /// <summary>
+        /// A Tag sent your card-stealing attack (Finders Keepers, That's Not Fair!) at
+        /// someone else: show THEIR board and aim at their tucked cards with the arrow,
+        /// like the original aim — then, for a steal, pick where the loot lands. False
+        /// when the retarget is not a card pick, which keeps the panel.
+        /// </summary>
+        private bool TryBeginRetargetPick(MoveGroups groups)
+        {
+            var retargets = groups.ModalMoves.OfType<SubmitRetarget>()
+                .Where(m => m.TargetEquippedInstanceId != null).ToList();
+            if (retargets.Count == 0 || retargets.Count != groups.ModalMoves.Count)
+            {
+                return false;
+            }
+            var byCard = retargets
+                .GroupBy(m => m.TargetEquippedInstanceId.Value)
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            int victim = FindEquipOwner(byCard.Keys.First());
+            _prompt.Hide();
+            _reaction.Hide();
+            if (victim >= 0 && victim != View.ViewerId && _table.ViewedBoardPlayer != victim)
+            {
+                // Their board renders on the next tick; the aim re-finds its cells
+                // every frame, so arming now is fine (and avoids re-entering the render).
+                _table.ViewedBoardPlayer = victim;
+                _renderedRevision = -1;
+            }
+            // The retarget has to be answered: a click-off anywhere just re-arms the aim.
+            System.Action reArm = () =>
+            {
+                _modalRevision = -1;
+                _modalSignature = "";
+                _renderedRevision = -1;
+            };
+            string attack = View.StackTop != null ? CardName(View.StackTop.DefId) : "your attack";
+            var attackArt = View.StackTop != null ? _art.Lemon(View.StackTop.DefId) : null;
+            _table.BeginEquippedCardPick(attackArt, new HashSet<int>(byCard.Keys),
+                equippedId => ResolveEquipDestination(byCard[equippedId], EquippedArt(equippedId),
+                    m => ((SubmitRetarget)m).EquipStandInstanceId, reArm),
+                reArm,
+                $"Tagged to {NameOf(victim)} — aim {attack} at one of their cards");
+            return true;
+        }
+
+        /// <summary>The viewer is the Whiniest Baby and the Timeout just came up.</summary>
+        private bool TimeoutFineDue() =>
+            View.MyDecisions.FirstOrDefault()?.Kind == DecisionKind.TimeoutFine;
 
         private string ModalTitle()
         {

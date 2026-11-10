@@ -40,6 +40,30 @@ namespace LemonadeWars.Engine.Core
                 RespondingToItemId = top.ItemId,
                 FreePlay = true,
             }, events);
+
+            if (top.Kind == StackItemKind.LemonPlay && top.LemonDefId == TantrumId)
+            {
+                CounterTantrum(State.ResponseStack[State.ResponseStack.Count - 1], top, events);
+            }
+        }
+
+        /// <summary>
+        /// A Tantrum thrown at a Tantrum lands at once: both are spent, and the card
+        /// the first Tantrum was aimed at is OPEN AGAIN — the whole table gets a
+        /// fresh window on it, so the player whose Tantrum was just stopped may
+        /// answer the original card anew (another Tantrum, a Tag, a Decoy). Reactions
+        /// only end when everyone passes; after that the stack resolves unasked.
+        /// </summary>
+        private void CounterTantrum(StackItem counter, StackItem countered, List<GameEvent> events)
+        {
+            var reopened = FindStackItem(countered.RespondingToItemId);
+            ResolveTantrum(counter, events);
+            PopResolved(counter, events);
+            PopCancelled(countered, events);
+            if (reopened != null && !reopened.Cancelled)
+            {
+                reopened.WindowOffered = false;
+            }
         }
 
         private void ResolveTantrum(StackItem tantrum, List<GameEvent> events)
@@ -124,6 +148,7 @@ namespace LemonadeWars.Engine.Core
                 else
                 {
                     target.AttackTargetId = tag.RedirectTargetId;
+                    target.WindowOffered = false; // newly aimed: its new victim gets to answer
                     // The card-specific pick (Finders Keepers / That's Not Fair) named
                     // a card of the OLD victim — clear it now, not at resolution, or
                     // every view keeps showing the old victim's card as the loot for
@@ -173,6 +198,7 @@ namespace LemonadeWars.Engine.Core
                 int oldAttacker = target.OwnerId;
                 target.OwnerId = rubber.OwnerId;
                 target.AttackTargetId = oldAttacker;
+                target.WindowOffered = false; // newly aimed: its new victim gets to answer
                 ClearStaleAttackSpecifics(target); // same staleness as a Tag redirect
                 events.Add(new AttackReflected { ByPlayerId = rubber.OwnerId, NewTargetId = oldAttacker });
             }

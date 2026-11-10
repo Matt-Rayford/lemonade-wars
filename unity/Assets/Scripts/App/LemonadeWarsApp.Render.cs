@@ -11,6 +11,8 @@ namespace LemonadeWars.Unity
     public sealed partial class LemonadeWarsApp
     {
         private bool _endShown;
+        /// <summary>What the message strip last said: held over while a turn change waits on theatre.</summary>
+        private string _lastShownBanner;
 
         private void RenderIfChanged()
         {
@@ -43,7 +45,8 @@ namespace LemonadeWars.Unity
             // Cancel, so a stale one soft-locks the player: dismiss it.
             if (_autoModalOpen &&
                 (_prompt.IsOpen || _picker.IsOpen ||
-                 _table.DiscardPickerOpen || _table.EquipTargetingActive) &&
+                 _table.DiscardPickerOpen || _table.EquipTargetingActive ||
+                 _table.StickyDragActive) &&
                 (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
             {
                 _prompt.Hide();
@@ -94,9 +97,13 @@ namespace LemonadeWars.Unity
                     _table.EndPlayerPick();
                 }
             }
-            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy)
+            if (_turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy || TurnHandoverPending())
             {
-                return; // decisions wait behind the ONWARD! button / the die / effects / a staged attack's arrival
+                // Decisions wait behind the ONWARD! button / the die / effects / a staged
+                // attack's arrival — and behind a turn handover the banner is still
+                // waiting to announce, or the Whiniest Baby's keep-choice would open
+                // over the previous roll's payout, before "Your Turn".
+                return;
             }
             MaybeShowModal(groups, revision);
         }
@@ -105,9 +112,10 @@ namespace LemonadeWars.Unity
         private void MaybeAnnounceTurn()
         {
             bool myTurn = IsMyTurn();
-            if (myTurn && !_wasMyTurn && (_dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy))
+            if (TurnHandoverPending())
             {
-                // Let the die and effects finish first; their OnFinished forces a
+                // Let the die and effects finish first, and the previous roll close
+                // and pay out: their OnFinished / landings / revision bump force a
                 // re-render that lands back here with the turn edge still unconsumed.
                 return;
             }
@@ -132,6 +140,15 @@ namespace LemonadeWars.Unity
             Sfx.Play(Sfx.YourTurn); // played, not queued: it announces the banner itself
             _turnBanner.Show(TurnSubtitle());
         }
+
+        /// <summary>
+        /// The view says it is your turn but the table has not handed it over yet: the
+        /// previous player's theatre, roll or payout is still playing. The strip and
+        /// the Your Turn banner both wait on exactly this.
+        /// </summary>
+        private bool TurnHandoverPending() =>
+            IsMyTurn() && !_wasMyTurn &&
+            (TheatreHoldsModals() || View.PendingRollValue != null || EarningsStillShowing());
 
         private static string ActionsLabel(int count) => count == 1 ? "1 action" : $"{count} actions";
 
@@ -199,6 +216,11 @@ namespace LemonadeWars.Unity
             {
                 banner = "Thanks for playing!";
             }
+            else if (View.TimeoutFinePlayerId is int debtor && debtor != View.ViewerId)
+            {
+                // The card lies in the middle of the table; the strip says who it bit.
+                banner = $"Timeout! {NameOf(debtor)} owes ${View.TimeoutFineAmount}";
+            }
             else if (WaitingOnOthers() is string holdouts)
             {
                 // Someone else has to respond or decide before anything moves: say
@@ -227,7 +249,9 @@ namespace LemonadeWars.Unity
             }
             else if (View.Stage == GameStage.InitialBuys)
             {
-                banner = $"Setup draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
+                banner = View.CurrentInitialBuyer == View.ViewerId
+                    ? "Setup Draft — Your Turn"
+                    : $"Setup Draft — {NameOf(View.CurrentInitialBuyer ?? 0)} is buying";
             }
             else if (View.ActivePlayer == View.ViewerId)
             {
@@ -237,6 +261,14 @@ namespace LemonadeWars.Unity
             {
                 banner = $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
             }
+            if (TurnHandoverPending() && _lastShownBanner != null)
+            {
+                // The previous player's effects are still playing and the Your Turn
+                // banner is waiting on them (see MaybeAnnounceTurn): the strip keeps
+                // saying whose turn it WAS until the turn visibly changes hands.
+                banner = _lastShownBanner;
+            }
+            _lastShownBanner = banner;
             _tableMessage.text = banner;
         }
 
@@ -301,10 +333,7 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_turnActionRow);
             if (View.Stage == GameStage.Finished)
             {
-                // Back on the board after the scoreboard: the exit lives where the
-                // sale chip did, so leaving is never a hunt.
-                AddTurnActionChip("LEAVE GAME", () => BackToMenu(""), Sfx.ButtonClick);
-                return;
+                return; // the scoreboard carries the exit; Esc's pause menu has the other
             }
             if (groups == null || groups.IsModal || _turnBanner.IsOpen)
             {
@@ -339,15 +368,40 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_table.ActionBar);
             UiKit.Clear(_tableActionHost);
+            DropStaleAssetSale(groups);
             if (groups == null)
             {
                 return;
             }
+            if (_sale != null)
+            {
+                RenderSaleStrip();
+                return;
+            }
             if (groups.IsModal)
             {
-                if (ReactionWindowDue(groups) && View.MyDecisions.Count == 0 && !TheatreHoldsModals())
+                if (IsPassOnlyWindow(groups))
+                {
+                    // Nothing to choose: it passes itself (see TryAutoPassEmptyWindow).
+                }
+                else if (ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision()) &&
+                    !TheatreHoldsModals())
                 {
                     RenderReactionStrip(groups);
+                }
+                else if (TimeoutFineDue() && !TheatreHoldsModals())
+                {
+                    if (TimeoutNeedsSale())
+                    {
+                        // Short of the fine: pick what to sell off your board, as a
+                        // Rummage Sale is picked, instead of the engine choosing for you.
+                        BeginTimeoutSale();
+                        RenderSaleStrip();
+                    }
+                    else
+                    {
+                        RenderTimeoutStrip(groups);
+                    }
                 }
                 return;
             }
@@ -394,28 +448,102 @@ namespace LemonadeWars.Unity
         private void RenderReactionStrip(MoveGroups groups)
         {
             _tableMessage.text = "";
-            // A theft names the thief and the numbers; everything else is "a reaction".
-            string leadText = View.TheftOnMe ? ModalTitle() : "Play a reaction or";
-            var lead = UiKit.CreateText(_tableActionHost, leadText,
+            // A theft names the thief and the numbers, a free play names what provoked
+            // it: a question, then its answers. Everything else reads as a list of
+            // choices — "Play a reaction" only when a hand card can actually answer,
+            // each equipped ability as its own button, and the way out last, with
+            // "or" between the last two: [Use Sugared Up] or [Pass].
+            bool question = View.TheftOnMe || IsFreePlayDecision();
+            bool handCanAnswer = groups.HandMoves.Values.Any(moves => moves.Any(m => m is RespondToWindow));
+            var abilities = groups.ModalMoves
+                .Where(move => move is UseTurnAbility ||
+                               (move is RespondToWindow respond && respond.EquippedInstanceId != null))
+                .ToList();
+            var wayOut = groups.ModalMoves.FirstOrDefault(m => m is PassWindow)
+                ?? groups.ModalMoves.FirstOrDefault(m => m is SkipFreePlay);
+
+            if (question)
+            {
+                AddStripText(ModalTitle());
+            }
+            else if (handCanAnswer)
+            {
+                AddStripText("Play a reaction");
+            }
+            foreach (var ability in abilities)
+            {
+                AddStripButton(_session.LabelFor(ability), ability, Sfx.ButtonClick);
+            }
+            if (wayOut == null)
+            {
+                return;
+            }
+            if (!question && (handCanAnswer || abilities.Count > 0))
+            {
+                AddStripText("or");
+            }
+            AddStripButton(wayOut is PassWindow ? "Pass" : "Skip", wayOut, Sfx.ButtonClick);
+        }
+
+        /// <summary>Words in the strip at the message's own size; the row sizes them to their length.</summary>
+        private void AddStripText(string words)
+        {
+            var text = UiKit.CreateText(_tableActionHost, words,
+                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            text.raycastTarget = false;
+            UiKit.AddTextShadow(text);
+        }
+
+        /// <summary>
+        /// The Whiniest Baby's Timeout: "Timeout!" and a Pay button in the strip, the
+        /// card itself lying on the table below. The engine's one move already lists
+        /// the cheapest assets to sell when cash is short, so the button says so.
+        /// </summary>
+        private void RenderTimeoutStrip(MoveGroups groups)
+        {
+            var payment = groups.ModalMoves.OfType<SubmitTimeoutPayment>().FirstOrDefault();
+            if (payment == null)
+            {
+                return;
+            }
+            _tableMessage.text = "";
+            var lead = UiKit.CreateText(_tableActionHost, "Timeout!",
                 Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
             lead.raycastTarget = false;
             UiKit.AddTextShadow(lead);
-            // No fixed width: the row sizes the words to their own length, so the
-            // button sits one spacing step after the last letter.
+            bool sellsAssets = payment.SellStandInstanceIds.Count > 0 || payment.SellBmInstanceIds.Count > 0;
+            string label = sellsAssets
+                ? $"Sell assets & pay ${View.TimeoutFineAmount}"
+                : $"Pay ${View.TimeoutFineAmount}";
+            AddStripButton(label, payment, Sfx.ButtonClick);
+        }
 
-            foreach (var move in groups.ModalMoves)
+        /// <summary>A Timeout that fined nobody still lies on the table this long after landing.</summary>
+        private const float TimeoutCardLingerSeconds = 1.6f;
+
+        /// <summary>
+        /// The Timeout card lies on the table from its landing until the fine is paid
+        /// (a beat, if it fined nobody) — never under the turn banner, never while it
+        /// is still flying in, and not while its owner sells for it (the sale stages
+        /// it beside their bar instead). Settled every frame: nothing here re-renders.
+        /// </summary>
+        private void SyncTimeoutCard()
+        {
+            if (View == null)
             {
-                bool fromEquipment = move is UseTurnAbility ||
-                                     (move is RespondToWindow respond && respond.EquippedInstanceId != null);
-                if (fromEquipment)
-                {
-                    AddStripButton(_session.LabelFor(move), move, Sfx.ButtonClick);
-                }
+                return;
             }
-            var pass = groups.ModalMoves.FirstOrDefault(m => m is PassWindow);
-            if (pass != null)
+            bool owed = View.TimeoutFinePlayerId != null;
+            bool lingering = Time.time - _timeoutCardShownAt < TimeoutCardLingerSeconds;
+            bool wanted = (owed || lingering) && !_turnBanner.IsOpen && !_timeoutCardInFlight && !TimeoutSaleActive;
+            if (wanted && !_table.TimeoutCardShown)
             {
-                AddStripButton("Pass", pass, Sfx.ButtonClick);
+                _timeoutCardShownAt = Time.time;
+                _table.ShowTimeoutCard(_art.Lemon(TimeoutDefId));
+            }
+            else if (!wanted)
+            {
+                _table.HideTimeoutCard();
             }
         }
 
@@ -428,10 +556,18 @@ namespace LemonadeWars.Unity
             var button = UiKit.CreateButton(_tableActionHost, label,
                 Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
                 clickSound: clickSound, highlighted: true);
+            // Wide enough for its whole label on one line: "Use Sugared Up" once lost
+            // its last word to a fixed width.
+            var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+            text.enableWordWrapping = false;
             var layout = button.GetComponent<LayoutElement>();
-            layout.minWidth = 170f;
+            layout.minWidth = Mathf.Max(StripButtonMinWidthPx, text.preferredWidth + StripButtonPaddingPx);
             layout.minHeight = EndTurnButtonHeightPx;
         }
+
+        private const float StripButtonMinWidthPx = 170f;
+        /// <summary>Room around a strip button's label, both sides together.</summary>
+        private const float StripButtonPaddingPx = 48f;
 
         /// <summary>
         /// The big yellow button in the message strip above the board — the one thing
@@ -462,39 +598,154 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private const float ScoreRowMaxHeightPx = 140f;
+        private const float ScoreRowMinHeightPx = 80f;
+        private const float ScoreRowSpacingPx = 10f;
+        private const float ScoreCardAspect = 5f / 7f;
+        private const float ScoreCardGapPx = 8f;
+        private const float ScoreNameColumnPx = 210f;
+        private const float ScoreRowPaddingPx = 10f;
+
         /// <summary>
-        /// Game over: announce the winner and reveal everyone's full score — in-game VP
-        /// plus the secret Lemon Lords, met or missed.
+        /// Game over: announce the winner and rank everyone top to bottom by score
+        /// (money breaks ties), each row an avatar, the name and totals, and every
+        /// card that scored laid side by side — in-game points plus the secret Lemon
+        /// Lords they actually met. Rows shrink to fit the table, so five players with
+        /// full hands of titles still fit on one screen. Hover (or Alt) reads any card.
         /// </summary>
         private void ShowEndSummary()
         {
             _prompt.Hide();
-            var rows = View.Players
-                .Select(p =>
-                {
-                    int lordVp = p.FinishedLords.Count(l => l.Met);
-                    int total = p.InGameVictoryPoints + lordVp;
-                    string lords = p.FinishedLords.Count > 0
-                        ? "   [" + string.Join(", ", p.FinishedLords.Select(l =>
-                            _db.Title(l.TitleId).Name + (l.Met ? " +1" : " —"))) + "]"
-                        : "";
-                    return (total, label: $"{p.Name} — {total} VP{lords}");
-                })
-                .OrderByDescending(r => r.total)
-                .ToList();
             string winners = string.Join(" & ", View.Winners.Select(NameOf));
             string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
             // Two real exits instead of a lone "Cancel": look the final boards over,
             // or head back to the menu.
-            _prompt.Show($"{winners.ToUpperInvariant()} {verb} THE LEMONADE WARS!",
-                new List<Texture2D>(),
-                rows.Select(r => new Prompt.Option(r.label, null)).ToList(),
-                showCancel: false,
-                footer: new[]
+            _prompt.ShowBody($"{winners.ToUpperInvariant()} {verb} LEMONADE WARS!", BuildScoreboard,
+                new[]
                 {
                     new Prompt.Option("Return to Board", () => { }),
                     new Prompt.Option("Leave Game", () => BackToMenu("")),
-                });
+                },
+                titleColor: UiKit.ButtonColor);
+        }
+
+        private void BuildScoreboard(RectTransform host)
+        {
+            var standings = View.Players
+                .Select(p => (Player: p, Total: p.InGameVictoryPoints + p.FinishedLords.Count(l => l.Met)))
+                .OrderByDescending(s => s.Total)
+                .ThenByDescending(s => s.Player.Money)
+                .ToList();
+
+            float available = host.rect.height > 0f ? host.rect.height : 800f;
+            float rowHeight = Mathf.Clamp(
+                (available - (standings.Count - 1) * ScoreRowSpacingPx) / standings.Count,
+                ScoreRowMinHeightPx, ScoreRowMaxHeightPx);
+            float cardHeight = rowHeight - 2f * ScoreRowPaddingPx;
+
+            var listGo = new GameObject("Standings", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            listGo.transform.SetParent(host, false);
+            UiKit.Anchor((RectTransform)listGo.transform, Vector2.zero, Vector2.one);
+            var list = listGo.GetComponent<VerticalLayoutGroup>();
+            list.spacing = ScoreRowSpacingPx;
+            list.childAlignment = TextAnchor.UpperCenter;
+            list.childForceExpandWidth = true;
+            list.childForceExpandHeight = false;
+            list.childControlWidth = true;
+            list.childControlHeight = true;
+
+            foreach (var (player, total) in standings)
+            {
+                BuildScoreRow((RectTransform)listGo.transform, player, total, rowHeight, cardHeight);
+            }
+        }
+
+        private void BuildScoreRow(RectTransform list, PlayerView.PlayerPanel player, int total,
+            float rowHeight, float cardHeight)
+        {
+            var rowGo = new GameObject("Score", typeof(RectTransform),
+                typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+            rowGo.transform.SetParent(list, false);
+            var row = rowGo.GetComponent<HorizontalLayoutGroup>();
+            row.spacing = 14f;
+            row.padding = new RectOffset((int)ScoreRowPaddingPx * 2, (int)ScoreRowPaddingPx * 2, 0, 0);
+            row.childAlignment = TextAnchor.MiddleLeft;
+            row.childForceExpandWidth = false;
+            row.childForceExpandHeight = false;
+            row.childControlWidth = true;
+            row.childControlHeight = true;
+            rowGo.GetComponent<LayoutElement>().preferredHeight = rowHeight;
+
+            float badge = Mathf.Min(64f, cardHeight * 0.6f);
+            var avatar = TableView.CreatePlayerBadge(rowGo.transform, player.Name, badge);
+            var avatarElement = avatar.gameObject.AddComponent<LayoutElement>();
+            avatarElement.preferredWidth = badge;
+            avatarElement.preferredHeight = badge;
+
+            var labelsGo = new GameObject("Labels", typeof(RectTransform), typeof(VerticalLayoutGroup),
+                typeof(LayoutElement));
+            labelsGo.transform.SetParent(rowGo.transform, false);
+            var labels = labelsGo.GetComponent<VerticalLayoutGroup>();
+            labels.spacing = 2f;
+            labels.childAlignment = TextAnchor.MiddleLeft;
+            labels.childForceExpandWidth = false; // force-expanding children made the block flexible, pushing the cards to the far edge
+            labels.childForceExpandHeight = false;
+            labels.childControlWidth = true;
+            labels.childControlHeight = true;
+            var labelsElement = labelsGo.GetComponent<LayoutElement>();
+            labelsElement.preferredWidth = ScoreNameColumnPx;
+            labelsElement.flexibleWidth = 0f;
+
+            var name = UiKit.CreateText(labelsGo.transform, player.Name.ToUpperInvariant(), 22,
+                TextAnchor.MiddleLeft, Color.white);
+            name.raycastTarget = false;
+            UiKit.AddTextShadow(name);
+            name.gameObject.AddComponent<LayoutElement>().minHeight = 28f;
+
+            string points = total == 1 ? "1 VP" : $"{total} VP";
+            var score = UiKit.CreateText(labelsGo.transform, $"{points}  ·  ${player.Money}", 17,
+                TextAnchor.MiddleLeft, UiKit.ButtonColor, body: true);
+            score.raycastTarget = false;
+            UiKit.AddTextShadow(score);
+            score.gameObject.AddComponent<LayoutElement>().minHeight = 22f;
+
+            var cardsGo = new GameObject("Cards", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            cardsGo.transform.SetParent(rowGo.transform, false);
+            var cards = cardsGo.GetComponent<HorizontalLayoutGroup>();
+            cards.spacing = ScoreCardGapPx;
+            cards.childAlignment = TextAnchor.MiddleLeft;
+            cards.childForceExpandWidth = false;
+            cards.childForceExpandHeight = false;
+            cards.childControlWidth = true;
+            cards.childControlHeight = true;
+            float cardWidth = cardHeight * ScoreCardAspect;
+            foreach (var art in ScoreCardArts(player))
+            {
+                var image = UiKit.CreateCardImage(cardsGo.transform, art, cardWidth, cardHeight);
+                _preview.Attach(image.gameObject, art);
+            }
+        }
+
+        /// <summary>The cards that scored, in order: First Dibs, Bragging Rights, then met Lemon Lords.</summary>
+        private List<Texture2D> ScoreCardArts(PlayerView.PlayerPanel player)
+        {
+            var arts = new List<Texture2D>();
+            foreach (string titleId in player.FirstDibsClaimed)
+            {
+                arts.Add(_art.Title(titleId));
+            }
+            for (int i = 0; i < player.BraggingRights; i++)
+            {
+                arts.Add(_art.BraggingRights(i) ?? _art.Back("braggingRights"));
+            }
+            foreach (var lord in player.FinishedLords)
+            {
+                if (lord.Met)
+                {
+                    arts.Add(_art.Title(lord.TitleId));
+                }
+            }
+            return arts;
         }
     }
 }

@@ -176,6 +176,7 @@ namespace LemonadeWars.Engine.Core
                 OwnerId = source.OwnerId,
                 Cancelled = source.Cancelled,
                 FreePlay = source.FreePlay,
+                WindowOffered = source.WindowOffered,
                 LemonInstanceId = source.LemonInstanceId,
                 LemonDefId = source.LemonDefId,
                 RespondingToItemId = source.RespondingToItemId,
@@ -195,6 +196,7 @@ namespace LemonadeWars.Engine.Core
                 EquipReplaceInstanceId = source.EquipReplaceInstanceId,
                 BmInstanceId = source.BmInstanceId,
                 PaidCost = source.PaidCost,
+                VacatedMarketIndex = source.VacatedMarketIndex,
             };
 
         private static PendingDecision CloneDecision(PendingDecision source) =>

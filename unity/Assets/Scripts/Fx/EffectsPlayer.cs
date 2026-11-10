@@ -21,6 +21,14 @@ namespace LemonadeWars.Unity
         private abstract class Fx { }
         private sealed class MoneyFx : Fx { public int PlayerId; public int Amount; }
         private sealed class SoundFx : Fx { public string Name; }
+        /// <summary>Fire-and-forget work that must wait its turn in the queue (a flight that may only start after ONWARD!).</summary>
+        private sealed class CallbackFx : Fx { public System.Action Run; }
+        /// <summary>
+        /// A blocking beat the caller animates itself: Start fires when its turn comes,
+        /// the table is held for Seconds. OnSkipped fires instead when the queue is
+        /// torn down first — whatever Start would have revealed must still appear.
+        /// </summary>
+        private sealed class HoldFx : Fx { public System.Action Start; public System.Action OnSkipped; public float Seconds; }
         private sealed class ToastFx : Fx { public string Text; }
         /// <summary>
         /// How long a revealed card holds centered. Playtest verdict: 1.7s read as
@@ -164,6 +172,8 @@ namespace LemonadeWars.Unity
         }
 
         private readonly RectTransform _layer;        // floaters + flights, no scrim
+        /// <summary>The floater/flight layer: what the play stage orders itself directly above.</summary>
+        public RectTransform Layer => _layer;
         private readonly RectTransform _revealRoot;   // dim scrim + card + title
         private readonly TMPro.TMP_Text _revealTitle;
         private readonly RectTransform _revealCardHost;
@@ -200,7 +210,7 @@ namespace LemonadeWars.Unity
                 }
                 foreach (var fx in _queue)
                 {
-                    if (!(fx is MoneyFx) && !(fx is SoundFx))
+                    if (!(fx is MoneyFx) && !(fx is SoundFx) && !(fx is CallbackFx))
                     {
                         return true;
                     }
@@ -399,6 +409,20 @@ namespace LemonadeWars.Unity
             _queue.Enqueue(new SoundFx { Name = name });
         }
 
+        /// <summary>Run something when the queue reaches it (behind the banner and any theatre ahead), without holding the table.</summary>
+        public void QueueCallback(System.Action run)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new CallbackFx { Run = run });
+        }
+
+        /// <summary>Hold the table for a beat the caller animates (see HoldFx).</summary>
+        public void QueueHold(System.Action start, float seconds, System.Action onSkipped = null)
+        {
+            _announceIdle = true;
+            _queue.Enqueue(new HoldFx { Start = start, Seconds = seconds, OnSkipped = onSkipped });
+        }
+
         /// <summary>Diagnostics: what the effects queue is doing right now.</summary>
         public string DebugState()
         {
@@ -427,6 +451,12 @@ namespace LemonadeWars.Unity
                         break;
                     case EarnFx earn:
                         earn.OnArrived?.Invoke();
+                        break;
+                    case CallbackFx callback:
+                        callback.Run?.Invoke(); // a draw flight still releases the card it hides
+                        break;
+                    case HoldFx hold:
+                        hold.OnSkipped?.Invoke();
                         break;
                     case MarketDealFx deal:
                         foreach (var card in deal.Deals)
@@ -464,12 +494,18 @@ namespace LemonadeWars.Unity
                 // a batch (stacking floaters per player), then start at most one
                 // blocking effect.
                 var stacked = new Dictionary<int, int>();
-                while (_queue.Count > 0 && (_queue.Peek() is MoneyFx || _queue.Peek() is SoundFx))
+                while (_queue.Count > 0 &&
+                       (_queue.Peek() is MoneyFx || _queue.Peek() is SoundFx || _queue.Peek() is CallbackFx))
                 {
                     var fx = _queue.Dequeue();
                     if (fx is SoundFx sound)
                     {
                         Sfx.Play(sound.Name);
+                        continue;
+                    }
+                    if (fx is CallbackFx callback)
+                    {
+                        callback.Run?.Invoke();
                         continue;
                     }
                     var money = (MoneyFx)fx;
@@ -523,6 +559,11 @@ namespace LemonadeWars.Unity
                 case ToastFx toast:
                     SpawnToast(toast.Text);
                     _busyUntil = Time.time + 1.0f;
+                    _endActive = () => { };
+                    break;
+                case HoldFx hold:
+                    hold.Start?.Invoke();
+                    _busyUntil = Time.time + hold.Seconds;
                     _endActive = () => { };
                     break;
                 case FlyFx fly:

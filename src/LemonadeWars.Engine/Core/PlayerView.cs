@@ -48,6 +48,8 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Price the viewer would pay per stand type (ownership escalation included).</summary>
         public Dictionary<string, int> SupplyPrices { get; set; } = new Dictionary<string, int>();
         public int? NextBraggingRightsPrice { get; set; }
+        /// <summary>The shelf slot a contested purchase left empty: Market is one short and the gap sits here.</summary>
+        public int? MarketGapIndex { get; set; }
         public int? WhiniestBabyHolder { get; set; }
         public int? SpoiledRottenHolder { get; set; }
 
@@ -64,6 +66,9 @@ namespace LemonadeWars.Engine.Core
         public StackTopInfo? StackTop { get; set; }
         /// <summary>The viewer's own pending decisions, with the payloads their UI needs.</summary>
         public List<DecisionInfo> MyDecisions { get; set; } = new List<DecisionInfo>();
+        /// <summary>Who owes a Timeout fine right now — the whole table sees the card — and how much.</summary>
+        public int? TimeoutFinePlayerId { get; set; }
+        public int TimeoutFineAmount { get; set; }
         /// <summary>A money steal against the viewer awaits a Profit Share response.</summary>
         public bool TheftOnMe { get; set; }
         /// <summary>Who robbed the viewer, when TheftOnMe.</summary>
@@ -170,6 +175,8 @@ namespace LemonadeWars.Engine.Core
         {
             var viewer = Player(viewerId);
 
+            var timeoutFine = State.PendingDecisions.FirstOrDefault(d => d.Kind == DecisionKind.TimeoutFine);
+
             PendingTheftResponse? TheftOnViewer(int id) =>
                 State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == id
                     ? State.TheftQueue[0]
@@ -228,6 +235,8 @@ namespace LemonadeWars.Engine.Core
                     State.BraggingRightsSold < Db.Supporting.BraggingRightsPrices.Count
                         ? Db.Supporting.BraggingRightsPrices[State.BraggingRightsSold]
                         : (int?)null,
+                MarketGapIndex = State.ResponseStack
+                    .FirstOrDefault(i => i.Kind == StackItemKind.BlackMarketPurchase)?.VacatedMarketIndex,
                 WhiniestBabyHolder = State.WhiniestBabyHolder,
                 SpoiledRottenHolder = State.SpoiledRottenHolder,
                 AwaitingResponse = State.AwaitingResponse.ToList(),
@@ -257,6 +266,8 @@ namespace LemonadeWars.Engine.Core
                         ContextPlayerId = d.ContextPlayerId,
                         EligibleCardIds = d.EligibleCardIds?.ToList(),
                     }).ToList(),
+                TimeoutFinePlayerId = timeoutFine?.PlayerId,
+                TimeoutFineAmount = timeoutFine?.RequiredMoney ?? 0,
                 Winners = State.Winners.ToList(),
             };
 

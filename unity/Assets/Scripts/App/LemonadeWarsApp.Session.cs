@@ -70,17 +70,12 @@ namespace LemonadeWars.Unity
         // ------------------------------------------------------------ flows
 
         /// <summary>
-        /// Default server URL from StreamingAssets/client-config.json (gitignored; written
-        /// by tools/sync_unity.sh, baked into builds, editable post-build). The last URL a
-        /// player actually connected to takes precedence.
+        /// Server URL from StreamingAssets/client-config.json (gitignored; written by
+        /// tools/sync_unity.sh, baked into builds, editable post-build). Players cannot
+        /// change it in-app.
         /// </summary>
         private static string LoadConfiguredServerUrl()
         {
-            string remembered = PlayerPrefs.GetString("lw_server", "");
-            if (!string.IsNullOrEmpty(remembered))
-            {
-                return remembered;
-            }
             try
             {
                 string path = Path.Combine(Application.streamingAssetsPath, "client-config.json");
@@ -151,7 +146,6 @@ namespace LemonadeWars.Unity
             _pendingName = name;
             _pendingCode = code;
             _pendingToken = token;
-            PlayerPrefs.SetString("lw_server", url);
             PlayerPrefs.SetString("lw_name", name);
             _screen = Screen.Lobby;
             _lobbyRevision = -1;
@@ -288,7 +282,20 @@ namespace LemonadeWars.Unity
             // Same law for the shelf: stale holds from a previous game would keep
             // market slots empty forever (ids can collide across games), and a stale
             // snapshot would diff garbage.
+            _sale = null;
+            _preStagedDefId = null;
+            _lastShownBanner = null;
+            _table.EndRummagePick();
+            _table.StagedHandCardId = null;
             _hiddenMarketIds.Clear();
+            _liftedMarketIds.Clear();
+            _handCardsInFlight.Clear();
+            _equippedInFlight.Clear();
+            _afterTurnBanner.Clear();
+            _shelfDeparture = null;
+            _timeoutCardInFlight = false;
+            _timeoutCardShownAt = -100f;
+            _liftedCardLanding = null;
             _marketStandIns.Clear();
             _marketSnap = null;
             _supplyTopSnap = null;
@@ -324,6 +331,8 @@ namespace LemonadeWars.Unity
             _remote = null;
             _screen = Screen.Menu;
             UiKit.Clear(_turnActionRow);
+            _table.DropShelfGhosts();
+            _table.HideTimeoutCard();
             _table.SetVisible(false);
             _prompt.Hide();
             _picker.Hide();

@@ -57,8 +57,32 @@ namespace LemonadeWars.Unity
                     botIndex++;
                 }
             }
+            SeedDebugHandCard(humanSeat, "rummage-sale");
             AddLog($"New game — {names.Length} players, you are {names[humanSeat]}.");
             Refresh();
+        }
+
+        /// <summary>
+        /// TEMPORARY (testing a card's table flow): swap one copy of a card from the
+        /// deck into the human's opening hand, trading out their first card so the
+        /// hand size stays honest. Solo games only; delete the call when done.
+        /// </summary>
+        private void SeedDebugHandCard(int seat, string defId)
+        {
+            var state = _game.State;
+            var hand = state.Players[seat].Hand;
+            if (hand.Any(id => state.LemonInstances[id].DefId == defId))
+            {
+                return;
+            }
+            int deckIndex = state.LemonDeck.FindIndex(id => state.LemonInstances[id].DefId == defId);
+            if (deckIndex < 0 || hand.Count == 0)
+            {
+                return;
+            }
+            int swappedOut = hand[0];
+            hand[0] = state.LemonDeck[deckIndex];
+            state.LemonDeck[deckIndex] = swappedOut;
         }
 
         public string BotLevelOf(int playerId) =>
@@ -69,12 +93,23 @@ namespace LemonadeWars.Unity
         public void Submit(GameAction action)
         {
             action.PlayerId = Seat;
-            foreach (var gameEvent in _game.Apply(action))
+            Emit(_game.Apply(action));
+        }
+
+        /// <summary>
+        /// Events go out with the View already caught up to them — the same order the
+        /// server's updates arrive in, so handlers can read the post-action state
+        /// (an open window, the stack top) while they play the events.
+        /// </summary>
+        private void Emit(IEnumerable<GameEvent> events)
+        {
+            var burst = events.ToList();
+            Refresh();
+            foreach (var gameEvent in burst)
             {
                 AddLog(gameEvent.ToString());
                 EventEmitted?.Invoke(gameEvent);
             }
-            Refresh();
         }
 
         public void Tick()
@@ -156,15 +191,7 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private void ApplyBotAction(GameAction action)
-        {
-            foreach (var gameEvent in _game.Apply(action))
-            {
-                AddLog(gameEvent.ToString());
-                EventEmitted?.Invoke(gameEvent);
-            }
-            Refresh();
-        }
+        private void ApplyBotAction(GameAction action) => Emit(_game.Apply(action));
 
         private void Refresh()
         {

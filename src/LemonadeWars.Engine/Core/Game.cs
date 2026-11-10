@@ -598,12 +598,12 @@ namespace LemonadeWars.Engine.Core
             }
 
             State.Market.RemoveAt(action.MarketIndex);
-            RefillMarket(action.MarketIndex);
-            events.Add(new MarketRefilled { Market = State.Market.ToList() });
 
             if (duringSetup)
             {
                 // Pre-game purchases cannot be tantrummed — equip immediately.
+                RefillMarket(action.MarketIndex);
+                events.Add(new MarketRefilled { Market = State.Market.ToList() });
                 TryEquip(player, instanceId, action.TargetStandInstanceId, action.ReplaceInstanceId, events,
                     pricePaid: price);
                 AdvanceInitialBuyQueue(events);
@@ -611,17 +611,37 @@ namespace LemonadeWars.Engine.Core
             }
 
             // In-game purchases are contestable (rulebook p11): money is paid up front and
-            // refunded (action is not) if a tantrum chain cancels the purchase.
+            // refunded (action is not) if a tantrum chain cancels the purchase. The
+            // slot stays EMPTY while it is contested — the next card is only drawn
+            // once the purchase resolves, so nobody sees it before deciding to Tantrum.
+            var bought = State.BlackMarketInstances[instanceId];
+            events.Add(new BlackMarketPurchaseStarted
+            {
+                PlayerId = player.PlayerId,
+                InstanceId = instanceId,
+                DefId = bought.DefId,
+                Shape = bought.Shape,
+                MarketIndex = action.MarketIndex,
+                Price = price,
+            });
             PushStackItem(new StackItem
             {
                 Kind = StackItemKind.BlackMarketPurchase,
                 OwnerId = player.PlayerId,
                 BmInstanceId = instanceId,
                 PaidCost = price,
+                VacatedMarketIndex = action.MarketIndex,
                 EquipStandInstanceId = action.TargetStandInstanceId,
                 EquipReplaceInstanceId = action.ReplaceInstanceId,
             }, events);
             Pump(events);
+        }
+
+        /// <summary>A contested purchase is over (equipped or cancelled): only now is the vacated slot refilled.</summary>
+        private void RefillAfterPurchase(StackItem item, List<GameEvent> events)
+        {
+            RefillMarket(item.VacatedMarketIndex ?? -1);
+            events.Add(new MarketRefilled { Market = State.Market.ToList() });
         }
 
         /// <summary>
@@ -652,6 +672,7 @@ namespace LemonadeWars.Engine.Core
                 // Destination vanished mid-contest (cannot normally happen); card is lost.
                 State.BlackMarketDiscard.Add(item.BmInstanceId.Value);
             }
+            RefillAfterPurchase(item, events);
         }
 
         private void ApplyBuyBraggingRights(BuyBraggingRights action, List<GameEvent> events)

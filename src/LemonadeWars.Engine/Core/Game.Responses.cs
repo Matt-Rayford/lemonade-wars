@@ -149,7 +149,6 @@ namespace LemonadeWars.Engine.Core
                     case DecisionKind.AbilityGiveBack:
                         stale = !player.Hand.Any(id => id != decision.StolenCardId);
                         break;
-                    case DecisionKind.AbilityDiscard:
                     case DecisionKind.DiscardToHandLimit:
                         if (player.Hand.Count < decision.RequiredCount)
                         {
@@ -157,8 +156,11 @@ namespace LemonadeWars.Engine.Core
                             stale = decision.RequiredCount == 0;
                         }
                         break;
+                    case DecisionKind.AbilityDiscard:
                     case DecisionKind.WhiniestBabyDiscard:
-                        // Restricted to the drawn cards; drop any that left the hand since.
+                        // Restricted to the drawn cards; drop any that left the hand since
+                        // (a Timeout's discard answered first, a steal) — or the decision
+                        // would offer cards that are gone and reject its own moves.
                         decision.EligibleCardIds = decision.EligibleCardIds?
                             .Where(player.Hand.Contains).ToList();
                         int eligibleCount = decision.EligibleCardIds?.Count ?? player.Hand.Count;
@@ -197,14 +199,27 @@ namespace LemonadeWars.Engine.Core
             {
                 State.LastWindowRevision = State.InteractionRevision;
                 State.AwaitingResponse.Clear();
-                State.AwaitingResponse.AddRange(EligibleResponders());
-                if (State.AwaitingResponse.Count > 0)
+                var top = State.ResponseStack.Count > 0
+                    ? State.ResponseStack[State.ResponseStack.Count - 1]
+                    : null;
+                // A card is answered when it is played, once. An item that surfaces
+                // again while the stack unwinds (the Tantrum on it was cancelled) has
+                // had its window: it resolves without the table being asked again.
+                if (top == null || !top.WindowOffered)
                 {
-                    events.Add(new ResponseWindowOpened
+                    if (top != null)
                     {
-                        AwaitingPlayers = State.AwaitingResponse.ToList(),
-                        Context = CurrentWindowContext(),
-                    });
+                        top.WindowOffered = true;
+                    }
+                    State.AwaitingResponse.AddRange(EligibleResponders());
+                    if (State.AwaitingResponse.Count > 0)
+                    {
+                        events.Add(new ResponseWindowOpened
+                        {
+                            AwaitingPlayers = State.AwaitingResponse.ToList(),
+                            Context = CurrentWindowContext(),
+                        });
+                    }
                 }
             }
             return State.AwaitingResponse.Count == 0;
@@ -544,6 +559,7 @@ namespace LemonadeWars.Engine.Core
                     Reason = "purchase refunded",
                 });
                 State.BlackMarketDiscard.Add(item.BmInstanceId!.Value);
+                RefillAfterPurchase(item, events);
             }
             else
             {

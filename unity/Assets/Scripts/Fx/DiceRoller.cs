@@ -101,8 +101,14 @@ namespace LemonadeWars.Unity
         /// <summary>Applied after the recorded rotation so the engine's number is the face on top.</summary>
         private Quaternion _labelRotation = Quaternion.identity;
 
-        public DiceRoller(RectTransform canvasRoot)
+        /// <param name="landingCeilingViewportY">
+        /// How far up the screen (0 bottom, 1 top) the die may come to REST: the app
+        /// passes the bottom edge of its message strip, so a settled die never covers
+        /// the words and buttons that answer it. Throws still fly in across it.
+        /// </param>
+        public DiceRoller(RectTransform canvasRoot, float landingCeilingViewportY = 1f)
         {
+            _landingCeilingViewportY = landingCeilingViewportY;
             // Lives far below the origin on its own layer; only the die camera sees it.
             _rig = new GameObject("DieRig").transform;
             _rig.position = new Vector3(0, -500f, 0);
@@ -481,13 +487,37 @@ namespace LemonadeWars.Unity
             _camera.targetTexture = _renderTexture;
             _camera.aspect = width / (float)height;
             _viewImage.texture = _renderTexture;
-            _simulator.SetArena(VisibleFloorCorners());
+            _simulator.SetArena(FloorCorners(ArenaTopViewportY()), FloorCorners(1f));
         }
 
-        /// <summary>Where the screen's four corners land on the table, in rig-local xz.</summary>
-        private Vector2[] VisibleFloorCorners()
+        private const float DieSizeUnits = 1f;
+        /// <summary>Air between a resting die's highest pixel and the ceiling, as a share of screen height.</summary>
+        private const float CeilingClearanceViewport = 0.01f;
+        private readonly float _landingCeilingViewportY;
+
+        /// <summary>
+        /// The top wall's height on screen. The walls bound the die's CENTRE (less the
+        /// simulator's rest margin), but its body reaches further up the screen: half
+        /// its diagonal across the floor, plus its own height leaning toward the
+        /// camera at this pitch. The wall sits that much below the ceiling.
+        /// </summary>
+        private float ArenaTopViewportY()
         {
-            var viewportCorners = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) };
+            if (_landingCeilingViewportY >= 1f)
+            {
+                return 1f;
+            }
+            float pitch = CameraPitchDegrees * Mathf.Deg2Rad;
+            float reachUnits = DieSizeUnits * 0.7071f * Mathf.Sin(pitch) + DieSizeUnits * Mathf.Cos(pitch)
+                - DieThrowSimulator.RestMargin;
+            float reachViewport = Mathf.Max(0f, reachUnits) / (2f * CameraOrthographicHalfHeight);
+            return _landingCeilingViewportY - reachViewport - CeilingClearanceViewport;
+        }
+
+        /// <summary>Where the screen's corners land on the table, in rig-local xz, with the top edge at the given height up the screen.</summary>
+        private Vector2[] FloorCorners(float top)
+        {
+            var viewportCorners = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, top), new Vector2(0, top) };
             var corners = new Vector2[4];
             float floorY = _rig.position.y;
             for (int i = 0; i < 4; i++)

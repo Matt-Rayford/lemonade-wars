@@ -1,0 +1,389 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace LemonadeWars.Unity
+{
+    // Sticky drag: a double-clicked shelf card rides the cursor with no button held —
+    // the drag-and-drop language, with the drop decided by a second click. A click
+    // off any legal target sends the card gliding back to its shelf slot. The ghost
+    // belongs to the table, not the shelf cell, so it survives re-renders.
+    public sealed partial class TableView
+    {
+        private const float GhostWidthPx = 150f;
+        private const float GhostHeightPx = 210f;
+        private const float GhostAlpha = 0.92f;
+        private const float GhostReturnSeconds = 0.25f;
+        private const float ShelfGlideSeconds = 0.5f;
+        /// <summary>A returning ghost starts fading this far along its glide home.</summary>
+        private const float GhostReturnFadeFrom = 0.6f;
+
+        public bool StickyDragActive => _stickyGhost != null;
+
+        /// <summary>A let-go card is back on its shelf slot (or had nowhere to go): the slot may show it again.</summary>
+        public System.Action OnStickyReturned;
+
+        /// <summary>Shelf cells go inert while a card is held or gliding: one purchase at a time.</summary>
+        private bool ShelfHeld => _stickyGhost != null || _shelfGlidesInFlight > 0;
+
+        private RectTransform _stickyGhost;
+        private DragKind _stickyKind;
+        private int _stickyMarketIndex;
+        private string _stickySupplyTypeId;
+        private Vector3? _stickyHomeWorld;
+        /// <summary>Placement mode: where the held card goes on a stand click; null for a shelf purchase.</summary>
+        private System.Action<int?> _stickyPlace;
+        private System.Action _stickyPlaceCancel;
+        private int? _stickyHover;
+        private bool _stickyHoverAny;
+        /// <summary>The double-click that armed the hold must not also drop it.</summary>
+        private bool _stickySawRelease;
+        private int _shelfGlidesInFlight;
+
+        /// <summary>
+        /// A card with no shelf slot behind it (a take from the discard, the shelf or
+        /// a rival's board) rides the cursor until a click on one of the lit stands
+        /// places it; a click anywhere else lets it go. Replaces the dimmed aim layer
+        /// for "which of your stands gets this card" choices.
+        /// </summary>
+        public void BeginStickyPlace(Texture2D art, ISet<int?> validTargets,
+            System.Action<int?> onPlace, System.Action onCancel)
+        {
+            ArmSticky(DragKind.MarketCard, art, null);
+            _stickyPlace = onPlace;
+            _stickyPlaceCancel = onCancel;
+            SetValidDropTargets(validTargets);
+            _preview.SetDragging(true);
+        }
+
+        public void BeginMarketStickyDrag(int marketIndex, Texture2D art)
+        {
+            ArmSticky(DragKind.MarketCard, art, MarketSlotWorld(marketIndex));
+            _stickyMarketIndex = marketIndex;
+            OnMarketDragStart?.Invoke(marketIndex);
+        }
+
+        public void BeginSupplyStickyDrag(string standTypeId)
+        {
+            if (!_supplyArt.TryGetValue(standTypeId, out var art))
+            {
+                return;
+            }
+            ArmSticky(DragKind.SupplyStand, art, StandSupplyWorld(standTypeId));
+            _stickySupplyTypeId = standTypeId;
+            _supplyDragActive = true;
+            _preview.SetDragging(true);
+        }
+
+        private void ArmSticky(DragKind kind, Texture2D art, Vector3? homeWorld)
+        {
+            if (_stickyGhost != null)
+            {
+                CancelStickyDrag();
+            }
+            _stickyKind = kind;
+            _stickyHomeWorld = homeWorld;
+            _stickyHover = null;
+            _stickyHoverAny = false;
+            _stickySawRelease = false;
+            _stickyGhost = BuildShelfGhost(art);
+            _stickyGhost.position = Input.mousePosition;
+        }
+
+        /// <summary>Called every frame by the app: the ghost follows the cursor, hover
+        /// glows track it, and the next click drops or cancels.</summary>
+        public void TickStickyDrag(Vector2 screenPosition)
+        {
+            if (_stickyGhost == null)
+            {
+                return;
+            }
+            _stickyGhost.position = screenPosition;
+            if (_stickyKind == DragKind.MarketCard)
+            {
+                TickStickyMarketHover(screenPosition);
+            }
+            if (!_stickySawRelease)
+            {
+                _stickySawRelease = !Input.GetMouseButton(0);
+                return;
+            }
+            if (!Input.GetMouseButtonDown(0))
+            {
+                return;
+            }
+            if (_stickyKind == DragKind.MarketCard)
+            {
+                DropStickyMarketCard();
+            }
+            else
+            {
+                DropStickySupplyStand(screenPosition);
+            }
+        }
+
+        private void TickStickyMarketHover(Vector2 screenPosition)
+        {
+            int? hover = null;
+            bool any = false;
+            foreach (var (id, cell, _) in _dropCells)
+            {
+                if (_validDropTargets.Contains(id) &&
+                    RectTransformUtility.RectangleContainsScreenPoint(cell, screenPosition))
+                {
+                    hover = id;
+                    any = true;
+                    break;
+                }
+            }
+            _stickyHover = hover;
+            _stickyHoverAny = any;
+            // Re-asserted every frame: a re-render rebuilds the glows switched off.
+            foreach (var (id, glow) in _dropGlows)
+            {
+                if (glow != null)
+                {
+                    glow.SetActive(any && Equals(id, hover));
+                }
+            }
+        }
+
+        private void DropStickyMarketCard()
+        {
+            if (!_stickyHoverAny)
+            {
+                CancelStickyDrag();
+                return;
+            }
+            int marketIndex = _stickyMarketIndex;
+            int? target = _stickyHover;
+            var place = _stickyPlace;
+            Object.Destroy(EndStickyDrag().gameObject);
+            if (place != null)
+            {
+                place(target);
+            }
+            else
+            {
+                OnMarketDrop?.Invoke(marketIndex, target);
+            }
+        }
+
+        private void DropStickySupplyStand(Vector2 screenPosition)
+        {
+            if (!_viewingOwnBoard ||
+                !RectTransformUtility.RectangleContainsScreenPoint(_boardPanel, screenPosition))
+            {
+                CancelStickyDrag();
+                return;
+            }
+            string standTypeId = _stickySupplyTypeId;
+            int insertIndex = _supplyInsertIndex >= 0 ? _supplyInsertIndex : _standCells.Count;
+            Object.Destroy(EndStickyDrag().gameObject);
+            OnSupplyDrop?.Invoke(standTypeId, insertIndex);
+        }
+
+        /// <summary>Let go without buying: the ghost glides back to its shelf slot.</summary>
+        public void CancelStickyDrag()
+        {
+            if (_stickyGhost == null)
+            {
+                return;
+            }
+            var home = _stickyHomeWorld;
+            var letGo = _stickyPlaceCancel;
+            var ghost = EndStickyDrag();
+            if (home == null)
+            {
+                Object.Destroy(ghost.gameObject);
+                OnStickyReturned?.Invoke();
+                letGo?.Invoke();
+                return;
+            }
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = ghost.anchoredPosition;
+            motion.To = _canvasRoot.InverseTransformPoint(home.Value);
+            motion.Duration = GhostReturnSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.FadeOutFrom = GhostReturnFadeFrom;
+            motion.OnArrive = () => OnStickyReturned?.Invoke();
+        }
+
+        /// <summary>Leaving the table: no ghost may outlive it, held or mid-glide.</summary>
+        public void DropShelfGhosts()
+        {
+            if (_stickyGhost != null)
+            {
+                Object.Destroy(EndStickyDrag().gameObject);
+            }
+            foreach (var ghost in _canvasRoot.GetComponentsInChildren<ShelfGhostTag>())
+            {
+                Object.Destroy(ghost.gameObject);
+            }
+            _shelfGlidesInFlight = 0;
+        }
+
+        /// <summary>Release the hold's side effects and hand back the ghost for the caller to dispose.</summary>
+        private RectTransform EndStickyDrag()
+        {
+            var ghost = _stickyGhost;
+            _stickyGhost = null;
+            _stickyPlace = null;
+            _stickyPlaceCancel = null;
+            if (_stickyKind == DragKind.MarketCard)
+            {
+                OnMarketDragEnd?.Invoke(); // the app drops the previews and the drop glows
+                ClearDropHighlights();
+            }
+            else
+            {
+                _supplyDragActive = false;
+                _preview.SetDragging(false);
+                HideInsertPreview();
+            }
+            return ghost;
+        }
+
+        /// <summary>
+        /// A card leaves its shelf slot and slides straight to where it is about to
+        /// land — the no-decision purchase, which otherwise just pops into place.
+        /// The buy itself fires on arrival; with either end unknown it fires at once.
+        /// </summary>
+        public void GlideShelfCard(Texture2D art, Vector3? fromWorld, Vector3? toWorld,
+            System.Action onArrive)
+        {
+            if (fromWorld == null || toWorld == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            _shelfGlidesInFlight++;
+            var ghost = BuildShelfGhost(art);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = _canvasRoot.InverseTransformPoint(toWorld.Value);
+            motion.Duration = ShelfGlideSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.OnArrive = () =>
+            {
+                _shelfGlidesInFlight = Mathf.Max(0, _shelfGlidesInFlight - 1);
+                onArrive?.Invoke();
+            };
+        }
+
+        /// <summary>Draws in one burst (draw 2) leave the pile one after another, not as one card.</summary>
+        private const float DrawStaggerSeconds = 0.12f;
+        private const float DrawToChipFadeFrom = 0.6f;
+        private int _drawFlightFrame = -1;
+        private int _drawFlightsThisFrame;
+
+        /// <summary>
+        /// Another player's draw: a face-down card leaves the pile and shrinks into
+        /// their avatar chip, fading as it lands — the hand it joins is not yours to see.
+        /// </summary>
+        public void GlideCardToPlayer(Texture2D backArt, Vector3? fromWorld, int playerId)
+        {
+            var avatar = PlayerAvatarWorld(playerId);
+            if (fromWorld == null || backArt == null || avatar == null)
+            {
+                return;
+            }
+            var ghost = BuildShelfGhost(backArt);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = _canvasRoot.InverseTransformPoint(avatar.Value.Center);
+            float chipDiameter = 2f * (motion.To - (Vector2)_canvasRoot.InverseTransformPoint(avatar.Value.Rim)).magnitude;
+            motion.EndScale = chipDiameter / GhostWidthPx;
+            motion.Duration = ShelfGlideSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.FadeOutFrom = DrawToChipFadeFrom;
+            motion.Delay = NextDrawDelay();
+        }
+
+        private float NextDrawDelay()
+        {
+            if (_drawFlightFrame != Time.frameCount)
+            {
+                _drawFlightFrame = Time.frameCount;
+                _drawFlightsThisFrame = 0;
+            }
+            return DrawStaggerSeconds * _drawFlightsThisFrame++;
+        }
+
+        public const float TimeoutFlightSeconds = 0.45f;
+
+        /// <summary>
+        /// A drawn Timeout flies face-up from the pile to the middle of the table,
+        /// growing to the size it will lie at; the caller shows the real card on arrival.
+        /// </summary>
+        public void GlideTimeoutToCenter(Texture2D art, Vector3? fromWorld, System.Action onArrive)
+        {
+            if (fromWorld == null || art == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            var ghost = BuildShelfGhost(art);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = Vector2.zero;
+            motion.EndScale = TimeoutCardWidthPx / GhostWidthPx;
+            motion.Duration = TimeoutFlightSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.OnArrive = () => onArrive?.Invoke();
+        }
+
+        /// <summary>
+        /// A drawn Lemon card flies face-up from the pile into its place in the fan.
+        /// The hand renders the card invisible in its slot first, so the destination
+        /// is read the frame the flight starts, once the fan has been laid out.
+        /// </summary>
+        public void GlideCardToHand(Texture2D art, Vector3? fromWorld, int instanceId, System.Action onArrive)
+        {
+            if (fromWorld == null || art == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            var ghost = BuildShelfGhost(art);
+            var motion = ghost.gameObject.AddComponent<FlightMotion>();
+            motion.From = _canvasRoot.InverseTransformPoint(fromWorld.Value);
+            motion.To = motion.From;
+            motion.Duration = ShelfGlideSeconds;
+            motion.ArcHeight = 0f;
+            motion.VisibleWhileWaiting = true;
+            motion.Delay = NextDrawDelay();
+            motion.OnStart = () =>
+            {
+                var placement = HandCardPlacement(instanceId);
+                if (placement == null)
+                {
+                    return; // nowhere to land: the flight ends where it began and the hold lifts
+                }
+                motion.To = _canvasRoot.InverseTransformPoint(placement.Value.Center);
+                motion.EndScale = placement.Value.Width / GhostWidthPx;
+            };
+            motion.OnArrive = () => onArrive?.Invoke();
+        }
+
+        private RectTransform BuildShelfGhost(Texture2D art)
+        {
+            var image = UiKit.CreateCardImage(_canvasRoot, art, GhostWidthPx, GhostHeightPx);
+            image.raycastTarget = false;
+            image.color = new Color(1f, 1f, 1f, GhostAlpha);
+            var ghost = (RectTransform)image.transform.parent;
+            ghost.name = "ShelfGhost";
+            ghost.gameObject.AddComponent<ShelfGhostTag>();
+            ghost.GetComponent<Image>().raycastTarget = false;
+            ghost.anchorMin = ghost.anchorMax = new Vector2(0.5f, 0.5f);
+            ghost.pivot = new Vector2(0.5f, 0.5f);
+            ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
+            ghost.SetAsLastSibling();
+            return ghost;
+        }
+    }
+}

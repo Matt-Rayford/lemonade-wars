@@ -67,6 +67,10 @@ namespace LemonadeWars.Unity
         private EffectsPlayer _fx;
         private PlayTheatre _playTheatre;
         private RectTransform _turnActionRow;
+        /// <summary>The message strip's vertical band on screen (0 bottom, 1 top): between the shelf and the board.</summary>
+        private const float MessageStripBottom = 0.697f;
+        private const float MessageStripTop = 0.77f;
+
         private TMP_Text _tableMessage;
         /// <summary>Same strip as the message: holds the End Turn button once actions are spent.</summary>
         private RectTransform _tableActionHost;
@@ -105,7 +109,7 @@ namespace LemonadeWars.Unity
             _tableMessage.raycastTarget = false;
             UiKit.AddTextShadow(_tableMessage);
             var messageRect = (RectTransform)_tableMessage.transform;
-            UiKit.Anchor(messageRect, new Vector2(0.21f, 0.697f), new Vector2(0.79f, 0.77f));
+            UiKit.Anchor(messageRect, new Vector2(0.21f, MessageStripBottom), new Vector2(0.79f, MessageStripTop));
             // The message's strip doubles as the home of the big End Turn button when
             // there is nothing else to say; the words step aside while it is there.
             // Anchored off the message itself, so nudging one nudges both.
@@ -163,18 +167,16 @@ namespace LemonadeWars.Unity
             _table.CanBuySupply = typeId => CurrentGroups()?.SupplyMoves.ContainsKey(typeId) == true;
             _table.OnSupplyDrop = OnSupplyDrop;
             _table.CanBuyBragging = () => CurrentGroups()?.BraggingMoves.Count > 0;
-            _table.OnBraggingDrop = () =>
-            {
-                var moves = CurrentGroups()?.BraggingMoves;
-                if (moves != null && moves.Count > 0)
-                {
-                    Submit(moves[0]);
-                }
-            };
+            _table.OnBraggingDrop = BuyBraggingRights;
+            _table.OnMarketDoubleClick = OnMarketDoubleClick;
+            _table.OnSupplyDoubleClick = OnSupplyDoubleClick;
+            _table.OnBraggingDoubleClick = OnBraggingDoubleClick;
             _table.OnBoardViewChanged = () => _renderedRevision = -1;
             // A refilled market card renders as an empty slot while the purchase drift
             // that exposed it is mid-air; delivery lifts it (see HandleMarketRefilled).
             _table.MarketCardHidden = instanceId => _hiddenMarketIds.Contains(instanceId);
+            _table.HandCardInvisible = instanceId => _handCardsInFlight.Contains(instanceId);
+            _table.EquippedCardInvisible = instanceId => _equippedInFlight.Contains(instanceId);
             _table.MarketStandIn = instanceId =>
                 _marketStandIns.TryGetValue(instanceId, out var art) ? art : null;
             _table.SetVisible(false);
@@ -200,10 +202,11 @@ namespace LemonadeWars.Unity
             _lobby.OnLeave = () => BackToMenu("");
             StartCoroutine(ServerStatusLoop());
 
-            // Staged attacks sit under the effects layer, so reveal scrims cover them.
+            // Staged plays sit under the reveal scrim (ordered below, once the
+            // effects exist), so a reveal still covers them.
             _playTheatre = new PlayTheatre(root,
                 playerId => _table.PlayerBarWorld(playerId),
-                playerId => _table.PlayerBarEdgeWorld(playerId),
+                playerId => _table.PlayerAvatarWorld(playerId),
                 playerId => _table.PurchaseShowcaseWorld(playerId),
                 (playerId, on) => _table.SetVictimGlow(playerId, on),
                 _preview,
@@ -229,11 +232,14 @@ namespace LemonadeWars.Unity
                 _renderedRevision = -1;
                 _modalRevision = -1;
             };
+            // A contested purchase's bills land at the showcase under its staged card.
+            _playTheatre.DrawAbove(_fx.Layer);
 
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
-            _dice = new DiceRoller(root);
+            // The die may tumble across the message strip but never rests on it.
+            _dice = new DiceRoller(root, landingCeilingViewportY: MessageStripBottom);
             _dice.OnFinished = () =>
             {
                 // Re-render so anything held back during the roll opens now.
@@ -320,6 +326,7 @@ namespace LemonadeWars.Unity
             TickLobby();
             TickTurnAlertFade();
             TickGamesListRefresh();
+            TickTableColor();
 
             bool escConsumed = TickRulebookKeys();
 
@@ -330,6 +337,8 @@ namespace LemonadeWars.Unity
 
             TickGameHotkeys(escConsumed);
 
+            _table.TickStickyDrag(Input.mousePosition);
+            _table.TickRummagePick(Input.mousePosition);
             _table.TickSupplyDrag(Input.mousePosition);
             _table.TickEquipTargeting(Input.mousePosition);
             _table.TickAttackTargeting(Input.mousePosition);
@@ -347,6 +356,9 @@ namespace LemonadeWars.Unity
                 _shownDiceHeadline = _dice.HeadlineRevision;
                 _renderedRevision = -1; // the banner carries the die's words
             }
+            // What waited on ONWARD! is queued before the render, so the decisions
+            // behind it (a Timeout's discards) open after its flight, not before.
+            ReleaseAfterTurnBanner();
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();
@@ -354,6 +366,7 @@ namespace LemonadeWars.Unity
             MaybeShowEndSummary();
             _fx.Tick();
             _playTheatre.Tick();
+            SyncTimeoutCard();
             TickPresentationWatchdog();
         }
 
@@ -378,9 +391,9 @@ namespace LemonadeWars.Unity
         /// </summary>
         private bool TickRulebookKeys()
         {
-            if (!_rulebook.IsOpen)
+            if (_rulebook == null || !_rulebook.IsOpen)
             {
-                return false;
+                return false; // null after an editor domain reload mid-play: nothing to drive
             }
             if (Input.GetKeyDown(KeyCode.LeftArrow))
             {

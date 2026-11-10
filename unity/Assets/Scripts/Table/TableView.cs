@@ -58,6 +58,7 @@ namespace LemonadeWars.Unity
         private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
             _marketCells = new List<(int, RectTransform, GameObject, GameObject)>();
         private readonly Dictionary<int, RectTransform> _cashIcons = new Dictionary<int, RectTransform>();
+        private readonly Dictionary<int, RectTransform> _avatarBadges = new Dictionary<int, RectTransform>();
         private readonly List<(int PlayerId, RectTransform Row, GameObject Glow)> _playerRows =
             new List<(int, RectTransform, GameObject)>();
         private readonly List<(int Id, RectTransform Strip, GameObject Glow)> _equipCells =
@@ -86,6 +87,7 @@ namespace LemonadeWars.Unity
             _cashIcon = LoadIcon("Cash.png");
             _tantrumIcon = LoadIcon("Tantrum.png");
             _hourglassIcon = LoadIcon("Hourglass.png");
+            _pinnedTagIcon = LoadIcon("PriceTag.png");
             Build(canvasRoot);
         }
 
@@ -119,11 +121,6 @@ namespace LemonadeWars.Unity
             playersLayout.childControlHeight = true;
             playersLayout.childControlWidth = true;
             _playersColumn = (RectTransform)playersGo.transform;
-
-            // Right column, mirroring the player panels: the action log. Collapsed
-            // it's one slim "latest thing that happened" chip; expanded it's the
-            // recent history — fast bot turns can be replayed at a glance.
-            BuildActionLog();
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
@@ -165,6 +162,14 @@ namespace LemonadeWars.Unity
             _boardOwnerLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
                 new Vector2(0, 0.90f), new Vector2(1, 1));
+
+            // Right column, mirroring the player panels: the action log. Collapsed
+            // it's one slim "latest thing that happened" chip; expanded it's the
+            // recent history — fast bot turns can be replayed at a glance. Built
+            // AFTER the board: the board band runs to the screen's right edge now,
+            // and its drop-catching panel would otherwise sit on top of the log and
+            // swallow every click on its header.
+            BuildActionLog();
 
             // Persistent actions: a floating button strip above the hand's peek band.
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
@@ -249,7 +254,8 @@ namespace LemonadeWars.Unity
 
         /// <summary>True while something Esc-cancellable is up (aiming, equip, discards).</summary>
         public bool HasActiveOverlay =>
-            _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf;
+            _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf ||
+            StickyDragActive || RummagePickActive;
 
         /// <summary>
         /// Esc: dismiss whichever aiming/browsing overlay is up — same outcome as
@@ -272,6 +278,16 @@ namespace LemonadeWars.Unity
                 cancel?.Invoke();
                 return;
             }
+            if (StickyDragActive)
+            {
+                CancelStickyDrag();
+                return;
+            }
+            if (RummagePickActive)
+            {
+                OnRummageCancel?.Invoke();
+                return;
+            }
             if (_discardOverlay.gameObject.activeSelf)
             {
                 CloseDiscardViewer();
@@ -290,6 +306,7 @@ namespace LemonadeWars.Unity
             {
                 EndEquipTargeting();
             }
+            CancelStickyDrag();
             if (_discardOverlay.gameObject.activeSelf)
             {
                 CloseDiscardViewer();

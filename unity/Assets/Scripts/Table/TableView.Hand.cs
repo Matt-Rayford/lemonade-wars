@@ -13,6 +13,13 @@ namespace LemonadeWars.Unity
     // edge scrolling when the fan outgrows its band.
     public sealed partial class TableView
     {
+        /// <summary>A hand card the viewer has staged on the table before playing it
+        /// (Rummage Sale): the fan leaves its place empty until the play goes through.</summary>
+        public int? StagedHandCardId;
+        /// <summary>A hand card still in flight from the pile: it holds its place in the
+        /// fan, drawn invisible, until the flight lands and the app lifts the hold.</summary>
+        public System.Func<int, bool> HandCardInvisible;
+
         public System.Action<int> OnHandCard;      // lemon instance id
 
         /// <summary>Sentinel hand-frame id for the draw slot — never a real instance.</summary>
@@ -84,6 +91,7 @@ namespace LemonadeWars.Unity
             // the next render.
             var hand = view.Hand
                 .Where(c => hiddenIds == null || !hiddenIds.Contains(c.InstanceId))
+                .Where(c => c.InstanceId != StagedHandCardId)
                 .OrderBy(c => HandGroupRank(c.DefId))
                 .ThenBy(c => _db.Lemon(c.DefId).Name)
                 .ThenBy(c => c.InstanceId)
@@ -98,6 +106,7 @@ namespace LemonadeWars.Unity
             // (so the fan re-renders the moment the Whiniest Baby decision resolves).
             var signatureBuilder = new StringBuilder(canDraw ? "draw|" : "|");
             signatureBuilder.Append("h").Append(hiddenIds?.Count ?? 0).Append('|');
+            signatureBuilder.Append("s").Append(StagedHandCardId ?? -1).Append('|');
             signatureBuilder.Append(Mathf.RoundToInt(_handHost.rect.width)).Append('|');
             foreach (var card in hand)
             {
@@ -107,7 +116,8 @@ namespace LemonadeWars.Unity
                 // DefId too: instance ids restart each game, so a fresh game's opening
                 // hand could otherwise collide with the old one's and keep stale cards.
                 signatureBuilder.Append(card.InstanceId).Append(':').Append(card.DefId)
-                    .Append(':').Append(moveCount).Append(',');
+                    .Append(':').Append(moveCount)
+                    .Append(HandCardInvisible?.Invoke(card.InstanceId) == true ? ":i," : ",");
             }
             string signature = signatureBuilder.ToString();
             if (signature == _handSignature)
@@ -168,9 +178,18 @@ namespace LemonadeWars.Unity
                 frame.pivot = new Vector2(0.5f, 0f);
                 frame.sizeDelta = new Vector2(width, height);
                 float restY = peek - height;
-                // A card that can answer the open window rests half-raised and glows:
-                // an invitation you can see without a panel, still rising fully on hover.
-                if (moves != null && moves.Any(m => m is RespondToWindow))
+                bool invisible = HandCardInvisible?.Invoke(card.InstanceId) == true;
+                if (invisible)
+                {
+                    image.color = new Color(1f, 1f, 1f, 0f); // its flight is the card for now
+                }
+                // A card that can answer the open window — a reaction, or an attack a
+                // Bouncer lets you strike back with — rests half-raised and glows: an
+                // invitation you can see without a panel, still rising fully on hover.
+                bool answersWindow = moves != null &&
+                    (moves.Any(m => m is RespondToWindow) ||
+                     (groups != null && groups.IsModal && moves.Any(m => m is PlayLemonCard)));
+                if (!invisible && answersWindow)
                 {
                     restY += (raisedY - restY) * ReactionRestLift;
                     var glow = UiKit.CreateGlow(frame, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -544,5 +563,19 @@ namespace LemonadeWars.Unity
                 }
             }
         }
-    }
+    
+        /// <summary>A hand card's frame centre in world space and its size — where a drawn card's flight lands.</summary>
+        public (Vector3 Center, float Width, float Height)? HandCardPlacement(int instanceId)
+        {
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Id == instanceId && entry.Frame != null)
+                {
+                    var frame = entry.Frame;
+                    return (frame.TransformPoint(frame.rect.center), frame.rect.width, frame.rect.height);
+                }
+            }
+            return null;
+        }
+}
 }

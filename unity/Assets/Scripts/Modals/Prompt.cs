@@ -39,6 +39,8 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _root;
         private readonly RectTransform _cardStrip;
         private readonly RectTransform _optionList;
+        private readonly RectTransform _bodyHost;
+        private readonly RectTransform _optionScroll;
         private RectTransform _cancelHost;
         private TMP_Text _moreHint;
 
@@ -84,6 +86,7 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(listHost, new Vector2(0.27f, 0.03f), new Vector2(0.73f, 0.44f));
             var scrollHost = UiKit.CreatePanel(listHost, "OptionScroll", new Color(0, 0, 0, 0));
             UiKit.Anchor(scrollHost, new Vector2(0, 0.17f), new Vector2(1, 1));
+            _optionScroll = scrollHost;
             _optionList = UiKit.CreateScrollList(scrollHost);
             _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
 
@@ -96,7 +99,25 @@ namespace LemonadeWars.Unity
             _cancelHost = UiKit.CreatePanel(listHost, "CancelRow", new Color(0, 0, 0, 0));
             UiKit.Anchor(_cancelHost, new Vector2(0, 0), new Vector2(1, 0.14f));
 
+            // A caller-built body (the scoreboard) takes the whole middle, above the footer.
+            _bodyHost = UiKit.CreatePanel(_root, "Body", new Color(0, 0, 0, 0));
+            _bodyHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(_bodyHost, new Vector2(0.04f, 0.12f), new Vector2(0.96f, 0.87f));
+
             _root.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// A prompt whose middle the caller lays out itself (the end-game scoreboard),
+        /// with a row of named exits along the bottom. Esc dismisses it.
+        /// </summary>
+        public void ShowBody(string title, System.Action<RectTransform> buildBody, IReadOnlyList<Option> footer,
+            Color? titleColor = null)
+        {
+            Show(title, null, new List<Option>(), showCancel: false, footer: footer);
+            _title.color = titleColor ?? Color.white;
+            _optionScroll.gameObject.SetActive(false); // no empty option box under the body
+            buildBody(_bodyHost);
         }
 
         /// <summary>
@@ -109,7 +130,10 @@ namespace LemonadeWars.Unity
         {
             IsOpen = true;
             _title.text = title;
+            _title.color = Color.white;
 
+            _optionScroll.gameObject.SetActive(true);
+            UiKit.Clear(_bodyHost);
             UiKit.Clear(_cardStrip);
             if (cards != null && cards.Count > 0)
             {

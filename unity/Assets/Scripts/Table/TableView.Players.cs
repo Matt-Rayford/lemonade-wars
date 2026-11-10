@@ -41,6 +41,21 @@ namespace LemonadeWars.Unity
         private Texture2D _cashIcon;
         private Texture2D _tantrumIcon;
         private Texture2D _hourglassIcon;
+        /// <summary>The cards' blank price tag with its pin: worn by the first player's bar, numbered 1.</summary>
+        private Texture2D _pinnedTagIcon;
+
+        private const float FirstPlayerTagWidthPx = 36f;
+        /// <summary>Counter-clockwise, so the tag hangs off its pin with its foot swung outward.</summary>
+        private const float FirstPlayerTagTiltDegrees = 15f;
+        /// <summary>The tag's centre relative to the bar's top-right corner: over the corner, mostly outside it.</summary>
+        private static readonly Vector2 FirstPlayerTagOffsetPx = new Vector2(-4f, -16f);
+        /// <summary>The turn lemon steps this far left on the first player's bar, out from under the tag.</summary>
+        private const float TurnLemonTagClearancePx = 16f;
+        private const int FirstPlayerTagFontSize = 20;
+        /// <summary>The numeral's navy border: thick, like the price lettering on the cards' own tags.</summary>
+        private const float FirstPlayerTagBorderPx = 2f;
+        /// <summary>The navy the card art outlines everything in — tag numerals included.</summary>
+        private static readonly Color CardInkColor = new Color32(34, 13, 64, 255);
 
         /// <summary>
         /// Player panels, Dune Imperium style: turn order top to bottom starting with
@@ -53,6 +68,7 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
             _cashIcons.Clear();
+            _avatarBadges.Clear();
             int count = view.Players.Count;
             int viewedBoard = ViewedBoardPlayer >= 0 ? ViewedBoardPlayer : view.ViewerId;
             for (int offset = 1; offset <= count; offset++)
@@ -94,6 +110,7 @@ namespace LemonadeWars.Unity
             // it — the drafter during setup (ActivePlayer is frozen until play starts).
             int turnHolder = ShownTurnHolder(view);
             var awaited = ShownAwaited(view);
+            bool wearsFirstPlayerTag = playerId == view.FirstPlayer && _pinnedTagIcon != null;
             if (playerId == turnHolder && _lemonIcon != null)
             {
                 var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
@@ -102,7 +119,8 @@ namespace LemonadeWars.Unity
                 lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
                 lemonRect.pivot = new Vector2(1f, 0.5f);
                 lemonRect.sizeDelta = new Vector2(38f, 38f);
-                lemonRect.anchoredPosition = new Vector2(-10f, 0);
+                lemonRect.anchoredPosition = new Vector2(
+                    wearsFirstPlayerTag ? -10f - TurnLemonTagClearancePx : -10f, 0);
                 var lemonImage = lemonGo.GetComponent<RawImage>();
                 lemonImage.texture = _lemonIcon;
                 lemonImage.raycastTarget = false;
@@ -114,6 +132,7 @@ namespace LemonadeWars.Unity
             badgeRect.pivot = new Vector2(0f, 0.5f);
             badgeRect.anchoredPosition = new Vector2(12f, 0);
             var badgeGo = badgeRect.gameObject;
+            _avatarBadges[playerId] = badgeRect; // an attack's arrow lands on the chip itself
 
             // The table is waiting on this player — their turn, a reaction window,
             // a discard, a lord pick — so their badge greys out under the hourglass.
@@ -257,6 +276,38 @@ namespace LemonadeWars.Unity
                 ViewedBoardPlayer = clickedId == viewerId ? -1 : clickedId;
                 OnBoardViewChanged?.Invoke();
             });
+
+            if (wearsFirstPlayerTag)
+            {
+                PinFirstPlayerTag((RectTransform)row.transform); // last: over everything else on the bar
+            }
+        }
+
+        /// <summary>
+        /// The first player's marker: the cards' own price tag, pinned over the bar's
+        /// top-right corner at a tilt, with a "1" lettered the way the cards letter
+        /// their prices — white, outlined in the art's navy.
+        /// </summary>
+        private void PinFirstPlayerTag(RectTransform row)
+        {
+            var tagGo = new GameObject("FirstPlayerTag", typeof(RectTransform), typeof(RawImage));
+            tagGo.transform.SetParent(row, false);
+            var tag = (RectTransform)tagGo.transform;
+            tag.anchorMin = tag.anchorMax = new Vector2(1f, 1f);
+            tag.pivot = new Vector2(0.5f, 0.5f);
+            tag.sizeDelta = new Vector2(FirstPlayerTagWidthPx,
+                FirstPlayerTagWidthPx * _pinnedTagIcon.height / _pinnedTagIcon.width);
+            tag.anchoredPosition = FirstPlayerTagOffsetPx;
+            tag.localEulerAngles = new Vector3(0f, 0f, FirstPlayerTagTiltDegrees);
+            var image = tagGo.GetComponent<RawImage>();
+            image.texture = _pinnedTagIcon;
+            image.raycastTarget = false; // the bar under it still takes the click
+
+            var number = UiKit.CreateOutlinedText(tag, "1", FirstPlayerTagFontSize,
+                Color.white, CardInkColor, FirstPlayerTagBorderPx);
+            // The paper below the pin, not the whole image: the pin overhangs the
+            // top-right, so the paper's own centre sits left of and below the art's.
+            UiKit.Anchor(number, new Vector2(0.03f, 0.04f), new Vector2(0.89f, 0.63f));
         }
 
         /// <summary>One icon-plus-count chip at a fixed column offset in the stat row.</summary>
@@ -315,17 +366,16 @@ namespace LemonadeWars.Unity
             return badgeRect;
         }
 
-        /// <summary>World-space middle of a player's bar's right edge — where arrows to/from the bar attach.</summary>
-        public Vector3? PlayerBarEdgeWorld(int playerId)
+        /// <summary>World-space centre of a player's avatar chip and a point on its rim (for its radius in any space).</summary>
+        public (Vector3 Center, Vector3 Rim)? PlayerAvatarWorld(int playerId)
         {
-            foreach (var (id, row, _) in _playerRows)
+            if (!_avatarBadges.TryGetValue(playerId, out var badge) || badge == null)
             {
-                if (id == playerId && row != null)
-                {
-                    return row.TransformPoint(new Vector3(row.rect.xMax, row.rect.center.y, 0));
-                }
+                return null;
             }
-            return null;
+            var center = badge.TransformPoint(badge.rect.center);
+            var rim = badge.TransformPoint(new Vector3(badge.rect.xMax, badge.rect.center.y, 0));
+            return (center, rim);
         }
 
         /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>

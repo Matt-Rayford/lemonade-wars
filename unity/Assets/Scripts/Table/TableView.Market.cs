@@ -18,12 +18,15 @@ namespace LemonadeWars.Unity
         public System.Action OnRefreshMarket;
         public System.Action<int> OnMarketDragStart;        // market index
         public System.Action OnMarketDragEnd;
+        public System.Action<int> OnMarketDoubleClick;      // market index: buy without dragging
 
         // Supply drag & drop (stand purchases with row-position insert).
         public System.Func<string, bool> CanBuySupply;      // stand type -> any legal buy?
+        public System.Action<string> OnSupplyDoubleClick;   // stand type: pick it up, click to place
 
         // Bragging Rights drag & drop (shelf card -> your VP column).
         public System.Func<bool> CanBuyBragging;
+        public System.Action OnBraggingDoubleClick;
 
         /// <summary>
         /// True while the player drags a shelf card/stand; the app holds renders on it
@@ -65,6 +68,15 @@ namespace LemonadeWars.Unity
             new Dictionary<string, RectTransform>();
         /// <summary>The Bragging Rights shelf cell, null while sold out.</summary>
         private RectTransform _braggingAnchor;
+        /// <summary>The Lemon pile's card frame (the DRAW chip lives on it): where a drawn card lifts from.</summary>
+        private RectTransform _lemonPileAnchor;
+        /// <summary>Shelf art by stand type / for Bragging Rights: what a held or gliding ghost wears.</summary>
+        private readonly Dictionary<string, Texture2D> _supplyArt = new Dictionary<string, Texture2D>();
+        public Texture2D BraggingArt { get; private set; }
+
+        /// <summary>The art on top of a supply pile right now; null once it is sold out.</summary>
+        public Texture2D SupplyArtOf(string standTypeId) =>
+            _supplyArt.TryGetValue(standTypeId, out var art) ? art : null;
         /// <summary>The Black Market deck back on the shelf — where swept cards go and dealt cards come from.</summary>
         private RectTransform _blackMarketDeckAnchor;
 
@@ -77,6 +89,9 @@ namespace LemonadeWars.Unity
             _marketSlotAnchors.Clear();
             _supplyAnchors.Clear();
             _braggingAnchor = null;
+            _lemonPileAnchor = null;
+            BraggingArt = null;
+            _supplyArt.Clear();
             _blackMarketDeckAnchor = null;
             // The discard piles form their own group: Lemon, then Black Market,
             // separated from the face-up market cards.
@@ -89,6 +104,12 @@ namespace LemonadeWars.Unity
             BuildRefreshCell(db.Config.BlackMarketRefreshCost, CanRefreshMarket?.Invoke() == true);
             for (int i = 0; i < view.Market.Count; i++)
             {
+                if (view.MarketGapIndex == i)
+                {
+                    // A contested purchase left this slot: it stays empty (the row is
+                    // one short) until the purchase resolves and the refill is dealt.
+                    BuildEmptyMarketCell(i, registerAnchor: false);
+                }
                 var card = view.Market[i];
                 if (MarketCardHidden?.Invoke(card.InstanceId) == true)
                 {
@@ -109,13 +130,19 @@ namespace LemonadeWars.Unity
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
                 BuildMarketCell(i, texture);
             }
+            if (view.MarketGapIndex is int gap && gap >= view.Market.Count)
+            {
+                BuildEmptyMarketCell(gap, registerAnchor: false); // the vacated slot was the last one
+            }
         }
 
         /// <summary>
         /// Placeholder for a suppressed market slot: same layout footprint as a card
         /// cell (the shelf must not reflow), drawn as a faint empty socket.
         /// </summary>
-        private void BuildEmptyMarketCell(int marketIndex)
+        /// <param name="registerAnchor">False for a contested purchase's gap: slot anchors are keyed by
+        /// market index, and that index belongs to the card now shifted past the gap.</param>
+        private void BuildEmptyMarketCell(int marketIndex, bool registerAnchor = true)
         {
             const float width = 154f;
             const float height = 216f;
@@ -142,7 +169,10 @@ namespace LemonadeWars.Unity
 
             // The CARD's rect, not the cell's: the cell is padded, so a flight aimed at
             // its centre would land 2px off and jump as the real card takes over.
-            _marketSlotAnchors[marketIndex] = socket;
+            if (registerAnchor)
+            {
+                _marketSlotAnchors[marketIndex] = socket;
+            }
         }
 
         /// <summary>
@@ -255,7 +285,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuyMarket?.Invoke(marketIndex) == true;
+            drag.CanAct = () => !ShelfHeld && CanBuyMarket?.Invoke(marketIndex) == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -266,6 +296,7 @@ namespace LemonadeWars.Unity
                 ShelfDragEnded();
                 OnMarketDragEnd?.Invoke();
             };
+            drag.DoubleClicked = () => OnMarketDoubleClick?.Invoke(marketIndex);
             _marketCells.Add((marketIndex, (RectTransform)cell.transform, glowOuter, glowInner));
             _marketSlotAnchors[marketIndex] = lift; // the card's own rect: flights land exactly on it
         }
@@ -369,7 +400,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuySupply?.Invoke(standTypeId) == true;
+            drag.CanAct = () => !ShelfHeld && CanBuySupply?.Invoke(standTypeId) == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -383,7 +414,9 @@ namespace LemonadeWars.Unity
                 _preview.SetDragging(false);
                 HideInsertPreview();
             };
+            drag.DoubleClicked = () => OnSupplyDoubleClick?.Invoke(standTypeId);
             _supplyAnchors[standTypeId] = (RectTransform)cell.transform;
+            _supplyArt[standTypeId] = texture;
         }
 
         /// <summary>
@@ -403,6 +436,7 @@ namespace LemonadeWars.Unity
             cellElement.flexibleWidth = 0;
             cellElement.flexibleHeight = 0;
             _braggingAnchor = (RectTransform)cell.transform;
+            BraggingArt = texture;
 
             var liftGo = new GameObject("Lift", typeof(RectTransform));
             liftGo.transform.SetParent(cell.transform, false);
@@ -444,7 +478,7 @@ namespace LemonadeWars.Unity
             drag.CanvasRoot = _canvasRoot;
             drag.GlowInner = glowInner;
             drag.GlowOuter = glowOuter;
-            drag.CanAct = () => CanBuyBragging?.Invoke() == true;
+            drag.CanAct = () => !ShelfHeld && CanBuyBragging?.Invoke() == true;
             drag.DragStarted = () =>
             {
                 ShelfDragStarted();
@@ -463,6 +497,7 @@ namespace LemonadeWars.Unity
                     _vpGlow.SetActive(false);
                 }
             };
+            drag.DoubleClicked = () => OnBraggingDoubleClick?.Invoke();
         }
 
         /// <summary>A discard pile: card back, count on hover, click to browse.</summary>
@@ -500,9 +535,13 @@ namespace LemonadeWars.Unity
 
             if (!blackMarket)
             {
+                _lemonPileAnchor = frame;
                 BuildDrawChip(frame);
             }
         }
+
+        /// <summary>World centre of the Lemon pile on the shelf.</summary>
+        public Vector3? LemonPileWorld() => CellCenterWorld(_lemonPileAnchor);
 
         /// <summary>
         /// Full-width chip on a card's bottom edge: square top, bottom corners tracing

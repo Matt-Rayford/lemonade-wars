@@ -38,6 +38,10 @@ namespace LemonadeWars.Unity
         private LayoutWidthTween _insertSpacerTween;
         private int _supplyInsertIndex = -1;
         private bool _supplyDragActive;
+        private RectTransform _vpCell;
+        private RectTransform _turfCell;
+        /// <summary>The board row's HorizontalLayoutGroup gap (UiKit.CreateCardRow).</summary>
+        private const float BoardRowSpacingPx = 8f;
 
         private void RenderBoard(PlayerView view)
         {
@@ -108,6 +112,7 @@ namespace LemonadeWars.Unity
                 AddTuckedStack(vpCell, vpTextures.Skip(1).ToList());
             }
             _vpGlow = null;
+            _vpCell = vpCell;
             if (_viewingOwnBoard)
             {
                 // Bragging Rights dragged from the shelf land here.
@@ -115,7 +120,8 @@ namespace LemonadeWars.Unity
                 if (vpFrame != null)
                 {
                     _vpGlow = UiKit.CreateGlow(vpFrame, new Vector2(0.5f, 0.5f),
-                        new Vector2(0.5f, 0.5f), Vector2.zero, 188 + 26, 263 + 26, DropGlowHot);
+                        new Vector2(0.5f, 0.5f), Vector2.zero,
+                        188 + DropGlowHotPx, 263 + DropGlowHotPx, DropGlowHot);
                 }
                 vpCell.gameObject.AddComponent<DropTarget>().BraggingDropped =
                     () => OnBraggingDrop?.Invoke();
@@ -124,6 +130,7 @@ namespace LemonadeWars.Unity
             var turfTexture = _art.Turf(owner.TurfPowerPourNumber);
             var turfCaption = "Pours " + string.Join(",", owner.PourNumbers);
             var turfCell = AddCard(_boardRow, turfTexture, 188, 263, turfCaption, false, null);
+            _turfCell = turfCell;
             AddEquipList(turfCell, owner.TurfEquipped);
             if (_viewingOwnBoard)
             {
@@ -356,16 +363,77 @@ namespace LemonadeWars.Unity
             target.HoverChanged = OnDropTargetHover;
 
             var top = new Vector2(0.5f, 1f);
-            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, 30),
-                188 + 60, 263 + 60, DropGlowWide);
+            var wide = UiKit.CreateGlow(cell, top, top, new Vector2(0, DropGlowWidePx / 2f),
+                188 + DropGlowWidePx, 263 + DropGlowWidePx, DropGlowWide);
             wide.transform.SetAsFirstSibling();
-            var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, 14),
-                188 + 28, 263 + 28, DropGlowHot);
+            var hot = UiKit.CreateGlow(cell, top, top, new Vector2(0, DropGlowHotPx / 2f),
+                188 + DropGlowHotPx, 263 + DropGlowHotPx, DropGlowHot);
             hot.transform.SetSiblingIndex(1);
 
             _dropGlows.Add((standInstanceId, wide));
             _dropGlows.Add((standInstanceId, hot));
             _dropCells.Add((standInstanceId, cell, art));
+        }
+
+        /// <summary>World centre of your turf (null id) or a stand's card on the live
+        /// board — where a shelf card glides to. Null when the board shown is a rival's.</summary>
+        public Vector3? DropCellWorld(int? standInstanceId)
+        {
+            foreach (var (id, cell, _) in _dropCells)
+            {
+                if (Equals(id, standInstanceId))
+                {
+                    return BoardCardWorld(cell);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Where the next stand would stand: one cell past the last stand (or the turf
+        /// on an empty row) — a bought stand glides there when there is only one place
+        /// it can go.
+        /// </summary>
+        public Vector3? NextStandSlotWorld()
+        {
+            var last = _standCells.Count > 0 ? _standCells[_standCells.Count - 1] : _turfCell;
+            if (last == null)
+            {
+                return null;
+            }
+            var lastCenter = BoardCardWorld(last);
+            if (lastCenter == null)
+            {
+                return null;
+            }
+            var nextCenter = last.TransformPoint(new Vector3(
+                last.rect.xMax + BoardRowSpacingPx + last.rect.width / 2f, 0f, 0f));
+            return new Vector3(nextCenter.x, lastCenter.Value.y, lastCenter.Value.z);
+        }
+
+        /// <summary>World centre of a tucked card's full rect (mostly behind its stand's front card); null when not on the viewed board.</summary>
+        public Vector3? EquippedCardWorld(int instanceId)
+        {
+            foreach (var (id, strip, _) in _equipCells)
+            {
+                if (id == instanceId && strip != null && strip.parent is RectTransform card)
+                {
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(_boardRow);
+                    return card.TransformPoint(card.rect.center);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>World centre of the viewed board's Victory Point column.</summary>
+        public Vector3? VictoryCellWorld() => _vpCell != null ? BoardCardWorld(_vpCell) : null;
+
+        /// <summary>A board cell was often built this very frame: settle the row first.</summary>
+        private Vector3? BoardCardWorld(RectTransform cell)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_boardRow);
+            var cardFrame = cell.Find("Card") as RectTransform ?? cell;
+            return cardFrame.TransformPoint(cardFrame.rect.center);
         }
 
         public void SetValidDropTargets(ISet<int?> validTargets)
@@ -443,11 +511,22 @@ namespace LemonadeWars.Unity
         /// each peeks its top strip out above the card, stacked like the physical game.
         /// Hover a peeking strip for the enlarged preview.
         /// </summary>
+        /// <summary>An equipped card whose flight onto the stand is still in the air: it
+        /// holds its tucked place, drawn invisible, until the flight lands.</summary>
+        public System.Func<int, bool> EquippedCardInvisible;
+
         private void AddEquipList(RectTransform cell, List<PlayerView.CardInfo> equipped)
         {
             var rects = AddTuckedStack(cell, equipped
                 .Select(e => _art.BlackMarket(e.DefId, e.Shape ?? Shape.Square))
                 .ToList());
+            for (int i = 0; i < rects.Count; i++)
+            {
+                if (rects[i] != null && EquippedCardInvisible?.Invoke(equipped[i].InstanceId) == true)
+                {
+                    rects[i].GetComponent<RawImage>().color = new Color(1f, 1f, 1f, 0f);
+                }
+            }
             // Each tucked card's visible peek strip becomes an aim target of its own
             // (That's Not Fair / Finders Keepers can hit the card, not just the bar).
             for (int i = 0; i < rects.Count; i++)
@@ -457,9 +536,22 @@ namespace LemonadeWars.Unity
                 var strip = (RectTransform)stripGo.transform;
                 UiKit.Anchor(strip, new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(0, -TuckPeek), new Vector2(0, 0));
-                var glow = UiKit.CreateGlow(strip, new Vector2(0.5f, 0.5f),
-                    new Vector2(0.5f, 0.5f), Vector2.zero, 188f + 26f, TuckPeek + 26f,
-                    AttackGlowColor);
+                // A full rounded ring around the strip, clipped just below it: the
+                // bottom corners round off into the card tucked in front instead of
+                // the sides ending in a flat cut, and the glow stops at its shoulders.
+                var maskGo = new GameObject("AimGlowMask", typeof(RectTransform), typeof(RectMask2D));
+                maskGo.transform.SetParent(strip, false);
+                var mask = (RectTransform)maskGo.transform;
+                UiKit.Anchor(mask, Vector2.zero, Vector2.one,
+                    new Vector2(-AimRingReachPx, -AimRingCornerReachPx),
+                    new Vector2(AimRingReachPx, AimRingReachPx));
+                // Sized so the ring's rim sits just outside the card's edge and glows
+                // outward, instead of painting the strip it is meant to outline.
+                float rimOut = UiSprites.GlowRingRimInset + AimRingOutsetPx;
+                var glow = UiKit.CreateGlow(mask, new Vector2(0.5f, 0.5f),
+                    new Vector2(0.5f, 0.5f),
+                    new Vector2(0f, -(AimRingReachPx - AimRingCornerReachPx) / 2f),
+                    188f + 2f * rimOut, TuckPeek + 2f * rimOut, AttackGlowColor);
                 // Ring, not fill: the strip IS the card's face — a solid glow would
                 // paint over exactly what the player is trying to aim at.
                 glow.GetComponent<Image>().sprite = UiSprites.GlowRing;
@@ -474,6 +566,15 @@ namespace LemonadeWars.Unity
         /// Returns the created card rects, index-aligned with the input.
         /// </summary>
         private const float TuckPeek = 40f; // the top icon bar, minus a hair — 5 stacks fit
+        /// <summary>Total extra size of a board cell's drop glows (wide halo / hot ring): the halo past the card on both sides together.</summary>
+        private const float DropGlowWidePx = 45f;
+        private const float DropGlowHotPx = 21f;
+        /// <summary>How far an aim ring may show past a tucked strip's sides and top; never below it.</summary>
+        private const float AimRingReachPx = 28f;
+        /// <summary>The rim sits this far outside the card's edge.</summary>
+        private const float AimRingOutsetPx = 2f;
+        /// <summary>How far below the strip the ring may show: enough for its rounded bottom corners, not its side glow.</summary>
+        private const float AimRingCornerReachPx = 8f;
 
         private List<RectTransform> AddTuckedStack(RectTransform cell, List<Texture2D> textures)
         {

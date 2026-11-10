@@ -24,6 +24,14 @@ namespace LemonadeWars.Engine.Core
         public bool Cancelled { get; set; }
         /// <summary>True when this play bypassed the action cost (instants, Smear Campaign's follow-up, forced plays).</summary>
         public bool FreePlay { get; set; }
+        /// <summary>
+        /// This item has had its response window, and everyone passed or answered.
+        /// Once the table has passed, the stack resolves top-down without asking
+        /// again. Reset — the card is open to reactions once more — when the Tantrum
+        /// answering it is itself Tantrummed, and when an attack is re-aimed at a
+        /// new victim.
+        /// </summary>
+        public bool WindowOffered { get; set; }
 
         // ---- LemonPlay ----
         public int? LemonInstanceId { get; set; }
@@ -57,6 +65,8 @@ namespace LemonadeWars.Engine.Core
         public int? BmInstanceId { get; set; }
         /// <summary>Price actually paid, for the refund on cancellation.</summary>
         public int PaidCost { get; set; }
+        /// <summary>The shelf slot the card left; it stays empty until the purchase resolves, then refills in place.</summary>
+        public int? VacatedMarketIndex { get; set; }
     }
 
     /// <summary>Why a die is currently waiting for the Out of Stock window to close.</summary>
