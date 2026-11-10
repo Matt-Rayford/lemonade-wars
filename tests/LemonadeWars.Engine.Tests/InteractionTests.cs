@@ -192,6 +192,110 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void ACounteredTantrumReopensTheOriginalCard()
+        {
+            // A attacks B; B Tantrums; A Tantrums B's Tantrum. Both Tantrums are spent
+            // and the attack is open again — B may answer it anew with ANY reaction
+            // (here a Tag), not just another Tantrum.
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            BuryTimeouts(game);
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int attack = GiveCard(game, a, "hoa-violation");
+            int tantrumA = GiveCard(game, a, "tantrum");
+            int tantrumB = GiveCard(game, b, "tantrum");
+            int tagB = GiveCard(game, b, "tag-youre-it");
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = tantrumB });
+            game.Apply(new RespondToWindow { PlayerId = a, CardInstanceId = tantrumA });
+
+            // Only the attack is left on the stack, and B is being asked about it again.
+            Assert.Single(game.State.ResponseStack);
+            Assert.Equal("hoa-violation", game.State.ResponseStack[0].LemonDefId);
+            Assert.Equal(new[] { b }, game.State.AwaitingResponse);
+            Assert.Contains(game.LegalMovesFor(b), m =>
+                m is RespondToWindow respond && respond.CardInstanceId == tagB);
+            // Both Tantrums were thrown, so both were gained.
+            Assert.Single(game.State.Players[a].TantrumPile);
+            Assert.Single(game.State.Players[b].TantrumPile);
+        }
+
+        [Fact]
+        public void OnceEveryonePassesTheStackResolvesWithoutAskingAgain()
+        {
+            // A attacks B; B reflects with Rubber; C Tantrums the Rubber and nobody
+            // answers. The Rubber is cancelled and the attack lands on B — who still
+            // holds a Tag, but everyone has passed: no second window on the attack.
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+            BuryTimeouts(game);
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int c = Seat(game, 2);
+            int attack = GiveCard(game, a, "hoa-violation");
+            int rubberB = GiveCard(game, b, "im-rubber-youre-glue");
+            GiveCard(game, b, "tag-youre-it"); // the reaction the old rules would have asked about
+            int tantrumC = GiveCard(game, c, "tantrum");
+            game.State.Players[b].Money = 20;
+            int moneyA = game.State.Players[a].Money;
+
+            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
+            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = rubberB });
+            game.Apply(new RespondToWindow { PlayerId = c, CardInstanceId = tantrumC });
+
+            // Nobody could answer C's Tantrum, so it resolved: no Rubber, and the
+            // attack went through on B without a window for B's Tag.
+            Assert.Empty(game.State.ResponseStack);
+            Assert.Empty(game.State.AwaitingResponse);
+            Assert.Equal(15, game.State.Players[b].Money);
+            Assert.Equal(moneyA + 5, game.State.Players[a].Money);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ContestedPurchaseLeavesItsSlotEmptyUntilItResolves(bool tantrummed)
+        {
+            // The next shelf card is only drawn once the purchase is settled, so
+            // nobody sees it while deciding whether to Tantrum.
+            var game = ReadyToPlay();
+            StripHands(game, "tantrum");
+            int a = Active(game);
+            int b = Seat(game, 1);
+            int tantrum = GiveCard(game, b, "tantrum");
+            var player = game.State.Players[a];
+            player.Money = 50;
+
+            var before = game.State.Market.ToList();
+            const int slot = 1;
+            int bought = before[slot];
+            var def = TestData.Db.BlackMarket(game.State.BlackMarketInstances[bought].DefId);
+            var buy = new BuyBlackMarket { PlayerId = a, MarketIndex = slot };
+            if (def.Target == LemonadeWars.Engine.Data.EquipTarget.Stand)
+            {
+                buy.TargetStandInstanceId = player.Stands[0].InstanceId;
+            }
+
+            game.Apply(buy);
+            Assert.Equal(before.Count - 1, game.State.Market.Count); // not refilled yet
+            Assert.DoesNotContain(bought, game.State.Market);
+            Assert.Equal(slot, game.ViewFor(b).MarketGapIndex);
+
+            game.Apply(tantrummed
+                ? new RespondToWindow { PlayerId = b, CardInstanceId = tantrum }
+                : (GameAction)new PassWindow { PlayerId = b });
+
+            Assert.Equal(before.Count, game.State.Market.Count);      // refilled on resolution
+            Assert.Null(game.ViewFor(b).MarketGapIndex);
+            Assert.Equal(before[0], game.State.Market[0]);            // neighbours never moved
+            Assert.Equal(before[2], game.State.Market[2]);
+            Assert.DoesNotContain(game.State.Market[slot], before);   // a new card, in the same slot
+            Assert.Equal(tantrummed, game.State.BlackMarketDiscard.Contains(bought));
+        }
+
+        [Fact]
         public void CancelledPurchaseRefundsMoneyButNotAction()
         {
             var game = ReadyToPlay();

@@ -48,6 +48,8 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Price the viewer would pay per stand type (ownership escalation included).</summary>
         public Dictionary<string, int> SupplyPrices { get; set; } = new Dictionary<string, int>();
         public int? NextBraggingRightsPrice { get; set; }
+        /// <summary>The shelf slot a contested purchase left empty: Market is one short and the gap sits here.</summary>
+        public int? MarketGapIndex { get; set; }
         public int? WhiniestBabyHolder { get; set; }
         public int? SpoiledRottenHolder { get; set; }
 
@@ -233,6 +235,8 @@ namespace LemonadeWars.Engine.Core
                     State.BraggingRightsSold < Db.Supporting.BraggingRightsPrices.Count
                         ? Db.Supporting.BraggingRightsPrices[State.BraggingRightsSold]
                         : (int?)null,
+                MarketGapIndex = State.ResponseStack
+                    .FirstOrDefault(i => i.Kind == StackItemKind.BlackMarketPurchase)?.VacatedMarketIndex,
                 WhiniestBabyHolder = State.WhiniestBabyHolder,
                 SpoiledRottenHolder = State.SpoiledRottenHolder,
                 AwaitingResponse = State.AwaitingResponse.ToList(),

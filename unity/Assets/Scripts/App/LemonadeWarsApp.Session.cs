@@ -291,6 +291,8 @@ namespace LemonadeWars.Unity
             _liftedMarketIds.Clear();
             _handCardsInFlight.Clear();
             _equippedInFlight.Clear();
+            _afterTurnBanner.Clear();
+            _shelfDeparture = null;
             _timeoutCardInFlight = false;
             _timeoutCardShownAt = -100f;
             _liftedCardLanding = null;

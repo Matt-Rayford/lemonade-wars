@@ -30,6 +30,8 @@ namespace LemonadeWars.Unity
             public float TurnDegrees;
             /// <summary>A card the viewer put on the pile themselves (a Rummage Sale pick); -1 for a reaction.</summary>
             public int Key = -1;
+            /// <summary>The reaction has done its work: it leaves the pile once it has been seen to land.</summary>
+            public bool FadeWhenSettled;
         }
 
         /// <summary>A keyed pile card was clicked: the owner decides whether it comes back off.</summary>
@@ -159,6 +161,41 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>
+        /// A reaction that has resolved while the play under it lives on (the Tantrum
+        /// that stopped another Tantrum, a Tag that moved the attack) is spent: it
+        /// fades off the pile after its landing beat, leaving the card open again.
+        /// </summary>
+        public void SettleResponse(int ownerId, string defId)
+        {
+            for (int i = _responses.Count - 1; i >= 0; i--)
+            {
+                var response = _responses[i];
+                if (response.OwnerId == ownerId && response.DefId == defId && !response.FadeWhenSettled)
+                {
+                    response.FadeWhenSettled = true;
+                    return;
+                }
+            }
+        }
+
+        private void FadeSettledResponses()
+        {
+            if (Slapping)
+            {
+                return; // the landing and its breath belong to the card
+            }
+            for (int i = _responses.Count - 1; i >= 0; i--)
+            {
+                var response = _responses[i];
+                if (response.FadeWhenSettled && response.Motion != null && response.Motion.Landed)
+                {
+                    response.Motion.BeginFade();
+                    _responses.RemoveAt(i);
+                }
+            }
+        }
+
         /// <summary>A reaction that was itself cancelled (a counter-Tantrum) fades off the pile.</summary>
         public void CancelResponse(int ownerId, string defId)
         {
@@ -184,6 +221,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void TickSpread()
         {
+            FadeSettledResponses();
             bool wantsSpread = _responses.Count > 0 && _phase == Phase.Holding && PointerOverPile();
             _spreadBlend = Mathf.MoveTowards(_spreadBlend, wantsSpread ? 1f : 0f, Time.deltaTime / SpreadSeconds);
             float eased = Mathf.SmoothStep(0f, 1f, _spreadBlend);

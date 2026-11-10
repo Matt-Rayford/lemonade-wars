@@ -81,6 +81,23 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} equipped {DefId}";
     }
 
+    /// <summary>
+    /// An in-game Black Market purchase was paid for and is now open to a Tantrum:
+    /// the card has left its shelf slot, which stays empty until the purchase
+    /// resolves (BlackMarketPurchased, or a cancel) and MarketRefilled follows.
+    /// </summary>
+    public sealed class BlackMarketPurchaseStarted : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public int InstanceId { get; set; }
+        public string DefId { get; set; } = "";
+        public Shape Shape { get; set; }
+        /// <summary>The shelf slot the card left.</summary>
+        public int MarketIndex { get; set; }
+        public int Price { get; set; }
+        public override string ToString() => $"P{PlayerId} is buying {DefId}";
+    }
+
     public sealed class MarketRefilled : GameEvent
     {
         public List<int> Market { get; set; } = new List<int>();

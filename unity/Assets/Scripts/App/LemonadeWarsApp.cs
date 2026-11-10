@@ -350,6 +350,9 @@ namespace LemonadeWars.Unity
                 _shownDiceHeadline = _dice.HeadlineRevision;
                 _renderedRevision = -1; // the banner carries the die's words
             }
+            // What waited on ONWARD! is queued before the render, so the decisions
+            // behind it (a Timeout's discards) open after its flight, not before.
+            ReleaseAfterTurnBanner();
             // Render first: the turn banner opens in there, and the effects tick must
             // see it open in the SAME frame or a queued draw sound sneaks out early.
             RenderIfChanged();

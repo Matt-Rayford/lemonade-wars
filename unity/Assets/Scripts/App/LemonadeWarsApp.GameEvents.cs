@@ -30,6 +30,40 @@ namespace LemonadeWars.Unity
         /// <summary>Cards drawn into the hand / equipped onto a stand whose flight has not landed: drawn invisible in place.</summary>
         private readonly HashSet<int> _handCardsInFlight = new HashSet<int>();
         private readonly HashSet<int> _equippedInFlight = new HashSet<int>();
+        /// <summary>Presentation that belongs to the viewer's turn start and so waits
+        /// until the Your Turn banner has been shown and dismissed.</summary>
+        private readonly List<System.Action> _afterTurnBanner = new List<System.Action>();
+
+        /// <summary>The viewer's turn has been dealt by the engine but not yet handed over on screen.</summary>
+        private bool AwaitingTurnBanner() => IsMyTurn() && (!_wasMyTurn || _turnBanner.IsOpen);
+
+        private void RunAfterTurnBanner(System.Action presentation)
+        {
+            if (AwaitingTurnBanner())
+            {
+                _afterTurnBanner.Add(presentation);
+            }
+            else
+            {
+                presentation();
+            }
+        }
+
+        /// <summary>Called every frame, before the render: releases what waited on ONWARD!.</summary>
+        private void ReleaseAfterTurnBanner()
+        {
+            if (_afterTurnBanner.Count == 0 || View == null || AwaitingTurnBanner())
+            {
+                return;
+            }
+            var ready = _afterTurnBanner.ToList();
+            _afterTurnBanner.Clear();
+            foreach (var presentation in ready)
+            {
+                presentation();
+            }
+        }
+
         /// <summary>The drawn Timeout is still on its way from the pile to the middle of the table.</summary>
         private bool _timeoutCardInFlight;
         private float _timeoutCardShownAt = -100f; // well before any landing, so nothing lingers at boot
@@ -148,7 +182,7 @@ namespace LemonadeWars.Unity
                 });
                 if (drawn.Reason == DrawReason.TurnStart)
                 {
-                    _fx.QueueCallback(Fly);
+                    RunAfterTurnBanner(Fly);
                 }
                 else
                 {
@@ -175,8 +209,10 @@ namespace LemonadeWars.Unity
                     _timeoutCardShownAt = UnityEngine.Time.time;
                     _table.ShowTimeoutCard(timeoutArt);
                 }
-                _fx.QueueHold(() => _table.GlideTimeoutToCenter(timeoutArt, _table.LemonPileWorld(), Land),
-                    TableView.TimeoutFlightSeconds + 0.15f, onSkipped: Land);
+                // Drawn at the top of YOUR turn, it waits for ONWARD! like the draw it replaced.
+                RunAfterTurnBanner(() => _fx.QueueHold(
+                    () => _table.GlideTimeoutToCenter(timeoutArt, _table.LemonPileWorld(), Land),
+                    TableView.TimeoutFlightSeconds + 0.15f, onSkipped: Land));
             }
             else if (gameEvent is TitleClaimed title && title.PlayerId == _session.Seat)
             {
@@ -254,9 +290,20 @@ namespace LemonadeWars.Unity
                     });
                 }
             }
+            else if (gameEvent is BlackMarketPurchaseStarted purchaseStarted)
+            {
+                HandlePurchaseStarted(purchaseStarted);
+            }
             else if (gameEvent is MarketRefilled refilled)
             {
                 HandleMarketRefilled(refilled);
+            }
+            else if (gameEvent is TurnStarted)
+            {
+                // The previous turn's sale roll is settled by definition: stage its
+                // payout NOW, ahead of anything this new turn queues (a Timeout's
+                // flight, a draw) — or the new turn's theatre would play first.
+                StageRollEarnings();
             }
             else if (gameEvent is StandPurchased standBought)
             {
@@ -345,9 +392,19 @@ namespace LemonadeWars.Unity
                 }
                 _fx.QueueToast($"{LemonName(fizzle.DefId).ToUpperInvariant()} FIZZLES!");
             }
-            else if (gameEvent is PlayResolved resolved && _playTheatre.Matches(resolved.OwnerId, resolved.DefId))
+            else if (gameEvent is PlayResolved resolved)
             {
-                _playTheatre.Resolve();
+                if (_playTheatre.Matches(resolved.OwnerId, resolved.DefId))
+                {
+                    _playTheatre.Resolve();
+                }
+                else
+                {
+                    // A reaction on the pile did its work while the play under it
+                    // stands (a Tantrum that stopped a Tantrum): it clears off, and
+                    // the card is visibly open again.
+                    _playTheatre.SettleResponse(resolved.OwnerId, resolved.DefId);
+                }
             }
             else if (gameEvent is PlayCancelled cancelled)
             {
@@ -452,6 +509,7 @@ namespace LemonadeWars.Unity
                 .ToList();
             if (oldSnap == null)
             {
+                _shelfDeparture = null;
                 return; // no baseline yet (fresh join): nothing to animate from
             }
             var freshSlots = newIds
@@ -475,8 +533,20 @@ namespace LemonadeWars.Unity
                 return;
             }
 
+            if (_shelfDeparture is ShelfDeparture departure)
+            {
+                // An in-game purchase nobody could contest: it started and resolved in
+                // one burst, and this is its refill. The bought card keeps its place
+                // on the shelf (as a stand-in over the new card's slot) until its
+                // purchase effect lifts it.
+                _shelfDeparture = null;
+                PresentShelfDeparture(departure.Art, departure.Slot, departure.BuyerId, departure.Price,
+                    departure.Lifted, freshSlots);
+            }
             for (int slot = 0; slot < oldSnap.Count; slot++)
             {
+                // Cards that left the shelf in THIS event: setup-draft purchases and
+                // free takes (Connections), which are never contested as purchases.
                 var card = oldSnap[slot];
                 if (newIds.Contains(card.InstanceId))
                 {
@@ -487,39 +557,88 @@ namespace LemonadeWars.Unity
                 {
                     continue; // nothing to fly — leave the refill instant (status quo)
                 }
-                int originSlot = slot;   // geometric spot the departed card occupied
                 bool lifted = _liftedMarketIds.Remove(card.InstanceId);
                 if (lifted)
                 {
                     _hiddenMarketIds.Remove(card.InstanceId); // gone from the shelf for real now
                 }
-                var landing = lifted ? _liftedCardLanding : null;
                 _liftedCardLanding = null;
                 _fx.QueueSound(Sfx.CashRegister);
-                if (IsContestedPurchase(_lastSpenderId, card.DefId))
-                {
-                    // Open to a Tantrum: the card is staged like a play — lifted off its
-                    // slot (or from where the viewer just dropped it) to the buyer's
-                    // showcase, badged, held for reactions; the money lands under it.
-                    // It slides home on the equip, or fades if the purchase is cancelled.
-                    _stagedAttacker = _lastSpenderId;
-                    _playTheatre.Begin(art, card.DefId, _lastSpenderId, -1,
-                        fromWorld: landing ?? _table.MarketSlotWorld(originSlot));
-                    _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
-                        () => _table.MarketSlotWorld(originSlot), null, showCard: false);
-                    continue;
-                }
-                if (!lifted)
-                {
-                    HoldStandIn(freshSlots, originSlot, art);
-                }
-                _fx.QueuePurchase(art, _lastSpenderId, _lastMarketPrice, _art.Bill,
-                    () => _table.MarketSlotWorld(originSlot),
-                    null, ShowsPurchaseTheatre(_lastSpenderId),
-                    onStarted: () => DropStandIns(freshSlots));
+                PresentShelfDeparture(art, slot, _lastSpenderId, _lastMarketPrice, lifted, freshSlots);
             }
             // The replacement(s) are dealt from the deck once the purchase has played.
             QueueMarketDeal(freshSlots, new List<(int Slot, UnityEngine.Texture2D Art)>(), payerId: -1, price: 0);
+        }
+
+        /// <summary>An uncontested in-game purchase waiting for the refill that follows it in the same burst.</summary>
+        private sealed class ShelfDeparture
+        {
+            public UnityEngine.Texture2D Art;
+            public int Slot;
+            public int BuyerId;
+            public int Price;
+            public bool Lifted;
+        }
+
+        private ShelfDeparture _shelfDeparture;
+
+        /// <summary>
+        /// An in-game purchase was paid for. The card has left the shelf and its slot
+        /// stays empty until the purchase resolves. If it is open to a Tantrum the
+        /// card is staged like a play — lifted off its slot (or from where the viewer
+        /// just dropped it) to the buyer's showcase, badged, held for reactions, the
+        /// money landing under it; it slides home on the equip or fades on a cancel.
+        /// Otherwise the refill arrives in this same burst and presents it there.
+        /// </summary>
+        private void HandlePurchaseStarted(BlackMarketPurchaseStarted started)
+        {
+            var oldSnap = _marketSnap;
+            _marketSnap = oldSnap?.Where(c => c.InstanceId != started.InstanceId).ToList();
+            bool lifted = _liftedMarketIds.Remove(started.InstanceId);
+            if (lifted)
+            {
+                _hiddenMarketIds.Remove(started.InstanceId); // gone from the shelf for real now
+            }
+            var landing = lifted ? _liftedCardLanding : null;
+            _liftedCardLanding = null;
+            if (oldSnap == null)
+            {
+                return; // no baseline yet (fresh join): nothing to animate from
+            }
+            var art = _art.BlackMarket(started.DefId, started.Shape);
+            int slot = started.MarketIndex;
+            _fx.QueueSound(Sfx.CashRegister);
+            if (IsContestedPurchase(started.PlayerId, started.DefId))
+            {
+                _stagedAttacker = started.PlayerId;
+                _playTheatre.Begin(art, started.DefId, started.PlayerId, -1,
+                    fromWorld: landing ?? _table.MarketSlotWorld(slot));
+                _fx.QueuePurchase(art, started.PlayerId, started.Price, _art.Bill,
+                    () => _table.MarketSlotWorld(slot), null, showCard: false);
+                return;
+            }
+            _shelfDeparture = new ShelfDeparture
+            {
+                Art = art, Slot = slot, BuyerId = started.PlayerId, Price = started.Price, Lifted = lifted,
+            };
+        }
+
+        /// <summary>
+        /// A bought (or taken) card leaves its slot for its buyer: it keeps its place
+        /// as a stand-in until the purchase effect starts — unless the viewer already
+        /// lifted it off the shelf themselves — then the effect plays.
+        /// </summary>
+        private void PresentShelfDeparture(UnityEngine.Texture2D art, int originSlot, int buyerId, int price,
+            bool lifted, List<(int Slot, int InstanceId)> freshSlots)
+        {
+            if (!lifted)
+            {
+                HoldStandIn(freshSlots, originSlot, art);
+            }
+            _fx.QueuePurchase(art, buyerId, price, _art.Bill,
+                () => _table.MarketSlotWorld(originSlot),
+                null, ShowsPurchaseTheatre(buyerId),
+                onStarted: () => DropStandIns(freshSlots));
         }
 
         /// <summary>

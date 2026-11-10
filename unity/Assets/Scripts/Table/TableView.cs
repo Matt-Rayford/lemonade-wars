@@ -87,6 +87,7 @@ namespace LemonadeWars.Unity
             _cashIcon = LoadIcon("Cash.png");
             _tantrumIcon = LoadIcon("Tantrum.png");
             _hourglassIcon = LoadIcon("Hourglass.png");
+            _pinnedTagIcon = LoadIcon("PriceTag.png");
             Build(canvasRoot);
         }
 
@@ -120,11 +121,6 @@ namespace LemonadeWars.Unity
             playersLayout.childControlHeight = true;
             playersLayout.childControlWidth = true;
             _playersColumn = (RectTransform)playersGo.transform;
-
-            // Right column, mirroring the player panels: the action log. Collapsed
-            // it's one slim "latest thing that happened" chip; expanded it's the
-            // recent history — fast bot turns can be replayed at a glance.
-            BuildActionLog();
 
             // Top: one full-width shelf — Black Market row, stand supply, Bragging
             // Rights, and the Black Market discard pile.
@@ -166,6 +162,14 @@ namespace LemonadeWars.Unity
             _boardOwnerLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
                 new Vector2(0, 0.90f), new Vector2(1, 1));
+
+            // Right column, mirroring the player panels: the action log. Collapsed
+            // it's one slim "latest thing that happened" chip; expanded it's the
+            // recent history — fast bot turns can be replayed at a glance. Built
+            // AFTER the board: the board band runs to the screen's right edge now,
+            // and its drop-catching panel would otherwise sit on top of the log and
+            // swallow every click on its header.
+            BuildActionLog();
 
             // Persistent actions: a floating button strip above the hand's peek band.
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));

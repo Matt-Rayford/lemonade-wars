@@ -380,7 +380,11 @@ namespace LemonadeWars.Unity
             }
             if (groups.IsModal)
             {
-                if (ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision()) &&
+                if (IsPassOnlyWindow(groups))
+                {
+                    // Nothing to choose: it passes itself (see TryAutoPassEmptyWindow).
+                }
+                else if (ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision()) &&
                     !TheatreHoldsModals())
                 {
                     RenderReactionStrip(groups);
@@ -444,35 +448,50 @@ namespace LemonadeWars.Unity
         private void RenderReactionStrip(MoveGroups groups)
         {
             _tableMessage.text = "";
-            // A theft names the thief and the numbers, a free play names what
-            // provoked it; everything else is "a reaction".
-            string leadText = View.TheftOnMe || IsFreePlayDecision() ? ModalTitle() : "Play a reaction or";
-            var lead = UiKit.CreateText(_tableActionHost, leadText,
-                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
-            lead.raycastTarget = false;
-            UiKit.AddTextShadow(lead);
-            // No fixed width: the row sizes the words to their own length, so the
-            // button sits one spacing step after the last letter.
+            // A theft names the thief and the numbers, a free play names what provoked
+            // it: a question, then its answers. Everything else reads as a list of
+            // choices — "Play a reaction" only when a hand card can actually answer,
+            // each equipped ability as its own button, and the way out last, with
+            // "or" between the last two: [Use Sugared Up] or [Pass].
+            bool question = View.TheftOnMe || IsFreePlayDecision();
+            bool handCanAnswer = groups.HandMoves.Values.Any(moves => moves.Any(m => m is RespondToWindow));
+            var abilities = groups.ModalMoves
+                .Where(move => move is UseTurnAbility ||
+                               (move is RespondToWindow respond && respond.EquippedInstanceId != null))
+                .ToList();
+            var wayOut = groups.ModalMoves.FirstOrDefault(m => m is PassWindow)
+                ?? groups.ModalMoves.FirstOrDefault(m => m is SkipFreePlay);
 
-            foreach (var move in groups.ModalMoves)
+            if (question)
             {
-                bool fromEquipment = move is UseTurnAbility ||
-                                     (move is RespondToWindow respond && respond.EquippedInstanceId != null);
-                if (fromEquipment)
-                {
-                    AddStripButton(_session.LabelFor(move), move, Sfx.ButtonClick);
-                }
+                AddStripText(ModalTitle());
             }
-            var pass = groups.ModalMoves.FirstOrDefault(m => m is PassWindow);
-            if (pass != null)
+            else if (handCanAnswer)
             {
-                AddStripButton("Pass", pass, Sfx.ButtonClick);
+                AddStripText("Play a reaction");
             }
-            var skip = groups.ModalMoves.FirstOrDefault(m => m is SkipFreePlay);
-            if (skip != null)
+            foreach (var ability in abilities)
             {
-                AddStripButton("Skip", skip, Sfx.ButtonClick);
+                AddStripButton(_session.LabelFor(ability), ability, Sfx.ButtonClick);
             }
+            if (wayOut == null)
+            {
+                return;
+            }
+            if (!question && (handCanAnswer || abilities.Count > 0))
+            {
+                AddStripText("or");
+            }
+            AddStripButton(wayOut is PassWindow ? "Pass" : "Skip", wayOut, Sfx.ButtonClick);
+        }
+
+        /// <summary>Words in the strip at the message's own size; the row sizes them to their length.</summary>
+        private void AddStripText(string words)
+        {
+            var text = UiKit.CreateText(_tableActionHost, words,
+                Mathf.RoundToInt(_tableMessage.fontSize), TextAnchor.MiddleCenter, UiKit.ButtonColor);
+            text.raycastTarget = false;
+            UiKit.AddTextShadow(text);
         }
 
         /// <summary>
@@ -537,10 +556,18 @@ namespace LemonadeWars.Unity
             var button = UiKit.CreateButton(_tableActionHost, label,
                 Mathf.RoundToInt(_tableMessage.fontSize), () => Submit(move),
                 clickSound: clickSound, highlighted: true);
+            // Wide enough for its whole label on one line: "Use Sugared Up" once lost
+            // its last word to a fixed width.
+            var text = button.GetComponentInChildren<TMPro.TMP_Text>();
+            text.enableWordWrapping = false;
             var layout = button.GetComponent<LayoutElement>();
-            layout.minWidth = 170f;
+            layout.minWidth = Mathf.Max(StripButtonMinWidthPx, text.preferredWidth + StripButtonPaddingPx);
             layout.minHeight = EndTurnButtonHeightPx;
         }
+
+        private const float StripButtonMinWidthPx = 170f;
+        /// <summary>Room around a strip button's label, both sides together.</summary>
+        private const float StripButtonPaddingPx = 48f;
 
         /// <summary>
         /// The big yellow button in the message strip above the board — the one thing

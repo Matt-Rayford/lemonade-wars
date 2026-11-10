@@ -266,6 +266,45 @@ namespace LemonadeWars.Unity
             return text;
         }
 
+        /// <summary>
+        /// Title-font lettering with a THICK solid border, the way the cards letter
+        /// their price tags: the glyphs at full weight over a ring of copies in the
+        /// border colour. The font shader's own outline cannot do this — it is
+        /// centred on the glyph edge (thinning the face, so bold reads as a lighter
+        /// typeface) and capped by the atlas padding. Returns the holder to anchor.
+        /// </summary>
+        public static RectTransform CreateOutlinedText(Transform parent, string content, int size,
+            Color fill, Color border, float borderPx)
+        {
+            const int ringCopies = 16;
+            var holderGo = new GameObject("OutlinedText", typeof(RectTransform));
+            holderGo.transform.SetParent(parent, false);
+            var holder = (RectTransform)holderGo.transform;
+
+            TextMeshProUGUI Layer(Color color, Vector2 offsetPx)
+            {
+                var layer = CreateText(holder, content, size, TextAnchor.MiddleCenter, color);
+                layer.raycastTarget = false;
+                layer.textWrappingMode = TextWrappingModes.NoWrap;
+                layer.overflowMode = TextOverflowModes.Overflow;
+                Anchor((RectTransform)layer.transform, Vector2.zero, Vector2.one, offsetPx, offsetPx);
+                return layer;
+            }
+
+            // Two rings: the outer sets the border's width, the inner fills the
+            // gaps a single ring leaves between its copies on wide borders.
+            foreach (float radius in new[] { borderPx, borderPx * 0.5f })
+            {
+                for (int i = 0; i < ringCopies; i++)
+                {
+                    float angle = i * Mathf.PI * 2f / ringCopies;
+                    Layer(border, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius);
+                }
+            }
+            Layer(fill, Vector2.zero);
+            return holder;
+        }
+
         /// <param name="dark">
         /// Inverse chrome for buttons sitting ON a light surface: the normal hover
         /// paint is lemonade-yellow, which would make such a button vanish into its

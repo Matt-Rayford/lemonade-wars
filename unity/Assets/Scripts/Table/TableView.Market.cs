@@ -104,6 +104,12 @@ namespace LemonadeWars.Unity
             BuildRefreshCell(db.Config.BlackMarketRefreshCost, CanRefreshMarket?.Invoke() == true);
             for (int i = 0; i < view.Market.Count; i++)
             {
+                if (view.MarketGapIndex == i)
+                {
+                    // A contested purchase left this slot: it stays empty (the row is
+                    // one short) until the purchase resolves and the refill is dealt.
+                    BuildEmptyMarketCell(i, registerAnchor: false);
+                }
                 var card = view.Market[i];
                 if (MarketCardHidden?.Invoke(card.InstanceId) == true)
                 {
@@ -124,13 +130,19 @@ namespace LemonadeWars.Unity
                 var texture = _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square);
                 BuildMarketCell(i, texture);
             }
+            if (view.MarketGapIndex is int gap && gap >= view.Market.Count)
+            {
+                BuildEmptyMarketCell(gap, registerAnchor: false); // the vacated slot was the last one
+            }
         }
 
         /// <summary>
         /// Placeholder for a suppressed market slot: same layout footprint as a card
         /// cell (the shelf must not reflow), drawn as a faint empty socket.
         /// </summary>
-        private void BuildEmptyMarketCell(int marketIndex)
+        /// <param name="registerAnchor">False for a contested purchase's gap: slot anchors are keyed by
+        /// market index, and that index belongs to the card now shifted past the gap.</param>
+        private void BuildEmptyMarketCell(int marketIndex, bool registerAnchor = true)
         {
             const float width = 154f;
             const float height = 216f;
@@ -157,7 +169,10 @@ namespace LemonadeWars.Unity
 
             // The CARD's rect, not the cell's: the cell is padded, so a flight aimed at
             // its centre would land 2px off and jump as the real card takes over.
-            _marketSlotAnchors[marketIndex] = socket;
+            if (registerAnchor)
+            {
+                _marketSlotAnchors[marketIndex] = socket;
+            }
         }
 
         /// <summary>

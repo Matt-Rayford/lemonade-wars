@@ -80,7 +80,7 @@ namespace LemonadeWars.Unity
                 // before the fresh modal replaces it.
                 _table.DismissModalOverlays();
             }
-            if (TryAutoForcedPlay(groups, revision))
+            if (TryAutoForcedPlay(groups, revision) || TryAutoPassEmptyWindow(groups, revision))
             {
                 return;
             }
@@ -284,6 +284,36 @@ namespace LemonadeWars.Unity
             Submit(only);
             return true;
         }
+
+        private int _autoPassRevision = -1;
+
+        /// <summary>
+        /// A response window whose ONLY move is Pass is not a choice: pass it without
+        /// a screen. The engine should never open one, but a playtester met a blank
+        /// "Your choice — Pass" prompt after using an Inflatable Decoy, and a lone
+        /// Pass must never be a modal the table waits on. Once per revision: online,
+        /// the revision stands still until the server answers.
+        /// </summary>
+        private bool TryAutoPassEmptyWindow(MoveGroups groups, int revision)
+        {
+            if (!IsPassOnlyWindow(groups))
+            {
+                return false;
+            }
+            if (_autoPassRevision != revision)
+            {
+                _autoPassRevision = revision;
+                _prompt.Hide();
+                _reaction.Hide();
+                Submit(groups.ModalMoves[0]);
+            }
+            return true;
+        }
+
+        /// <summary>The viewer is being awaited by a window and has nothing to answer it with but Pass.</summary>
+        private bool IsPassOnlyWindow(MoveGroups groups) =>
+            groups != null && View.MyDecisions.Count == 0 &&
+            groups.ModalMoves.Count == 1 && groups.ModalMoves[0] is PassWindow;
 
         /// <summary>
         /// "Choose who to rob" aims at the player bars instead of opening a modal:
