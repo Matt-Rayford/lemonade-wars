@@ -67,6 +67,10 @@ namespace LemonadeWars.Unity
         private EffectsPlayer _fx;
         private PlayTheatre _playTheatre;
         private RectTransform _turnActionRow;
+        /// <summary>The message strip's vertical band on screen (0 bottom, 1 top): between the shelf and the board.</summary>
+        private const float MessageStripBottom = 0.697f;
+        private const float MessageStripTop = 0.77f;
+
         private TMP_Text _tableMessage;
         /// <summary>Same strip as the message: holds the End Turn button once actions are spent.</summary>
         private RectTransform _tableActionHost;
@@ -105,7 +109,7 @@ namespace LemonadeWars.Unity
             _tableMessage.raycastTarget = false;
             UiKit.AddTextShadow(_tableMessage);
             var messageRect = (RectTransform)_tableMessage.transform;
-            UiKit.Anchor(messageRect, new Vector2(0.21f, 0.697f), new Vector2(0.79f, 0.77f));
+            UiKit.Anchor(messageRect, new Vector2(0.21f, MessageStripBottom), new Vector2(0.79f, MessageStripTop));
             // The message's strip doubles as the home of the big End Turn button when
             // there is nothing else to say; the words step aside while it is there.
             // Anchored off the message itself, so nudging one nudges both.
@@ -234,7 +238,8 @@ namespace LemonadeWars.Unity
             // Built last: overlays render on top.
             _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
-            _dice = new DiceRoller(root);
+            // The die may tumble across the message strip but never rests on it.
+            _dice = new DiceRoller(root, landingCeilingViewportY: MessageStripBottom);
             _dice.OnFinished = () =>
             {
                 // Re-render so anything held back during the roll opens now.
