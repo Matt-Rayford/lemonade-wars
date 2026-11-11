@@ -55,7 +55,8 @@ namespace LemonadeWars.Unity
                         ? () => OnSetBotLevel?.Invoke(seatIndex, NextLevel(level))
                         : (System.Action)null,
                     ready: seat.IsBot ? (bool?)null : seat.Ready, // bots are always ready: no dot
-                    isYou: seat.Seat == room.YourSeat);
+                    isYou: seat.Seat == room.YourSeat,
+                    seat: seat.Seat);
             }
             if (isHost && room.Seats.Count > 0 && room.Seats.Count < MaxSeats)
             {

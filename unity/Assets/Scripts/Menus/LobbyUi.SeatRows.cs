@@ -7,6 +7,7 @@ namespace LemonadeWars.Unity
     {
         private const float ReadyDotInsetPx = 26f;
         private static readonly Color RemoveButtonIdle = new Color(0.72f, 0.24f, 0.20f, 0.95f);
+        private static readonly Color PlainRowColor = new Color(0, 0, 0, 0.30f);
 
         public static string NextLevel(string level) =>
             level == "easy" ? "medium"
@@ -31,10 +32,11 @@ namespace LemonadeWars.Unity
         /// <summary>
         /// A bot's difficulty chip is clickable only when <paramref name="onCycleLevel"/> is given.
         /// <paramref name="ready"/> draws the status dot; null = no dot (solo seats, the games list).
+        /// <paramref name="seat"/> tints the row in that seat's player colour; null = a plain row (not a player).
         /// </summary>
         private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
             string botLevel = null, System.Action onCycleLevel = null, bool? ready = null,
-            bool isYou = false)
+            bool isYou = false, int? seat = null)
         {
             // The dot owns the row's right edge; chip and remove button shift left of it.
             float dotInset = ready != null ? ReadyDotInsetPx : 0f;
@@ -43,7 +45,9 @@ namespace LemonadeWars.Unity
             var background = row.GetComponent<Image>();
             background.sprite = UiSprites.RoundedRect;
             background.type = Image.Type.Sliced;
-            background.color = new Color(0, 0, 0, 0.30f);
+            background.color = seat is int playerSeat
+                ? PlayerPalette.BarColorOf(playerSeat)
+                : PlainRowColor;
             row.GetComponent<LayoutElement>().minHeight = 48;
             if (isYou)
             {

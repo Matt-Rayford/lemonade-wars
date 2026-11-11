@@ -79,7 +79,7 @@ namespace LemonadeWars.Unity
         private void RefreshSoloSeats()
         {
             UiKit.Clear(_soloSeatList);
-            AddSeatRow(_soloSeatList, $"1. {DisplayName}", null, isYou: true);
+            AddSeatRow(_soloSeatList, $"1. {DisplayName}", null, isYou: true, seat: 0);
             for (int i = 0; i < _soloBots.Count; i++)
             {
                 int index = i;
@@ -98,7 +98,8 @@ namespace LemonadeWars.Unity
                         _soloBots[index] = (_soloBots[index].Name,
                             NextLevel(_soloBots[index].Level));
                         RefreshSoloSeats();
-                    });
+                    },
+                    seat: index + 1);
             }
             if (_soloBots.Count < BotNames.Length)
             {

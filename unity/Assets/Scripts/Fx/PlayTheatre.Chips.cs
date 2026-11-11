@@ -70,7 +70,7 @@ namespace LemonadeWars.Unity
             {
                 Object.Destroy(_badge.gameObject);
             }
-            var badge = TableView.CreatePlayerBadge(chip, _nameOf(playerId), BadgeDiameterPx);
+            var badge = TableView.CreatePlayerBadge(chip, playerId, _nameOf(playerId), BadgeDiameterPx);
             badge.anchorMin = badge.anchorMax = new Vector2(0f, 1f);
             badge.pivot = new Vector2(0.5f, 0.5f);
             badge.anchoredPosition = new Vector2(BadgeInsetPx, -BadgeInsetPx);

@@ -102,7 +102,7 @@ namespace LemonadeWars.Unity
         private static void AddScoreRowAvatar(Transform row, PlayerView.PlayerPanel player, float cardHeight)
         {
             float badge = Mathf.Min(64f, cardHeight * 0.6f);
-            var avatar = TableView.CreatePlayerBadge(row, player.Name, badge);
+            var avatar = TableView.CreatePlayerBadge(row, player.PlayerId, player.Name, badge);
             var avatarElement = avatar.gameObject.AddComponent<LayoutElement>();
             avatarElement.preferredWidth = badge;
             avatarElement.preferredHeight = badge;
