@@ -17,7 +17,7 @@ internal static class LearnMode
     private const int ValidationGames = 200;
     private const int ValidationPlayers = 4;
     private const int MediumBudgetMs = 150;
-    /// <summary>Points per unit of log-odds: rescales fitted weights so one VP reads as about 100.</summary>
+    /// <summary>Fitted weights are rescaled so one victory point reads as about this many points.</summary>
     private const double PointsPerVictoryPoint = 100;
     /// <summary>Prior strengths tried per iteration: from "trust the data" to "nudge the incumbent".</summary>
     private static readonly double[] Anchors = { 0.03, 0.3, 3.0 };
@@ -44,24 +44,7 @@ internal static class LearnMode
                     }
                 });
             Console.WriteLine($"  it{iteration}: {samples.Count} samples; fitting...");
-            var prior = incumbent.ToVector().Select(w => w / incumbent.RivalTemperature).ToArray();
-            EvaluationWeights? best = null;
-            double bestShare = 1.0 / ValidationPlayers - AdoptSlack;
-            foreach (double anchor in Anchors)
-            {
-                var raw = LogitFitter.Fit(samples, prior, anchor, out double loss);
-                var candidate = ToWeights(raw);
-                string path = Path.Combine(outDir, $"weights-it{iteration}-anchor{anchor:0.###}.json");
-                File.WriteAllText(path, JsonConvert.SerializeObject(candidate, Formatting.Indented));
-                double vsOld = Versus(db, candidate, incumbent);
-                Console.WriteLine($"  it{iteration} anchor {anchor,-6:0.###} loss {loss:F4}: vs 3 incumbent = {vsOld:P1} " +
-                    $"({stopwatch.Elapsed.TotalMinutes:F1} min) -> {Path.GetFileName(path)}");
-                if (vsOld > bestShare)
-                {
-                    bestShare = vsOld;
-                    best = candidate;
-                }
-            }
+            var (best, bestShare) = BestCandidate(db, samples, incumbent, iteration, outDir, stopwatch);
             if (best == null)
             {
                 Console.WriteLine($"  it{iteration}: no anchor beat the incumbent; next iteration samples from it again");
@@ -71,25 +54,52 @@ internal static class LearnMode
             Console.WriteLine($"  it{iteration}: ADOPTED ({bestShare:P1} vs old; vs 3 greedy = {Versus(db, incumbent, null):P1})");
             PrintWeights(incumbent);
         }
-        File.WriteAllText(Path.Combine(outDir, "weights-final.json"),
-            JsonConvert.SerializeObject(incumbent, Formatting.Indented));
+        WriteWeights(Path.Combine(outDir, "weights-final.json"), incumbent);
         Console.WriteLine("final incumbent:");
         PrintWeights(incumbent);
     }
 
     /// <summary>
-    /// Fitted logit weights become evaluator points: scaled so a victory point is worth
-    /// about <see cref="PointsPerVictoryPoint"/>, with the rival temperature set to the
-    /// same scale so the evaluator's softmax reproduces the model's log-odds exactly.
+    /// Fits one candidate per anchor, saves each, and plays it against the incumbent.
+    /// Returns the strongest that holds its own, or null when none does.
+    /// </summary>
+    private static (EvaluationWeights? Best, double WinShare) BestCandidate(CardDatabase db,
+        List<PositionSample> samples, EvaluationWeights incumbent, int iteration, string outDir,
+        Stopwatch stopwatch)
+    {
+        var prior = incumbent.ToVector().Select(weight => weight / incumbent.RivalTemperature).ToArray();
+        EvaluationWeights? best = null;
+        double bestShare = 1.0 / ValidationPlayers - AdoptSlack;
+        foreach (double anchor in Anchors)
+        {
+            var logitWeights = LogitFitter.Fit(samples, prior, anchor, out double loss);
+            var candidate = ToWeights(logitWeights);
+            string path = Path.Combine(outDir, $"weights-it{iteration}-anchor{anchor:0.###}.json");
+            WriteWeights(path, candidate);
+            double shareVsIncumbent = Versus(db, candidate, incumbent);
+            Console.WriteLine($"  it{iteration} anchor {anchor,-6:0.###} loss {loss:F4}: vs 3 incumbent = {shareVsIncumbent:P1} " +
+                $"({stopwatch.Elapsed.TotalMinutes:F1} min) -> {Path.GetFileName(path)}");
+            if (shareVsIncumbent > bestShare)
+            {
+                bestShare = shareVsIncumbent;
+                best = candidate;
+            }
+        }
+        return (best, bestShare);
+    }
+
+    /// <summary>
+    /// Scales fitted logit weights to evaluator points. The rival temperature takes the
+    /// same scale, so the evaluator's softmax reproduces the model's log-odds exactly.
     /// </summary>
     private static EvaluationWeights ToWeights(double[] logitWeights)
     {
-        int vpIndex = Array.IndexOf(PositionFeatures.Names, nameof(EvaluationWeights.VictoryPoint));
-        double perLogit = logitWeights[vpIndex] > 1e-9
-            ? PointsPerVictoryPoint / logitWeights[vpIndex]
+        int victoryPointIndex = Array.IndexOf(PositionFeatures.Names, nameof(EvaluationWeights.VictoryPoint));
+        double pointsPerLogit = logitWeights[victoryPointIndex] > 1e-9
+            ? PointsPerVictoryPoint / logitWeights[victoryPointIndex]
             : PointsPerVictoryPoint;
-        var scaled = logitWeights.Select(w => w * perLogit).ToArray();
-        return EvaluationWeights.FromVector(scaled, rivalTemperature: perLogit);
+        var points = logitWeights.Select(weight => weight * pointsPerLogit).ToArray();
+        return EvaluationWeights.FromVector(points, rivalTemperature: pointsPerLogit);
     }
 
     /// <summary>Hero win share for medium-config planners: candidate vs three of the baseline (null = greedy).</summary>
@@ -101,6 +111,9 @@ internal static class LearnMode
             (_, seed) => baseline == null ? new GreedyBot() : new PlannerBot(seed, config, baseline),
             ValidationGames, ValidationPlayers).WinShare;
     }
+
+    private static void WriteWeights(string path, EvaluationWeights weights) =>
+        File.WriteAllText(path, JsonConvert.SerializeObject(weights, Formatting.Indented));
 
     private static void PrintWeights(EvaluationWeights weights)
     {

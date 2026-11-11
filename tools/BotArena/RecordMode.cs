@@ -7,10 +7,9 @@ using Newtonsoft.Json.Linq;
 namespace LemonadeWars.BotArena;
 
 /// <summary>
-/// Plays one all-greedy game to completion and writes it in the server's room-log
-/// format (header line + one encoded action per line), producing fixtures for
-/// <see cref="ReplayMode"/>. Greedy is seedless and deterministic, so a replay at the
-/// "greedy" level reproduces every move.
+/// Plays one all-greedy game and writes it in the server's room-log format (header line
+/// + one encoded action per line) as a <see cref="ReplayMode"/> fixture. Greedy is
+/// seedless and deterministic, so a replay at the "greedy" level reproduces every move.
 /// </summary>
 internal static class RecordMode
 {
@@ -19,7 +18,7 @@ internal static class RecordMode
     public static void Run(string outPath, ulong seed, int players)
     {
         var db = ArenaTools.LoadDatabase();
-        var names = Enumerable.Range(0, players).Select(s => $"Bot{s}").ToArray();
+        var names = Enumerable.Range(0, players).Select(seat => $"Bot{seat}").ToArray();
         var game = Game.Create(db, names, seed);
         var bot = new GreedyBot();
 

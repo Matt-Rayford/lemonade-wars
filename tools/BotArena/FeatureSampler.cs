@@ -23,7 +23,7 @@ internal static class FeatureSampler
     {
         var samples = new ConcurrentBag<PositionSample>();
         int finished = 0;
-        Parallel.For(0, games, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount - 1 }, index =>
+        Parallel.For(0, games, ArenaTools.AllCoresButOne, index =>
         {
             var rng = new DeterministicRng(seedBase + (ulong)index * 7919UL);
             int players = 3 + rng.Next(3); // 3..5 seats, so weights generalise across table sizes
@@ -47,20 +47,23 @@ internal static class FeatureSampler
             {
                 return; // a stalled game has no result to learn from
             }
-            var shares = game.State.Players
-                .Select(p => game.State.Winners.Contains(p.PlayerId) ? 1.0 / game.State.Winners.Count : 0.0)
-                .ToArray();
+            var winShares = WinShares(game.State);
             foreach (var position in positions)
             {
-                foreach (var rows in position)
+                foreach (var rowsForViewer in position)
                 {
-                    samples.Add(new PositionSample(rows, shares));
+                    samples.Add(new PositionSample(rowsForViewer, winShares));
                 }
             }
             progress?.Invoke(Interlocked.Increment(ref finished));
         });
         return samples.ToList();
     }
+
+    private static double[] WinShares(GameState state) =>
+        state.Players
+            .Select(player => state.Winners.Contains(player.PlayerId) ? 1.0 / state.Winners.Count : 0.0)
+            .ToArray();
 
     private static void PlayAndSample(Game game, Dictionary<int, IBot> bots, DeterministicRng rng,
         List<double[][][]> positions)
@@ -80,8 +83,8 @@ internal static class FeatureSampler
             int actor = acting[0];
             game.Apply(bots[actor].Choose(game, actor));
 
-            bool inPlay = game.State.Stage == GameStage.Playing || game.State.Stage == GameStage.FinalRound;
-            if (inPlay && rng.Next(10_000) < SamplePerAction * 10_000)
+            bool isInPlay = game.State.Stage == GameStage.Playing || game.State.Stage == GameStage.FinalRound;
+            if (isInPlay && rng.Next(10_000) < SamplePerAction * 10_000)
             {
                 positions.Add(Snapshot(game));
             }
@@ -91,17 +94,18 @@ internal static class FeatureSampler
     /// <summary>Feature rows for every (viewer, player) pair of the current position.</summary>
     private static double[][][] Snapshot(Game game)
     {
-        double horizon = PositionEvaluator.RemainingRounds(game);
-        int n = game.State.Players.Count;
-        var byViewer = new double[n][][];
-        for (int viewer = 0; viewer < n; viewer++)
+        double remainingRounds = PositionEvaluator.RemainingRounds(game);
+        int playerCount = game.State.Players.Count;
+        var rowsByViewer = new double[playerCount][][];
+        for (int viewer = 0; viewer < playerCount; viewer++)
         {
-            byViewer[viewer] = new double[n][];
-            for (int player = 0; player < n; player++)
+            rowsByViewer[viewer] = new double[playerCount][];
+            for (int player = 0; player < playerCount; player++)
             {
-                byViewer[viewer][player] = PositionFeatures.Extract(game, game.State.Players[player], viewer, horizon);
+                rowsByViewer[viewer][player] =
+                    PositionFeatures.Extract(game, game.State.Players[player], viewer, remainingRounds);
             }
         }
-        return byViewer;
+        return rowsByViewer;
     }
 }

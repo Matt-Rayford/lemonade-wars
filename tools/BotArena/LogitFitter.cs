@@ -3,7 +3,7 @@ using LemonadeWars.Engine.Ai;
 namespace LemonadeWars.BotArena;
 
 /// <summary>
-/// Fits a conditional-logit model — P(player q wins) proportional to exp(w · f_q) —
+/// Fits a conditional-logit model — P(player wins) proportional to exp(weights · features) —
 /// to sampled positions by full-batch Adam on the cross-entropy against the actual
 /// win shares. Features are standardised for conditioning; the weights are pulled
 /// toward a prior (the weights the bots played with) rather than toward zero, and
@@ -25,15 +25,15 @@ internal static class LogitFitter
     {
         int features = PositionFeatures.Count;
         var scale = FeatureScales(samples, features);
-        var priorStd = new double[features];
-        var w = new double[features];
+        var standardisedPrior = new double[features];
+        var weights = new double[features];
         for (int i = 0; i < features; i++)
         {
-            priorStd[i] = prior[i] * scale[i];
-            w[i] = priorStd[i];
+            standardisedPrior[i] = prior[i] * scale[i];
+            weights[i] = standardisedPrior[i];
         }
-        var m = new double[features];
-        var v = new double[features];
+        var firstMoment = new double[features];
+        var secondMoment = new double[features];
         var gradient = new double[features];
         finalLoss = double.NaN;
 
@@ -43,68 +43,69 @@ internal static class LogitFitter
             double loss = 0;
             foreach (var sample in samples)
             {
-                loss += Accumulate(sample, w, scale, gradient);
+                loss += Accumulate(sample, weights, scale, gradient);
             }
-            double n = samples.Count;
+            double sampleCount = samples.Count;
             for (int i = 0; i < features; i++)
             {
-                double g = gradient[i] / n + anchor * (w[i] - priorStd[i]);
-                m[i] = Beta1 * m[i] + (1 - Beta1) * g;
-                v[i] = Beta2 * v[i] + (1 - Beta2) * g * g;
-                double mHat = m[i] / (1 - Math.Pow(Beta1, step));
-                double vHat = v[i] / (1 - Math.Pow(Beta2, step));
-                w[i] -= LearningRate * mHat / (Math.Sqrt(vHat) + 1e-8);
-                if (w[i] < 0 && PositionFeatures.Names[i] != nameof(EvaluationWeights.SeatTempo))
+                double anchoredGradient = gradient[i] / sampleCount + anchor * (weights[i] - standardisedPrior[i]);
+                firstMoment[i] = Beta1 * firstMoment[i] + (1 - Beta1) * anchoredGradient;
+                secondMoment[i] = Beta2 * secondMoment[i] + (1 - Beta2) * anchoredGradient * anchoredGradient;
+                double correctedFirst = firstMoment[i] / (1 - Math.Pow(Beta1, step));
+                double correctedSecond = secondMoment[i] / (1 - Math.Pow(Beta2, step));
+                weights[i] -= LearningRate * correctedFirst / (Math.Sqrt(correctedSecond) + 1e-8);
+                if (weights[i] < 0 && PositionFeatures.Names[i] != nameof(EvaluationWeights.SeatTempo))
                 {
-                    w[i] = 0; // every other feature is oriented so that more is good
+                    weights[i] = 0; // every other feature is oriented so that more is good
                 }
             }
-            finalLoss = loss / n;
+            finalLoss = loss / sampleCount;
         }
 
-        var raw = new double[features];
+        var rawWeights = new double[features];
         for (int i = 0; i < features; i++)
         {
-            raw[i] = w[i] / scale[i];
+            rawWeights[i] = weights[i] / scale[i];
         }
-        return raw;
+        return rawWeights;
     }
 
     /// <summary>Cross-entropy of one position and its gradient contribution (standardised units).</summary>
-    private static double Accumulate(PositionSample sample, double[] w, double[] scale, double[] gradient)
+    private static double Accumulate(PositionSample sample, double[] weights, double[] scale, double[] gradient)
     {
         int players = sample.Rows.Length;
         var logits = new double[players];
-        double best = double.MinValue;
-        for (int q = 0; q < players; q++)
+        double maxLogit = double.MinValue;
+        for (int player = 0; player < players; player++)
         {
-            double z = 0;
-            var row = sample.Rows[q];
-            for (int i = 0; i < w.Length; i++)
+            double logit = 0;
+            var row = sample.Rows[player];
+            for (int i = 0; i < weights.Length; i++)
             {
-                z += w[i] * row[i] / scale[i];
+                logit += weights[i] * row[i] / scale[i];
             }
-            logits[q] = z;
-            best = Math.Max(best, z);
+            logits[player] = logit;
+            maxLogit = Math.Max(maxLogit, logit);
         }
+        // Log-sum-exp around the largest logit, so big scores cannot overflow.
         double sum = 0;
-        for (int q = 0; q < players; q++)
+        for (int player = 0; player < players; player++)
         {
-            sum += Math.Exp(logits[q] - best);
+            sum += Math.Exp(logits[player] - maxLogit);
         }
-        double logSum = best + Math.Log(sum);
+        double logSum = maxLogit + Math.Log(sum);
         double loss = 0;
-        for (int q = 0; q < players; q++)
+        for (int player = 0; player < players; player++)
         {
-            double p = Math.Exp(logits[q] - logSum);
-            double y = sample.WinShares[q];
-            if (y > 0)
+            double predictedShare = Math.Exp(logits[player] - logSum);
+            double actualShare = sample.WinShares[player];
+            if (actualShare > 0)
             {
-                loss -= y * (logits[q] - logSum);
+                loss -= actualShare * (logits[player] - logSum);
             }
-            double residual = p - y;
-            var row = sample.Rows[q];
-            for (int i = 0; i < w.Length; i++)
+            double residual = predictedShare - actualShare;
+            var row = sample.Rows[player];
+            for (int i = 0; i < weights.Length; i++)
             {
                 gradient[i] += residual * row[i] / scale[i];
             }

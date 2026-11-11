@@ -3,10 +3,9 @@ using LemonadeWars.Protocol;
 
 namespace LemonadeWars.Server;
 
-// Per-player summaries and end-of-life: My Games entries, activity checks, retirement.
 public sealed partial class Room
 {
-    /// <summary>This room as a My Games entry for one player; null if they're not in it.</summary>
+    /// <summary>This room as a My Games entry; null if the player is not seated here.</summary>
     public GameSummary? SummaryFor(string playerId)
     {
         lock (_sync)
@@ -36,7 +35,7 @@ public sealed partial class Room
         }
     }
 
-    /// <summary>Not finished (lobby or running) — counts against the per-player cap.</summary>
+    /// <summary>Lobbies and running games both count against the per-player cap.</summary>
     public bool IsActiveFor(string playerId)
     {
         lock (_sync)
@@ -47,10 +46,8 @@ public sealed partial class Room
     }
 
     /// <summary>
-    /// Atomically mark this room dead if it qualifies: an empty lobby past its TTL, a
-    /// finished game past its grace, or an abandoned running game past the stale window.
-    /// A live async game — anyone connected, or any recent activity — never qualifies.
-    /// Once retired, joins are refused, so the sweeper can't race a returning player.
+    /// Anyone connected or any recent activity keeps a game alive. Atomic with joins, which
+    /// a retired room refuses, so the sweeper cannot race a returning player.
     /// </summary>
     public bool TryRetire(TimeSpan lobbyTtl, TimeSpan finishedTtl, TimeSpan staleTtl)
     {
@@ -60,14 +57,13 @@ public sealed partial class Room
             {
                 return true;
             }
-            var age = DateTime.UtcNow - LastActivityUtc;
+            var idleFor = DateTime.UtcNow - LastActivityUtc;
             bool anyConnected = _seats.Any(s => !s.IsBot && s.Connected);
-            bool eligible =
-                (_game == null && !anyConnected && age > lobbyTtl) ||
-                (_game != null && _game.State.Stage == GameStage.Finished && age > finishedTtl) ||
-                (_game != null && _game.State.Stage != GameStage.Finished &&
-                 !anyConnected && age > staleTtl);
-            if (!eligible)
+            bool isFinished = _game != null && _game.State.Stage == GameStage.Finished;
+            bool isEmptyExpiredLobby = _game == null && !anyConnected && idleFor > lobbyTtl;
+            bool isFinishedPastGrace = isFinished && idleFor > finishedTtl;
+            bool isAbandonedGame = _game != null && !isFinished && !anyConnected && idleFor > staleTtl;
+            if (!isEmptyExpiredLobby && !isFinishedPastGrace && !isAbandonedGame)
             {
                 return false;
             }

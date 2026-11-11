@@ -3,16 +3,14 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.BotArena;
 
-/// <summary>Shared arena plumbing: game data and the extended bot-level roster.</summary>
 internal static class ArenaTools
 {
+    public static ParallelOptions AllCoresButOne =>
+        new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount - 1 };
+
     /// <summary>
-    /// Arena-only levels beyond the shipped difficulties: "random", bare "greedy" (the
-    /// pre-planner medium), "planner" at an explicit budget, "planner:&lt;weights.json&gt;"
-    /// (a tuner output file), the planner's wide / lookahead variants, the wam-* research
-    /// candidates, raw "ismcts" (+ "ismcts-eval"), truncated-rollout "wam", and pimc
-    /// variants at explicit configs — kept for A/Bs
-    /// against whatever BotFactory currently ships.
+    /// The shipped difficulties plus arena-only levels, kept for A/Bs against whatever
+    /// BotFactory currently ships. "planner:&lt;weights.json&gt;" loads a tuner output file.
     /// </summary>
     public static IBot MakeBot(string level, ulong seed, int budgetMs)
     {
@@ -24,6 +22,7 @@ internal static class ArenaTools
         switch (level)
         {
             case "random": return new RandomBot(seed);
+            // The pre-planner medium.
             case "greedy": return new GreedyBot();
             case "planner": return new PlannerBot(seed, new PlannerConfig { BudgetMs = budgetMs });
             case "planner+":
@@ -36,26 +35,31 @@ internal static class ArenaTools
                     { BudgetMs = budgetMs, Worlds = 6, RootBeam = 6, RoundLookahead = true });
             // Wambulance research candidates, each one idea on top of the shipped config.
             case "wam-sampled":
-                return new PlannerBot(seed, Wambulance(budgetMs, c => c.SampledReactions = true));
+                return new PlannerBot(seed, Wambulance(budgetMs, config => config.SampledReactions = true));
             case "wam-rolls":
-                return new PlannerBot(seed, Wambulance(budgetMs, c => c.RollSamples = 3));
+                return new PlannerBot(seed, Wambulance(budgetMs, config => config.RollSamples = 3));
             case "wam-evalrivals":
-                return new PlannerBot(seed, Wambulance(budgetMs, c => { c.EvaluatorRivals = true; c.Worlds = 6; }));
-            case "wam-all":
-                return new PlannerBot(seed, Wambulance(budgetMs, c =>
+                return new PlannerBot(seed, Wambulance(budgetMs, config =>
                 {
-                    c.SampledReactions = true;
-                    c.RollSamples = 2;
-                    c.EvaluatorRivals = true;
-                    c.Worlds = 6;
+                    config.EvaluatorRivals = true;
+                    config.Worlds = 6;
+                }));
+            case "wam-all":
+                return new PlannerBot(seed, Wambulance(budgetMs, config =>
+                {
+                    config.SampledReactions = true;
+                    config.RollSamples = 2;
+                    config.EvaluatorRivals = true;
+                    config.Worlds = 6;
                 }));
             case "ismcts": return new IsmctsBot(seed, budgetMs);
             case "ismcts-eval": return new IsmctsBot(seed, budgetMs, rolloutDepth: 60, evaluator: new PositionEvaluator());
+            // ISMCTS with truncated rollouts.
             case "wam": return new IsmctsBot(seed, budgetMs, rolloutDepth: 80);
             case "pimc+": return new SearchBot(seed, budgetMs, maxCandidates: 18, maxWorlds: 30);
             case "pimc++": return new SearchBot(seed, budgetMs, maxCandidates: 24, maxWorlds: 50);
             case "pimc": return new SearchBot(seed, budgetMs);
-            // "hard"/"wambulance" etc: exactly as shipped, own budgets.
+            // A shipped difficulty runs exactly as shipped, on its own budget.
             default: return BotFactory.Create(level, seed);
         }
     }
@@ -68,22 +72,21 @@ internal static class ArenaTools
         return config;
     }
 
-    /// <summary>A weights file as the tuner writes it, for A/B runs before baking values in.</summary>
-    private static EvaluationWeights WeightsFrom(string path) =>
-        Newtonsoft.Json.JsonConvert.DeserializeObject<EvaluationWeights>(File.ReadAllText(path))
-        ?? throw new InvalidDataException($"no weights in {path}");
+    private static EvaluationWeights WeightsFrom(string tunerOutputPath) =>
+        Newtonsoft.Json.JsonConvert.DeserializeObject<EvaluationWeights>(File.ReadAllText(tunerOutputPath))
+        ?? throw new InvalidDataException($"no weights in {tunerOutputPath}");
 
     public static CardDatabase LoadDatabase()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null)
         {
-            string candidate = Path.Combine(dir.FullName, "game-data");
+            string candidate = Path.Combine(directory.FullName, "game-data");
             if (Directory.Exists(candidate))
             {
                 return CardDatabase.Load(candidate);
             }
-            dir = dir.Parent;
+            directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("game-data not found above the arena binary.");
     }

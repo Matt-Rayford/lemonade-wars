@@ -9,12 +9,14 @@ using Newtonsoft.Json.Serialization;
 namespace LemonadeWars.Protocol
 {
     /// <summary>
-    /// JSON wire encoding for engine actions and events, using an explicit reflection-built
-    /// type registry with a "$type" discriminator (never TypeNameHandling — clients cannot
-    /// instantiate arbitrary types). Also redacts hidden information from events per seat.
+    /// JSON wire encoding for engine actions and events. Types travel as a "$type" name
+    /// looked up in an explicit registry, never TypeNameHandling, so a client cannot make
+    /// the server instantiate arbitrary types. Events are redacted per seat.
     /// </summary>
     public static class WireCodec
     {
+        // Initialized before Settings, so actions and events use Newtonsoft defaults (PascalCase
+        // keys, numeric enums). Reordering these would change the wire and room-log format.
         private static readonly JsonSerializer Serializer = JsonSerializer.Create(Settings);
 
         public static JsonSerializerSettings Settings { get; } = new JsonSerializerSettings
@@ -23,8 +25,7 @@ namespace LemonadeWars.Protocol
             NullValueHandling = NullValueHandling.Ignore,
             Converters =
             {
-                // Enums travel as strings ("finished", "diamond") — readable and robust
-                // against enum reordering between client and server versions.
+                // Enums travel as strings, so reordering one cannot desync client and server.
                 new Newtonsoft.Json.Converters.StringEnumConverter
                 {
                     NamingStrategy = new CamelCaseNamingStrategy(),
@@ -57,29 +58,27 @@ namespace LemonadeWars.Protocol
 
         public static GameAction DecodeAction(JObject json)
         {
-            string name = (string?)json["$type"]
+            string typeName = (string?)json["$type"]
                 ?? throw new JsonSerializationException("Action is missing $type.");
-            if (!ActionTypes.TryGetValue(name, out var type))
+            if (!ActionTypes.TryGetValue(typeName, out var type))
             {
-                throw new JsonSerializationException($"Unknown action type '{name}'.");
+                throw new JsonSerializationException($"Unknown action type '{typeName}'.");
             }
             return (GameAction?)json.ToObject(type, Serializer)
-                ?? throw new JsonSerializationException($"Could not decode '{name}'.");
+                ?? throw new JsonSerializationException($"Could not decode '{typeName}'.");
         }
 
         // ------------------------------------------------------------ events
 
         /// <summary>
-        /// Encode an event as one seat is allowed to see it. Today's only redaction:
-        /// another player's draw must not reveal which card they drew.
+        /// Encodes an event as one seat may see it. The only redaction so far: another
+        /// player's draw stays public, with its reason, but hides which card was drawn.
         /// </summary>
         public static JObject EncodeEventFor(GameEvent gameEvent, int seat)
         {
             var visible = gameEvent;
             if (gameEvent is CardDrawn drawn && drawn.PlayerId != seat)
             {
-                // The FACT of the draw (and what prompted it) is public — only the
-                // card's identity is secret.
                 visible = new CardDrawn
                 {
                     PlayerId = drawn.PlayerId,
@@ -97,14 +96,11 @@ namespace LemonadeWars.Protocol
 
         public static string EventTypeName(JObject json) => (string?)json["$type"] ?? "";
 
-        /// <summary>
-        /// Decode a wire event back into its typed form. Returns null for unknown types
-        /// so an older client shrugs at events a newer server invents.
-        /// </summary>
+        /// <summary>Null for unknown types, so an older client ignores events a newer server invents.</summary>
         public static GameEvent? DecodeEvent(JObject json)
         {
-            string name = (string?)json["$type"] ?? "";
-            return EventTypes.TryGetValue(name, out var type)
+            string typeName = (string?)json["$type"] ?? "";
+            return EventTypes.TryGetValue(typeName, out var type)
                 ? (GameEvent?)json.ToObject(type, Serializer)
                 : null;
         }

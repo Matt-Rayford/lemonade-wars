@@ -5,18 +5,6 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.BotArena;
 
-/// <summary>Outcome of one hero-versus-table series.</summary>
-internal sealed record MatchupResult(double WinShare, double AverageActions, double HeroLordsMet, int Stalled)
-{
-    /// <summary>Half-width of the Wilson 95% interval around the win share.</summary>
-    public double Margin(int games)
-    {
-        const double z = 1.96;
-        double n = games;
-        return z * Math.Sqrt(WinShare * (1 - WinShare) / n + z * z / (4 * n * n)) / (1 + z * z / n);
-    }
-}
-
 /// <summary>
 /// One hero bot against a table of baseline bots, hero seat rotating, seeds fixed per
 /// game index so two series over the same games are a paired comparison.
@@ -24,6 +12,13 @@ internal sealed record MatchupResult(double WinShare, double AverageActions, dou
 internal static class Matchup
 {
     public delegate IBot BotFactory(int seat, ulong seed);
+
+    public const ulong FirstGameSeed = 100_000UL;
+
+    public static ulong BotSeed(ulong gameIndex, int seat) => 555UL * (gameIndex + 1) + (ulong)seat;
+
+    public static string[] SeatNames(int players, int heroSeat) =>
+        Enumerable.Range(0, players).Select(seat => seat == heroSeat ? "Hero" : $"Base{seat}").ToArray();
 
     public static MatchupResult Play(CardDatabase db, BotFactory hero, BotFactory baseline,
         int games, int players, Action<int>? progress = null)
@@ -34,16 +29,15 @@ internal static class Matchup
         int finished = 0;
         int stalled = 0;
 
-        Parallel.For(0, games, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount - 1 }, index =>
+        Parallel.For(0, games, ArenaTools.AllCoresButOne, index =>
         {
             int heroSeat = index % players;
-            var names = Enumerable.Range(0, players)
-                .Select(seat => seat == heroSeat ? "Hero" : $"Base{seat}").ToArray();
-            var game = Game.Create(db, names, seed: 100_000UL + (ulong)index);
+            ulong gameSeed = FirstGameSeed + (ulong)index;
+            var game = Game.Create(db, SeatNames(players, heroSeat), gameSeed);
             var bots = new Dictionary<int, IBot>();
             for (int seat = 0; seat < players; seat++)
             {
-                ulong botSeed = 555UL * (ulong)(index + 1) + (ulong)seat;
+                ulong botSeed = BotSeed((ulong)index, seat);
                 bots[seat] = seat == heroSeat ? hero(seat, botSeed) : baseline(seat, botSeed);
             }
 
@@ -58,7 +52,7 @@ internal static class Matchup
             catch (InvalidOperationException e)
             {
                 // A stalled game counts as a hero loss and gets reported for probing.
-                Console.WriteLine($"  !! game {index} (seed {100_000 + index}, hero seat {heroSeat}): {e.Message}");
+                Console.WriteLine($"  !! game {index} (seed {gameSeed}, hero seat {heroSeat}): {e.Message}");
                 wins.Add(0.0);
                 Interlocked.Increment(ref stalled);
             }
