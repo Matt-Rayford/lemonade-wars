@@ -4,7 +4,7 @@ namespace LemonadeWars.Engine.Core
 {
     /// <summary>
     /// A player decision submitted to the engine. Actions are the ONLY way state changes
-    /// after setup — the same pipeline will serve local UI, AI opponents, and network play.
+    /// after setup: local UI, bots and network play all go through this one pipeline.
     /// </summary>
     public abstract class GameAction
     {
@@ -30,7 +30,7 @@ namespace LemonadeWars.Engine.Core
         public int? InsertIndex { get; set; }
     }
 
-    /// <summary>Optional Black Market purchase during the initial draft, or pass by ending.</summary>
+    /// <summary>End a draft pick, with or without its optional Black Market purchase.</summary>
     public sealed class InitialBuyEnd : GameAction
     {
     }
@@ -53,7 +53,6 @@ namespace LemonadeWars.Engine.Core
     /// <summary>Action: purchase a face-up Black Market card and equip it immediately.</summary>
     public sealed class BuyBlackMarket : GameAction
     {
-        /// <summary>Index into the face-up market row.</summary>
         public int MarketIndex { get; set; }
         /// <summary>Target Stand instance id for Stand upgrades; null for Turf upgrades.</summary>
         public int? TargetStandInstanceId { get; set; }
@@ -134,7 +133,6 @@ namespace LemonadeWars.Engine.Core
         public int? EquippedInstanceId { get; set; }
     }
 
-    /// <summary>Decline to respond to the current window.</summary>
     public sealed class PassWindow : GameAction
     {
     }

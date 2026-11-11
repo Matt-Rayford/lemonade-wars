@@ -11,13 +11,14 @@ namespace LemonadeWars.Engine.Ai
         /// <summary>One-line state summary for deadlock/timeout diagnostics.</summary>
         public static string Describe(Game game)
         {
-            var s = game.State;
-            string decisions = string.Join(",", s.PendingDecisions.Select(d => $"P{d.PlayerId}:{d.Kind}"));
-            string money = string.Join(",", s.Players.Select(p => $"P{p.PlayerId}=${p.Money}"));
-            return $"[stage={s.Stage} phase={s.Phase} active={s.ActivePlayer} " +
-                   $"decisions=({decisions}) awaiting=({string.Join(",", s.AwaitingResponse)}) " +
-                   $"stack={s.ResponseStack.Count} roll={s.PendingRoll?.Value.ToString() ?? "-"} " +
-                   $"buyQueue=({string.Join(",", s.InitialBuyQueue)}) standDone={s.InitialBuyStandDone} {money}]";
+            var state = game.State;
+            string decisions = string.Join(",", state.PendingDecisions.Select(d => $"P{d.PlayerId}:{d.Kind}"));
+            string money = string.Join(",", state.Players.Select(p => $"P{p.PlayerId}=${p.Money}"));
+            return $"[stage={state.Stage} phase={state.Phase} active={state.ActivePlayer} " +
+                   $"decisions=({decisions}) awaiting=({string.Join(",", state.AwaitingResponse)}) " +
+                   $"stack={state.ResponseStack.Count} roll={state.PendingRoll?.Value.ToString() ?? "-"} " +
+                   $"buyQueue=({string.Join(",", state.InitialBuyQueue)}) " +
+                   $"standDone={state.InitialBuyStandDone} {money}]";
         }
 
         /// <summary>Play until Finished. Returns the number of actions taken. Throws on deadlock.</summary>

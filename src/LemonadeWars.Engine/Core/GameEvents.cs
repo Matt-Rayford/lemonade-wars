@@ -12,6 +12,8 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => GetType().Name;
     }
 
+    // -------------------------------------------------- game and turn flow
+
     public sealed class StageChanged : GameEvent
     {
         public GameStage Stage { get; set; }
@@ -24,15 +26,30 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} turn started";
     }
 
+    public sealed class DecisionRequired : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public DecisionKind Kind { get; set; }
+        public override string ToString() => $"P{PlayerId} must decide: {Kind}";
+    }
+
+    public sealed class GameEnded : GameEvent
+    {
+        public List<int> Winners { get; set; } = new List<int>();
+        /// <summary>Final victory points per player (in-game VP + met Lemon Lord titles).</summary>
+        public Dictionary<int, int> Scores { get; set; } = new Dictionary<int, int>();
+        public override string ToString() => $"Game over. Winner(s): {string.Join(", ", Winners)}";
+    }
+
+    // --------------------------------------------------------------- cards
+
     public sealed class CardDrawn : GameEvent
     {
         public int PlayerId { get; set; }
         public int InstanceId { get; set; }
         public string DefId { get; set; } = "";
-        /// <summary>
-        /// Why the card was drawn. Not hidden information (everyone sees an action being
-        /// spent), so it survives the per-seat redaction that strips the card's identity.
-        /// </summary>
+        /// <summary>Public (everyone sees an action being spent), so it survives the per-seat
+        /// redaction that strips the card's identity.</summary>
         public DrawReason Reason { get; set; }
         public override string ToString() => $"P{PlayerId} drew {DefId} ({Reason})";
     }
@@ -49,6 +66,8 @@ namespace LemonadeWars.Engine.Core
         public List<int> InstanceIds { get; set; } = new List<int>();
         public override string ToString() => $"P{PlayerId} discarded {InstanceIds.Count} card(s)";
     }
+
+    // ------------------------------------------------- money and purchases
 
     public sealed class MoneyChanged : GameEvent
     {
@@ -69,18 +88,6 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} bought {StandTypeId} stand";
     }
 
-    public sealed class BlackMarketPurchased : GameEvent
-    {
-        public int PlayerId { get; set; }
-        public int InstanceId { get; set; }
-        public string DefId { get; set; } = "";
-        /// <summary>Stand instance id, or null when equipped to Turf.</summary>
-        public int? TargetStandInstanceId { get; set; }
-        /// <summary>Dollars paid; 0 for free takes (Connections, steals, discard recoveries).</summary>
-        public int Price { get; set; }
-        public override string ToString() => $"P{PlayerId} equipped {DefId}";
-    }
-
     /// <summary>
     /// An in-game Black Market purchase was paid for and is now open to a Tantrum:
     /// the card has left its shelf slot, which stays empty until the purchase
@@ -98,13 +105,23 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} is buying {DefId}";
     }
 
+    public sealed class BlackMarketPurchased : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public int InstanceId { get; set; }
+        public string DefId { get; set; } = "";
+        /// <summary>Stand instance id, or null when equipped to Turf.</summary>
+        public int? TargetStandInstanceId { get; set; }
+        /// <summary>Dollars paid; 0 for free takes (Connections, steals, discard recoveries).</summary>
+        public int Price { get; set; }
+        public override string ToString() => $"P{PlayerId} equipped {DefId}";
+    }
+
     public sealed class MarketRefilled : GameEvent
     {
         public List<int> Market { get; set; } = new List<int>();
-        /// <summary>
-        /// Set only when a player paid the free-action refresh to sweep the whole row;
-        /// null for the ordinary refill that follows a purchase (nothing to announce).
-        /// </summary>
+        /// <summary>Set only when a player paid to refresh the whole row; null for the
+        /// ordinary refill that follows a purchase.</summary>
         public int? RefreshedByPlayerId { get; set; }
         public override string ToString() => RefreshedByPlayerId is int p
             ? $"P{p} refreshed the Black Market"
@@ -118,19 +135,33 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} bought Bragging Rights for ${Price}";
     }
 
+    // ---------------------------------------------------------- sale rolls
+
     public sealed class SaleRolled : GameEvent
     {
         public int PlayerId { get; set; }
         public int Value { get; set; }
-        /// <summary>
-        /// Which kind of roll this is, so the presentation can say so — a player must be
-        /// able to tell a Night Shifts roll from the turn sale before spending Out of Stock.
-        /// Travels as a camelCase string ("nightShifts") via the wire's enum converter.
-        /// </summary>
+        /// <summary>Shown to the table: a player must be able to tell a Night Shifts roll from
+        /// the turn sale before spending Out of Stock. Travels as camelCase ("nightShifts").</summary>
         public RollPurpose Purpose { get; set; }
         /// <summary>Trade Winds only: the single stand this roll applies to (null = not stand-scoped).</summary>
         public int? StandInstanceId { get; set; }
         public override string ToString() => $"P{PlayerId} rolled a {Value} ({Purpose})";
+    }
+
+    public sealed class RollModified : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string SourceDefId { get; set; } = "";
+        public int NewValue { get; set; }
+        public override string ToString() => $"P{PlayerId} used {SourceDefId} -> {NewValue}";
+    }
+
+    public sealed class DieRerolled : GameEvent
+    {
+        public int ByPlayerId { get; set; }
+        public int NewValue { get; set; }
+        public override string ToString() => $"P{ByPlayerId} rerolled -> {NewValue}";
     }
 
     public sealed class StandSold : GameEvent
@@ -147,13 +178,23 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} power pour!";
     }
 
-    public sealed class GameEnded : GameEvent
+    // ---------------------------------------------- black market abilities
+
+    public sealed class AbilityTriggered : GameEvent
     {
-        public List<int> Winners { get; set; } = new List<int>();
-        /// <summary>Final victory points per player (in-game VP + met Lemon Lord titles).</summary>
-        public Dictionary<int, int> Scores { get; set; } = new Dictionary<int, int>();
-        public override string ToString() => $"Game over. Winner(s): {string.Join(", ", Winners)}";
+        public int PlayerId { get; set; }
+        public string DefId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId}'s {DefId} triggered";
     }
+
+    public sealed class AbilityDeclined : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public string DefId { get; set; } = "";
+        public override string ToString() => $"P{PlayerId} passed on {DefId}";
+    }
+
+    // --------------------------------------------- titles and status cards
 
     public sealed class TitleClaimed : GameEvent
     {
@@ -169,29 +210,21 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} fulfilled {TitleId}";
     }
 
-    public sealed class RollModified : GameEvent
+    public sealed class WhiniestBabyMoved : GameEvent
     {
-        public int PlayerId { get; set; }
-        public string SourceDefId { get; set; } = "";
-        public int NewValue { get; set; }
-        public override string ToString() => $"P{PlayerId} used {SourceDefId} -> {NewValue}";
+        public int? FromPlayerId { get; set; }
+        public int? ToPlayerId { get; set; }
+        public override string ToString() => $"Whiniest Baby -> {(ToPlayerId is int p ? $"P{p}" : "market")}";
     }
 
-    public sealed class AbilityDeclined : GameEvent
+    public sealed class SpoiledRottenMoved : GameEvent
     {
-        public int PlayerId { get; set; }
-        public string DefId { get; set; } = "";
-        public override string ToString() => $"P{PlayerId} passed on {DefId}";
+        public int? FromPlayerId { get; set; }
+        public int? ToPlayerId { get; set; }
+        public override string ToString() => $"Spoiled Rotten -> {(ToPlayerId is int p ? $"P{p}" : "market")}";
     }
 
-    public sealed class AbilityTriggered : GameEvent
-    {
-        public int PlayerId { get; set; }
-        public string DefId { get; set; } = "";
-        public override string ToString() => $"P{PlayerId}'s {DefId} triggered";
-    }
-
-    // ------------------------------------------------------- interactions
+    // ------------------------------------------- lemon plays and responses
 
     public sealed class LemonCardPlayed : GameEvent
     {
@@ -200,24 +233,16 @@ namespace LemonadeWars.Engine.Core
         public string DefId { get; set; } = "";
         /// <summary>Victim, when the card is an attack.</summary>
         public int? TargetPlayerId { get; set; }
-        /// <summary>
-        /// Responses (Tantrum, Tag, Rubber Glue): whose play or purchase this answers
-        /// and its def id, so a reveal can say "on Jeremy's Smear Campaign" without
-        /// the client reconstructing the stack. Null for plays that answer nothing.
-        /// </summary>
+        /// <summary>Responses (Tantrum, Tag, Rubber Glue): the owner and def id of the play or
+        /// purchase this answers, so a reveal can say "on Jeremy's Smear Campaign".</summary>
         public int? RespondingToOwnerId { get; set; }
         public string? RespondingToDefId { get; set; }
-        /// <summary>
-        /// Finders Keepers / That's Not Fair: the equipped Black Market card the play is
-        /// aimed at (public table info), so the table can show the loot beside the attack.
-        /// </summary>
+        /// <summary>Finders Keepers / That's Not Fair: the equipped Black Market card the play
+        /// is aimed at (public table info), shown beside the attack.</summary>
         public string? StolenDefId { get; set; }
         public Shape? StolenShape { get; set; }
-        /// <summary>
-        /// Connections / Reduce and Reuse / Reverse Engineer: the shelf or discard card
-        /// the play takes — a Lemon card when TakenIsLemon. Null for a Reverse Engineer
-        /// that draws instead.
-        /// </summary>
+        /// <summary>Connections / Reduce and Reuse / Reverse Engineer: the shelf or discard card
+        /// the play takes. Null for a Reverse Engineer that draws instead.</summary>
         public string? TakenDefId { get; set; }
         public Shape? TakenShape { get; set; }
         public bool TakenIsLemon { get; set; }
@@ -237,8 +262,8 @@ namespace LemonadeWars.Engine.Core
     {
         public int OwnerId { get; set; }
         public string DefId { get; set; } = "";
-        /// <summary>Who cancelled it, and with what ("Cancelled" alone reads as "for
-        /// no reason" — an Inflatable Decoy fires with no play event of its own).</summary>
+        /// <summary>Who cancelled it, and with what: an Inflatable Decoy fires with no play
+        /// event of its own.</summary>
         public int? ByPlayerId { get; set; }
         public string? WithDefId { get; set; }
         public override string ToString() => $"P{OwnerId}'s {DefId} was cancelled";
@@ -272,6 +297,8 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{OwnerId}'s {DefId} fizzled (no valid target)";
     }
 
+    // ----------------------------------------------------- attack outcomes
+
     public sealed class MoneyStolen : GameEvent
     {
         public int FromPlayerId { get; set; }
@@ -294,34 +321,6 @@ namespace LemonadeWars.Engine.Core
         public int PlayerA { get; set; }
         public int PlayerB { get; set; }
         public override string ToString() => $"P{PlayerA} and P{PlayerB} traded hands";
-    }
-
-    public sealed class DieRerolled : GameEvent
-    {
-        public int ByPlayerId { get; set; }
-        public int NewValue { get; set; }
-        public override string ToString() => $"P{ByPlayerId} rerolled -> {NewValue}";
-    }
-
-    public sealed class WhiniestBabyMoved : GameEvent
-    {
-        public int? FromPlayerId { get; set; }
-        public int? ToPlayerId { get; set; }
-        public override string ToString() => $"Whiniest Baby -> {(ToPlayerId is int p ? $"P{p}" : "market")}";
-    }
-
-    public sealed class SpoiledRottenMoved : GameEvent
-    {
-        public int? FromPlayerId { get; set; }
-        public int? ToPlayerId { get; set; }
-        public override string ToString() => $"Spoiled Rotten -> {(ToPlayerId is int p ? $"P{p}" : "market")}";
-    }
-
-    public sealed class DecisionRequired : GameEvent
-    {
-        public int PlayerId { get; set; }
-        public DecisionKind Kind { get; set; }
-        public override string ToString() => $"P{PlayerId} must decide: {Kind}";
     }
 
     public sealed class TrapPlaced : GameEvent

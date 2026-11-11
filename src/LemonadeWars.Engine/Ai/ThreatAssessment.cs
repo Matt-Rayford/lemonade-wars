@@ -13,9 +13,9 @@ namespace LemonadeWars.Engine.Ai
     public static class ThreatAssessment
     {
         /// <summary>
-        /// Share of the Lemon deck that answers an attack (Tantrum, Tag, Rubber-Glue):
-        /// 20 of 71 cards. A victim holding n cards has roughly 0.72^n odds of being
-        /// defenseless.
+        /// 20 of the 71 Lemon cards answer an attack (Tantrum, Tag, Rubber-Glue); this is
+        /// the share that does not, so a victim holding n cards is defenseless with
+        /// odds of roughly 0.72^n.
         /// </summary>
         private const double NonReactionCardShare = 0.72;
 
@@ -43,7 +43,7 @@ namespace LemonadeWars.Engine.Ai
             return income;
         }
 
-        /// <summary>The opponent with the strongest public standing.</summary>
+        /// <summary>Among the viewer's opponents; ties go to the lower seat.</summary>
         public static PlayerState Leader(Game game, int viewerId) =>
             game.State.Players
                 .Where(p => p.PlayerId != viewerId)

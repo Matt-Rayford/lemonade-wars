@@ -10,7 +10,7 @@ namespace LemonadeWars.Engine.Core
     /// </summary>
     public sealed class DeterministicRng
     {
-        /// <summary>Current internal state; serialize this to snapshot the RNG.</summary>
+        /// <summary>Serialize this to snapshot the RNG.</summary>
         public ulong State { get; private set; }
 
         public DeterministicRng(ulong seed)

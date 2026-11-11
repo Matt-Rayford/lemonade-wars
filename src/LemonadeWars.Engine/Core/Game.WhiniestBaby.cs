@@ -5,7 +5,7 @@ namespace LemonadeWars.Engine.Core
 {
     /// <summary>
     /// Tantrum piles and the Whiniest Baby status card they feed: who holds the Baby,
-    /// and when it moves. The Baby's turn-start draw penalty runs in Game.TurnFlow.cs;
+    /// and when it moves. The Baby's turn-start extra draw runs in Game.TurnFlow.cs;
     /// its Timeout fine in Game.Draws.cs.
     /// </summary>
     public sealed partial class Game
@@ -21,20 +21,19 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// Who the Whiniest Baby belongs to right now (designer rulings): most
-        /// tantrums; tie goes to whoever most recently PLAYED a tantrum (receiving
-        /// one via Blame Changer doesn't count); a still-standing tie sticks with the
-        /// incumbent; and with no tantrums anywhere, NOBODY is the baby.
+        /// Designer rulings: most tantrums; a tie goes to whoever most recently PLAYED a
+        /// tantrum (receiving one via Blame Changer doesn't count); a still-standing tie
+        /// sticks with the incumbent; with no tantrums anywhere, nobody is the baby.
         /// </summary>
         private int? BabyHolderByRule()
         {
-            int max = State.Players.Max(p => p.TantrumPile.Count);
-            if (max == 0)
+            int mostTantrums = State.Players.Max(p => p.TantrumPile.Count);
+            if (mostTantrums == 0)
             {
                 return null;
             }
             return State.Players
-                .Where(p => p.TantrumPile.Count == max)
+                .Where(p => p.TantrumPile.Count == mostTantrums)
                 .OrderByDescending(p => p.LastTantrumPlaySeq)
                 .ThenByDescending(p => p.PlayerId == State.WhiniestBabyHolder)
                 .ThenBy(p => p.PlayerId)

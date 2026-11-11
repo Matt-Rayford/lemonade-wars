@@ -65,87 +65,101 @@ namespace LemonadeWars.Engine.Data
             _standTypeById = standTypes.ToDictionary(s => s.Id);
         }
 
-        /// <summary>Load and validate all card data from a game-data directory.</summary>
         public static CardDatabase Load(string gameDataDir)
         {
             JObject Read(string file) =>
                 JObject.Parse(File.ReadAllText(Path.Combine(gameDataDir, file)));
 
             var lemonJson = Read("lemon-cards.json");
-            var bmJson = Read("black-market-cards.json");
+            var blackMarketJson = Read("black-market-cards.json");
             var titlesJson = Read("titles.json");
             var standsJson = Read("stands.json");
             var turfJson = Read("turf.json");
             var supportingJson = Read("supporting.json");
             var configJson = Read("config.json");
 
-            var lemon = lemonJson["cards"]!.Select(c => new LemonCardDef
-            {
-                Id = (string)c["id"]!,
-                Name = (string)c["name"]!,
-                Type = EnumMaps.Parse(EnumMaps.LemonType, (string)c["type"]!, "lemon type"),
-                Count = (int)c["count"]!,
-                Effect = (string)c["effect"]!,
-                Flavor = (string?)c["flavor"] ?? "",
-                Condition = (string?)c["condition"],
-            }).ToList();
+            var db = new CardDatabase(
+                lemonJson["cards"]!.Select(ParseLemonCard).ToList(),
+                blackMarketJson["cards"]!.Select(ParseBlackMarketCard).ToList(),
+                ParseTitles(titlesJson, "firstDibs", TitleKind.FirstDibs),
+                ParseTitles(titlesJson, "lemonLord", TitleKind.LemonLord),
+                standsJson["standTypes"]!.Select(ParseStandType).ToList(),
+                ParseTurf(turfJson),
+                ParseSupporting(supportingJson),
+                ParseConfig(configJson, standsJson));
+            db.Validate();
+            return db;
+        }
 
-            var blackMarket = bmJson["cards"]!.Select(c => new BlackMarketCardDef
+        private static LemonCardDef ParseLemonCard(JToken card) =>
+            new LemonCardDef
             {
-                Id = (string)c["id"]!,
-                Name = (string)c["name"]!,
-                Target = EnumMaps.Parse(EnumMaps.Target, (string)c["target"]!, "equip target"),
-                Cost = (int)c["cost"]!,
-                Count = (int)c["count"]!,
-                Timing = EnumMaps.Parse(EnumMaps.Timing, (string)c["timing"]!, "timing"),
-                Category = (string)c["category"]!,
-                Effect = (string)c["effect"]!,
-                Flavor = (string?)c["flavor"] ?? "",
-                Shapes = c["shapes"]!
+                Id = (string)card["id"]!,
+                Name = (string)card["name"]!,
+                Type = EnumMaps.Parse(EnumMaps.LemonType, (string)card["type"]!, "lemon type"),
+                Count = (int)card["count"]!,
+                Effect = (string)card["effect"]!,
+                Flavor = (string?)card["flavor"] ?? "",
+                Condition = (string?)card["condition"],
+            };
+
+        private static BlackMarketCardDef ParseBlackMarketCard(JToken card) =>
+            new BlackMarketCardDef
+            {
+                Id = (string)card["id"]!,
+                Name = (string)card["name"]!,
+                Target = EnumMaps.Parse(EnumMaps.Target, (string)card["target"]!, "equip target"),
+                Cost = (int)card["cost"]!,
+                Count = (int)card["count"]!,
+                Timing = EnumMaps.Parse(EnumMaps.Timing, (string)card["timing"]!, "timing"),
+                Category = (string)card["category"]!,
+                Effect = (string)card["effect"]!,
+                Flavor = (string?)card["flavor"] ?? "",
+                Shapes = card["shapes"]!
                     .Select(s => EnumMaps.Parse(EnumMaps.ShapeName, (string)s!, "shape"))
                     .ToList(),
-                Icons = c["icons"]!.Select(i => (string)i!).ToList(),
-                Number = (int?)c["number"],
+                Icons = card["icons"]!.Select(i => (string)i!).ToList(),
+                Number = (int?)card["number"],
+            };
+
+        private static List<TitleDef> ParseTitles(JObject titlesJson, string key, TitleKind kind) =>
+            titlesJson[key]!.Select(title => new TitleDef
+            {
+                Id = (string)title["id"]!,
+                Name = (string)title["name"]!,
+                Kind = kind,
+                VictoryPoints = (int)title["victoryPoints"]!,
+                Condition = (string)title["condition"]!,
+                Flavor = (string?)title["flavor"] ?? "",
+                CountedIcon = (string?)title["countedIcon"],
+                RequiredCount = (int?)title["requiredCount"],
             }).ToList();
 
-            List<TitleDef> ReadTitles(string key, TitleKind kind) =>
-                titlesJson[key]!.Select(t => new TitleDef
-                {
-                    Id = (string)t["id"]!,
-                    Name = (string)t["name"]!,
-                    Kind = kind,
-                    VictoryPoints = (int)t["victoryPoints"]!,
-                    Condition = (string)t["condition"]!,
-                    Flavor = (string?)t["flavor"] ?? "",
-                    CountedIcon = (string?)t["countedIcon"],
-                    RequiredCount = (int?)t["requiredCount"],
-                }).ToList();
-
-            var firstDibs = ReadTitles("firstDibs", TitleKind.FirstDibs);
-            var lemonLord = ReadTitles("lemonLord", TitleKind.LemonLord);
-
-            var standTypes = standsJson["standTypes"]!.Select(s => new StandTypeDef
+        private static StandTypeDef ParseStandType(JToken standType) =>
+            new StandTypeDef
             {
-                Id = (string)s["id"]!,
-                Name = (string)s["name"]!,
-                BaseCost = (int)s["baseCost"]!,
-                UpgradeSlots = (int)s["upgradeSlots"]!,
-                SaleNumbers = s["saleNumbers"]!.Select(n => (int)n!).ToList(),
-                BaseEarnings = (int)s["baseEarnings"]!,
-                Count = (int)s["count"]!,
-                Shapes = ((JObject)s["shapes"]!).Properties().ToDictionary(
+                Id = (string)standType["id"]!,
+                Name = (string)standType["name"]!,
+                BaseCost = (int)standType["baseCost"]!,
+                UpgradeSlots = (int)standType["upgradeSlots"]!,
+                SaleNumbers = standType["saleNumbers"]!.Select(n => (int)n!).ToList(),
+                BaseEarnings = (int)standType["baseEarnings"]!,
+                Count = (int)standType["count"]!,
+                Shapes = ((JObject)standType["shapes"]!).Properties().ToDictionary(
                     p => EnumMaps.Parse(EnumMaps.ShapeName, p.Name, "shape"),
                     p => (int)p.Value!),
-            }).ToList();
+            };
 
-            var turf = new TurfDef
+        private static TurfDef ParseTurf(JObject turfJson) =>
+            new TurfDef
             {
                 Count = (int)turfJson["count"]!,
                 UpgradeSlots = (int)turfJson["upgradeSlots"]!,
                 PowerPourNumbers = turfJson["powerPourNumbers"]!.Select(n => (int)n!).ToList(),
             };
 
-            var supporting = new SupportingDef
+        private static SupportingDef ParseSupporting(JObject supportingJson) =>
+            new SupportingDef
             {
                 BraggingRightsPrices = supportingJson["braggingRights"]!["prices"]!
                     .Select(p => (int)p!).ToList(),
@@ -153,9 +167,12 @@ namespace LemonadeWars.Engine.Data
                     (int)supportingJson["braggingRights"]!["purchaseLimitPerTurn"]!,
             };
 
+        /// <summary>The stand price escalation lives in stands.json but is a table-level rule.</summary>
+        private static GameConfig ParseConfig(JObject configJson, JObject standsJson)
+        {
             var setup = configJson["setup"]!;
             var turn = configJson["turn"]!;
-            var config = new GameConfig
+            return new GameConfig
             {
                 MinPlayers = (int)configJson["players"]!["min"]!,
                 MaxPlayers = (int)configJson["players"]!["max"]!,
@@ -174,11 +191,6 @@ namespace LemonadeWars.Engine.Data
                 StandCostEscalationPerOwned =
                     (int)standsJson["costEscalationPerOwnedStand"]!,
             };
-
-            var db = new CardDatabase(
-                lemon, blackMarket, firstDibs, lemonLord, standTypes, turf, supporting, config);
-            db.Validate();
-            return db;
         }
 
         /// <summary>Fail fast if the data does not match the rulebook's component list.</summary>

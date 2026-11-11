@@ -20,7 +20,10 @@ namespace LemonadeWars.Engine.Ai
         private const int TimeoutHandLimit = 10;
         private const int MaxCountedReactions = 2;
 
-        /// <summary>Feature order; <see cref="EvaluationWeights.ToVector"/> follows it.</summary>
+        /// <summary>
+        /// Feature order: <see cref="Extract"/> fills its row in it and
+        /// <see cref="EvaluationWeights.ToVector"/> follows it.
+        /// </summary>
         public static readonly string[] Names =
         {
             nameof(EvaluationWeights.VictoryPoint),
@@ -54,21 +57,21 @@ namespace LemonadeWars.Engine.Ai
         /// </summary>
         public static double[] Extract(Game game, PlayerState player, int viewerId, double horizon)
         {
-            var s = game.State;
-            bool lateGame = ThreatAssessment.IsNearGameEnd(game);
+            var state = game.State;
+            bool isLateGame = ThreatAssessment.IsNearGameEnd(game);
             var (lordsMet, lordProgress) = Lords(game, player, viewerId);
             double income = ThreatAssessment.ExpectedIncomePerRoll(game, player);
-            var (reactions, overflow) = Hand(game, player);
+            var (reactions, overflow) = HandFeatures(game, player);
             var upgrades = TitleProgress.EquippedDefs(game, player).ToList();
-            int n = s.Players.Count;
+            bool isActive = player.PlayerId == state.ActivePlayer;
             return new[]
             {
                 player.InGameVictoryPoints,
                 lordsMet,
                 lordProgress,
                 DibsProgress(game, player),
-                lateGame ? 0 : player.Money,
-                lateGame ? player.Money : 0,
+                isLateGame ? 0 : player.Money,
+                isLateGame ? player.Money : 0,
                 BraggingReach(game, player),
                 income * horizon,
                 income,
@@ -76,16 +79,14 @@ namespace LemonadeWars.Engine.Ai
                 reactions,
                 -overflow,
                 -(WantsTantrums(game, player) ? 0 : player.TantrumPile.Count),
-                -(s.WhiniestBabyHolder == player.PlayerId && !player.LemonLordKept.Contains("expert-whiner") ? 1 : 0),
-                s.SpoiledRottenHolder == player.PlayerId ? 1 : 0,
+                -(HoldsUnwantedWhiniestBaby(state, player) ? 1 : 0),
+                state.SpoiledRottenHolder == player.PlayerId ? 1 : 0,
                 upgrades.Count,
                 upgrades.Sum(def => def.Cost),
                 player.Stands.Count,
                 -(player.Turf.TrapInstanceId != null ? 1 : 0),
-                // Turns until this player acts again, as a share of the round: 0 for
-                // the active player, nearly 1 for the one who just went.
-                n <= 1 ? 0 : ((player.PlayerId - s.ActivePlayer + n) % n) / (double)n,
-                player.PlayerId == s.ActivePlayer && s.Phase == TurnPhase.Play ? s.ActionsRemaining : 0,
+                ShareOfRoundUntilNextTurn(state, player),
+                isActive && state.Phase == TurnPhase.Play ? state.ActionsRemaining : 0,
             };
         }
 
@@ -132,6 +133,7 @@ namespace LemonadeWars.Engine.Ai
             return total;
         }
 
+        /// <summary>Squared share of the next Bragging Rights price already in hand; 0 once they are sold out.</summary>
         private static double BraggingReach(Game game, PlayerState player)
         {
             var prices = game.Db.Supporting.BraggingRightsPrices;
@@ -144,7 +146,7 @@ namespace LemonadeWars.Engine.Ai
             return reach * reach;
         }
 
-        private static (int Reactions, int Overflow) Hand(Game game, PlayerState player)
+        private static (int Reactions, int Overflow) HandFeatures(Game game, PlayerState player)
         {
             int reactions = 0;
             foreach (int id in player.Hand)
@@ -164,5 +166,17 @@ namespace LemonadeWars.Engine.Ai
         private static bool WantsTantrums(Game game, PlayerState player) =>
             player.LemonLordKept.Contains("expert-whiner") ||
             (game.State.FirstDibsRow.Contains("cranky-pants") && player.TantrumPile.Count < 3);
+
+        private static bool HoldsUnwantedWhiniestBaby(GameState state, PlayerState player) =>
+            state.WhiniestBabyHolder == player.PlayerId && !player.LemonLordKept.Contains("expert-whiner");
+
+        /// <summary>0 for the active player, nearly 1 for the one who just went.</summary>
+        private static double ShareOfRoundUntilNextTurn(GameState state, PlayerState player)
+        {
+            int playerCount = state.Players.Count;
+            return playerCount <= 1
+                ? 0
+                : ((player.PlayerId - state.ActivePlayer + playerCount) % playerCount) / (double)playerCount;
+        }
     }
 }

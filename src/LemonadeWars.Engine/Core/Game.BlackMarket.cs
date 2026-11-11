@@ -6,9 +6,11 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Black Market card behavior: computed stats (sale numbers, pour numbers, earnings,
-    /// discounts), On Sale / Power Pour trigger resolution, activated "On Your Turn"
-    /// abilities, and the multi-stage ability decisions (victim picks, give-backs, copies).
+    /// Equipped Black Market cards at sale time: computed stats (sale numbers, pour
+    /// numbers, earnings, discounts) and On Sale / Power Pour trigger resolution.
+    /// The choices those triggers raise are answered in Game.AbilityChoices.cs; activated
+    /// abilities live in Game.TurnAbilities.cs, reactions to plays in
+    /// Game.EquippedReactions.cs.
     /// </summary>
     public sealed partial class Game
     {
@@ -24,9 +26,9 @@ namespace LemonadeWars.Engine.Core
             foreach (int id in stand.Equipped)
             {
                 var def = EquippedDef(id);
-                if (def.Name == "Pushy Salesman" && def.Number is int n && !numbers.Contains(n))
+                if (def.Name == "Pushy Salesman" && def.Number is int addedNumber && !numbers.Contains(addedNumber))
                 {
-                    numbers.Add(n);
+                    numbers.Add(addedNumber);
                 }
             }
             return numbers;
@@ -39,9 +41,9 @@ namespace LemonadeWars.Engine.Core
             foreach (int id in player.Turf.Equipped)
             {
                 var def = EquippedDef(id);
-                if (def.Name == "Spiked Lemonade" && def.Number is int n && !numbers.Contains(n))
+                if (def.Name == "Spiked Lemonade" && def.Number is int addedNumber && !numbers.Contains(addedNumber))
                 {
-                    numbers.Add(n);
+                    numbers.Add(addedNumber);
                 }
             }
             return numbers;
@@ -84,8 +86,7 @@ namespace LemonadeWars.Engine.Core
 
         /// <summary>
         /// Black Market price after Peddlin' Pete discounts. The discount counts during
-        /// the setup draft too (designer ruling): Pete is on your Turf from the moment
-        /// you buy him, and the draft is real buying.
+        /// the setup draft too (designer ruling).
         /// </summary>
         public int BlackMarketPrice(int playerId, BlackMarketCardDef def) =>
             Math.Max(0, def.Cost - CountOnTurf(Player(playerId), "peddlin-pete"));
@@ -129,15 +130,16 @@ namespace LemonadeWars.Engine.Core
             });
         }
 
+        /// <summary>Returns the stolen card's instance id, or null when the hand was empty.</summary>
         private int? StealRandomCard(PlayerState from, PlayerState to, List<GameEvent> events)
         {
             if (from.Hand.Count == 0)
             {
                 return null;
             }
-            int idx = _rng.Next(from.Hand.Count);
-            int cardId = from.Hand[idx];
-            from.Hand.RemoveAt(idx);
+            int handIndex = _rng.Next(from.Hand.Count);
+            int cardId = from.Hand[handIndex];
+            from.Hand.RemoveAt(handIndex);
             to.Hand.Add(cardId);
             StatsFor(to.PlayerId).CardsStolen++;
             events.Add(new CardsStolen { FromPlayerId = from.PlayerId, ToPlayerId = to.PlayerId, Count = 1 });
@@ -170,7 +172,7 @@ namespace LemonadeWars.Engine.Core
                         break;
                     case "juice-box-joey":
                     case "nap-time-nino":
-                        EnqueueVictimChoice(player, id, def, events);
+                        EnqueueVictimChoice(player, id, events);
                         break;
                         // diluted-lemonade / pink-lemonade are folded into StandEarnings.
                 }
@@ -208,8 +210,8 @@ namespace LemonadeWars.Engine.Core
                     QueueDraws(player.PlayerId, 1, countsForRoll: true);
                     break;
                 case "whispers-of-fate":
-                    // "+2 Lemon cards, then discard 1 OF THEM": the discard decision
-                    // is raised by the draw queue once the two cards exist.
+                    // "+2 Lemon cards, then discard 1 OF THEM": the draw queue raises the
+                    // discard decision once the two cards exist.
                     QueueDraws(player.PlayerId, 2, countsForRoll: true,
                         discardAfterCount: 1, discardAfterSourceInstanceId: instanceId);
                     break;
@@ -218,48 +220,44 @@ namespace LemonadeWars.Engine.Core
                 case "half-pint-harry":
                 case "dons-blessings":
                 case "family-business":
-                    EnqueueVictimChoice(player, instanceId, def, events);
+                    EnqueueVictimChoice(player, instanceId, events);
                     break;
                 case "innovation":
-                {
-                    bool hasOther = player.Turf.Equipped.Any(id =>
-                        id != instanceId &&
-                        EquippedDef(id).Timing == EffectTiming.PowerPour &&
-                        EquippedDef(id).Id != "innovation");
-                    if (hasOther)
+                    if (HasPourCardToCopy(player, instanceId))
                     {
-                        AddDecision(new PendingDecision
-                        {
-                            PlayerId = player.PlayerId,
-                            Kind = DecisionKind.InnovationCopy,
-                            SourceInstanceId = instanceId,
-                        }, events);
+                        AddAbilityDecision(player, DecisionKind.InnovationCopy, instanceId, events);
                     }
                     break;
-                }
                 case "word-of-mouth":
                     if (player.Stands.Count > 0)
                     {
-                        AddDecision(new PendingDecision
-                        {
-                            PlayerId = player.PlayerId,
-                            Kind = DecisionKind.WordOfMouthStand,
-                            SourceInstanceId = instanceId,
-                        }, events);
+                        AddAbilityDecision(player, DecisionKind.WordOfMouthStand, instanceId, events);
                     }
                     break;
             }
         }
 
-        private void EnqueueVictimChoice(PlayerState owner, int instanceId, BlackMarketCardDef def, List<GameEvent> events)
+        private static bool IsCopyablePourCard(BlackMarketCardDef def) =>
+            def.Timing == EffectTiming.PowerPour && def.Id != "innovation";
+
+        private bool HasPourCardToCopy(PlayerState player, int? innovationInstanceId) =>
+            player.Turf.Equipped.Any(id =>
+                id != innovationInstanceId && IsCopyablePourCard(EquippedDef(id)));
+
+        /// <summary>
+        /// The owner always chooses (designer ruling), even when every opponent is broke
+        /// or empty-handed: the steal just clamps to zero.
+        /// </summary>
+        private void EnqueueVictimChoice(PlayerState owner, int instanceId, List<GameEvent> events) =>
+            AddAbilityDecision(owner, DecisionKind.AbilityVictim, instanceId, events);
+
+        private void AddAbilityDecision(PlayerState owner, DecisionKind kind, int sourceInstanceId, List<GameEvent> events)
         {
-            // No one to rob in a game where every opponent is broke/empty-handed is still a
-            // valid pick — the steal just clamps to zero. Owner always chooses (designer ruling).
             AddDecision(new PendingDecision
             {
                 PlayerId = owner.PlayerId,
-                Kind = DecisionKind.AbilityVictim,
-                SourceInstanceId = instanceId,
+                Kind = kind,
+                SourceInstanceId = sourceInstanceId,
             }, events);
         }
 
@@ -267,347 +265,6 @@ namespace LemonadeWars.Engine.Core
         {
             State.PendingDecisions.Add(decision);
             events.Add(new DecisionRequired { PlayerId = decision.PlayerId, Kind = decision.Kind });
-        }
-
-        // ------------------------------------------------ ability decisions
-
-        private void ApplySubmitAbilityChoice(SubmitAbilityChoice action, List<GameEvent> events)
-        {
-            var decision = State.PendingDecisions.FirstOrDefault(d =>
-                d.PlayerId == action.PlayerId && (
-                    d.Kind == DecisionKind.AbilityVictim ||
-                    d.Kind == DecisionKind.AbilityPickCard ||
-                    d.Kind == DecisionKind.AbilityGiveBack ||
-                    d.Kind == DecisionKind.AbilityDiscard ||
-                    d.Kind == DecisionKind.InnovationCopy ||
-                    d.Kind == DecisionKind.WordOfMouthStand))
-                ?? throw new InvalidActionException($"P{action.PlayerId} has no pending ability decision.");
-
-            var owner = Player(action.PlayerId);
-            switch (decision.Kind)
-            {
-                case DecisionKind.AbilityVictim:
-                    ResolveVictimChoice(decision, owner, action, events);
-                    break;
-
-                case DecisionKind.AbilityPickCard: // Don's Blessings: pick from the revealed hand
-                {
-                    var victim = Player(decision.ChosenPlayerId!.Value);
-                    if (action.CardInstanceIds.Count != 1 || !victim.Hand.Contains(action.CardInstanceIds[0]))
-                    {
-                        throw new InvalidActionException("Pick exactly one card from the victim's hand.");
-                    }
-                    int stolen = action.CardInstanceIds[0];
-                    victim.Hand.Remove(stolen);
-                    owner.Hand.Add(stolen);
-                    StatsFor(owner.PlayerId).CardsStolen++;
-                    events.Add(new CardsStolen { FromPlayerId = victim.PlayerId, ToPlayerId = owner.PlayerId, Count = 1 });
-                    State.PendingDecisions.Remove(decision);
-                    MaybeGiveBack(owner, victim, stolen, decision.SourceInstanceId, events);
-                    break;
-                }
-
-                case DecisionKind.AbilityGiveBack:
-                {
-                    var victim = Player(decision.ChosenPlayerId!.Value);
-                    if (action.CardInstanceIds.Count != 1 ||
-                        !owner.Hand.Contains(action.CardInstanceIds[0]) ||
-                        action.CardInstanceIds[0] == decision.StolenCardId)
-                    {
-                        throw new InvalidActionException("Give back a different card from your hand.");
-                    }
-                    int given = action.CardInstanceIds[0];
-                    owner.Hand.Remove(given);
-                    victim.Hand.Add(given);
-                    State.PendingDecisions.Remove(decision);
-                    break;
-                }
-
-                case DecisionKind.AbilityDiscard: // Whispers of Fate
-                {
-                    var ids = action.CardInstanceIds;
-                    var eligible = decision.EligibleCardIds ?? owner.Hand;
-                    if (ids.Count != decision.RequiredCount ||
-                        ids.Distinct().Count() != ids.Count ||
-                        ids.Any(id => !owner.Hand.Contains(id) || !eligible.Contains(id)))
-                    {
-                        throw new InvalidActionException(
-                            $"Discard exactly {decision.RequiredCount} of the cards you just drew.");
-                    }
-                    foreach (int id in ids)
-                    {
-                        owner.Hand.Remove(id);
-                        State.LemonDiscard.Add(id);
-                    }
-                    StatsFor(owner.PlayerId).CardsKept -= ids.Count;
-                    events.Add(new CardsDiscarded { PlayerId = owner.PlayerId, InstanceIds = ids.ToList() });
-                    State.PendingDecisions.Remove(decision);
-                    break;
-                }
-
-                case DecisionKind.InnovationCopy:
-                {
-                    if (!(action.EquippedInstanceId is int copyId) ||
-                        !owner.Turf.Equipped.Contains(copyId) ||
-                        copyId == decision.SourceInstanceId)
-                    {
-                        throw new InvalidActionException("Innovation: choose another of your Power Pour cards.");
-                    }
-                    var copyDef = EquippedDef(copyId);
-                    if (copyDef.Timing != EffectTiming.PowerPour || copyDef.Id == "innovation")
-                    {
-                        throw new InvalidActionException("Innovation: that card has no Power Pour ability to copy.");
-                    }
-                    State.PendingDecisions.Remove(decision);
-                    TriggerPourCard(owner, copyId, copyDef, events);
-                    break;
-                }
-
-                case DecisionKind.WordOfMouthStand:
-                {
-                    var stand = owner.Stands.FirstOrDefault(st => st.InstanceId == action.StandInstanceId)
-                        ?? throw new InvalidActionException("Word of Mouth: choose one of your own Stands.");
-                    State.PendingDecisions.Remove(decision);
-                    SellStand(owner, stand, events);
-                    break;
-                }
-            }
-
-            Pump(events);
-        }
-
-        private void ResolveVictimChoice(PendingDecision decision, PlayerState owner, SubmitAbilityChoice action, List<GameEvent> events)
-        {
-            var def = EquippedDef(decision.SourceInstanceId!.Value);
-            if (action.Decline)
-            {
-                // Optional ability: the owner waved it off, nothing fires.
-                State.PendingDecisions.Remove(decision);
-                events.Add(new AbilityDeclined { PlayerId = owner.PlayerId, DefId = def.Id });
-                return;
-            }
-            var victim = RequireOtherPlayer(action.TargetPlayerId, owner.PlayerId);
-            State.PendingDecisions.Remove(decision);
-
-            switch (def.Id)
-            {
-                case "juice-box-joey":
-                case "gone-fishin":
-                    TriggerSteal(victim, owner, 1, def.Name, events);
-                    break;
-                case "two-bit-timmy":
-                    TriggerSteal(victim, owner, 2, def.Name, events);
-                    break;
-                case "nap-time-nino":
-                case "half-pint-harry":
-                {
-                    int? stolen = StealRandomCard(victim, owner, events);
-                    if (stolen is int stolenId)
-                    {
-                        MaybeGiveBack(owner, victim, stolenId, decision.SourceInstanceId, events);
-                    }
-                    break;
-                }
-                case "family-business":
-                {
-                    TriggerSteal(victim, owner, 1, def.Name, events);
-                    int? stolen = StealRandomCard(victim, owner, events);
-                    if (stolen is int stolenId)
-                    {
-                        MaybeGiveBack(owner, victim, stolenId, decision.SourceInstanceId, events);
-                    }
-                    break;
-                }
-                case "dons-blessings":
-                    if (victim.Hand.Count > 0)
-                    {
-                        AddDecision(new PendingDecision
-                        {
-                            PlayerId = owner.PlayerId,
-                            Kind = DecisionKind.AbilityPickCard,
-                            SourceInstanceId = decision.SourceInstanceId,
-                            ChosenPlayerId = victim.PlayerId,
-                        }, events);
-                    }
-                    break;
-                default:
-                    throw new InvalidActionException($"No victim handler for '{def.Id}'.");
-            }
-        }
-
-        /// <summary>"...then give that player a different Lemon card" — only if the owner has one.</summary>
-        private void MaybeGiveBack(PlayerState owner, PlayerState victim, int stolenCardId, int? sourceInstanceId, List<GameEvent> events)
-        {
-            if (owner.Hand.Any(id => id != stolenCardId))
-            {
-                AddDecision(new PendingDecision
-                {
-                    PlayerId = owner.PlayerId,
-                    Kind = DecisionKind.AbilityGiveBack,
-                    SourceInstanceId = sourceInstanceId,
-                    ChosenPlayerId = victim.PlayerId,
-                    StolenCardId = stolenCardId,
-                }, events);
-            }
-        }
-
-        // -------------------------------------------------- turn abilities
-
-        private static readonly HashSet<string> RollAbilityIds = new HashSet<string>
-        {
-            "downsell", "sugared-up", "take-two",
-        };
-
-        private bool HasUnusedRollAbility(PlayerState player) =>
-            player.Turf.Equipped.Any(id =>
-                RollAbilityIds.Contains(EquippedDef(id).Id) &&
-                !State.UsedTurnAbilities.Contains(id) &&
-                RollAbilityUsable(EquippedDef(id).Id));
-
-        /// <summary>Downsell cannot lower a 1; Sugared Up cannot raise a 6 (card text "max 6").</summary>
-        private bool RollAbilityUsable(string defId)
-        {
-            if (State.PendingRoll == null)
-            {
-                return false;
-            }
-            if (defId == "downsell" && State.PendingRoll.Value <= 1)
-            {
-                return false;
-            }
-            if (defId == "sugared-up" && State.PendingRoll.Value >= Db.Config.SaleDieSides)
-            {
-                return false;
-            }
-            return true;
-        }
-
-        private void ApplyUseTurnAbility(UseTurnAbility action, List<GameEvent> events)
-        {
-            RequirePlaying();
-            if (action.PlayerId != State.ActivePlayer)
-            {
-                throw new InvalidActionException("On Your Turn abilities only work on your own turn.");
-            }
-            var player = Player(action.PlayerId);
-            if (!player.Turf.Equipped.Contains(action.EquippedInstanceId))
-            {
-                throw new InvalidActionException("That card is not equipped on your Turf.");
-            }
-            if (State.UsedTurnAbilities.Contains(action.EquippedInstanceId))
-            {
-                throw new InvalidActionException("That ability was already used this turn.");
-            }
-
-            var def = EquippedDef(action.EquippedInstanceId);
-            switch (def.Id)
-            {
-                case "downsell":
-                case "sugared-up":
-                {
-                    var roll = State.PendingRoll
-                        ?? throw new InvalidActionException($"{def.Name} modifies a die that was just rolled.");
-                    if (!RollAbilityUsable(def.Id))
-                    {
-                        throw new InvalidActionException(def.Id == "downsell"
-                            ? "Downsell cannot lower a roll of 1."
-                            : "Sugared Up cannot raise a roll of 6.");
-                    }
-                    roll.Value = def.Id == "downsell"
-                        ? Math.Max(1, roll.Value - 1)
-                        : Math.Min(Db.Config.SaleDieSides, roll.Value + 1);
-                    State.UsedTurnAbilities.Add(action.EquippedInstanceId);
-                    BumpRevision();
-                    events.Add(new RollModified { PlayerId = player.PlayerId, SourceDefId = def.Id, NewValue = roll.Value });
-                    break;
-                }
-                case "take-two":
-                {
-                    var roll = State.PendingRoll
-                        ?? throw new InvalidActionException("Take Two rerolls a die that was just rolled.");
-                    roll.Value = _rng.Roll(Db.Config.SaleDieSides);
-                    State.UsedTurnAbilities.Add(action.EquippedInstanceId);
-                    BumpRevision();
-                    events.Add(new RollModified { PlayerId = player.PlayerId, SourceDefId = def.Id, NewValue = roll.Value });
-                    break;
-                }
-                case "liquid-energy":
-                {
-                    if (State.PendingRoll != null || State.ResponseStack.Count > 0 ||
-                        State.PendingDecisions.Count > 0 || State.Phase != TurnPhase.Play)
-                    {
-                        throw new InvalidActionException("Liquid Energy needs a quiet moment in your Play phase.");
-                    }
-                    State.UsedTurnAbilities.Add(action.EquippedInstanceId);
-                    events.Add(new AbilityTriggered { PlayerId = player.PlayerId, DefId = def.Id });
-                    OpenRollWindow(RollPurpose.ExtraSale, player.PlayerId, events);
-                    break;
-                }
-                default:
-                    throw new InvalidActionException($"{def.Name} has no activated ability.");
-            }
-            Pump(events);
-        }
-
-        // -------------------------------------------------------- reactions
-
-        /// <summary>Swear Jar: each tantrum played against this player's card costs the thrower $2 per jar.</summary>
-        private void ChargeSwearJars(PlayerState thrower, PlayerState target, List<GameEvent> events)
-        {
-            int jars = CountOnTurf(target, "swear-jar");
-            if (jars == 0)
-            {
-                return;
-            }
-            int charge = Math.Min(2 * jars, thrower.Money);
-            if (charge > 0)
-            {
-                thrower.Money -= charge;
-                target.Money += charge;
-                events.Add(new MoneyStolen
-                {
-                    FromPlayerId = thrower.PlayerId,
-                    ToPlayerId = target.PlayerId,
-                    Amount = charge,
-                    Reason = "swear jar",
-                });
-            }
-        }
-
-        /// <summary>Bouncer: after an attack resolves against its owner, they may play an attack for free.</summary>
-        private void CheckBouncer(StackItem resolvedAttack, List<GameEvent> events)
-        {
-            if (!(resolvedAttack.AttackTargetId is int victimId))
-            {
-                return;
-            }
-            var victim = Player(victimId);
-            var bouncers = victim.Turf.Equipped
-                .Where(id => EquippedDef(id).Id == "bouncer")
-                .ToList();
-            if (bouncers.Count == 0)
-            {
-                return;
-            }
-            bool hasAttack = victim.Hand.Any(id =>
-                Db.Lemon(State.LemonInstances[id].DefId).Type == LemonCardType.Attack);
-            if (!hasAttack)
-            {
-                return;
-            }
-            foreach (int bouncerId in bouncers)
-            {
-                AddDecision(new PendingDecision
-                {
-                    PlayerId = victimId,
-                    Kind = DecisionKind.BouncerAttack,
-                    // The attack has already popped off the stack, so its context
-                    // rides on the decision — the UI shows WHO hit you WITH WHAT.
-                    SourceInstanceId = bouncerId,
-                    ContextDefId = resolvedAttack.LemonDefId,
-                    ContextPlayerId = resolvedAttack.OwnerId,
-                }, events);
-            }
         }
     }
 }

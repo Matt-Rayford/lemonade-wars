@@ -12,7 +12,7 @@ namespace LemonadeWars.Engine.Ai
             NullValueHandling = NullValueHandling.Include,
         };
 
-        /// <summary>Full deep copy; the fast path every search clones through.</summary>
+        /// <summary>The fast path every search clones through.</summary>
         public static GameState CloneState(GameState state) => GameStateCloner.Clone(state);
 
         /// <summary>
@@ -24,26 +24,33 @@ namespace LemonadeWars.Engine.Ai
                 JsonConvert.SerializeObject(state, Settings), Settings)!;
 
         /// <summary>
-        /// Rewrite the clone's hidden information into ONE possible world consistent
-        /// with what <paramref name="viewerId"/> can actually see: opponents' hands are
-        /// redealt from the pool of unseen Lemon cards (their deck+hand union), deck
-        /// orders are reshuffled, opponents' secret Lemon Lord picks are re-chosen from
-        /// their deals, and the RNG is re-seeded so every determinization rolls its own
-        /// dice. Public zones and the viewer's own cards are untouched — the search can
-        /// only exploit knowledge a human in that seat would also have.
+        /// Rewrites the clone's hidden information into ONE possible world consistent
+        /// with what <paramref name="viewerId"/> can see. Public zones and the viewer's
+        /// own cards are untouched, so a search can only exploit knowledge a human in
+        /// that seat would also have.
         /// </summary>
         public static void Determinize(GameState state, int viewerId, DeterministicRng rng)
         {
-            // Pool of Lemon cards the viewer cannot see: every opponent hand + the deck.
-            var pool = new List<int>(state.LemonDeck);
+            // The order of these steps fixes the order of RNG draws, and with it every
+            // seeded bot's play.
+            RedealUnseenLemonCards(state, viewerId, rng);
+            ShuffleBlackMarketDeck(state, rng);
+            RepickSecretLemonLords(state, viewerId, rng);
+            ReseedDice(state, rng);
+        }
+
+        /// <summary>Opponents' hands and the deck are one pool the viewer cannot tell apart; hand sizes are kept.</summary>
+        private static void RedealUnseenLemonCards(GameState state, int viewerId, DeterministicRng rng)
+        {
+            var unseen = new List<int>(state.LemonDeck);
             foreach (var player in state.Players)
             {
                 if (player.PlayerId != viewerId)
                 {
-                    pool.AddRange(player.Hand);
+                    unseen.AddRange(player.Hand);
                 }
             }
-            rng.Shuffle(pool);
+            rng.Shuffle(unseen);
 
             int cursor = 0;
             foreach (var player in state.Players)
@@ -56,22 +63,27 @@ namespace LemonadeWars.Engine.Ai
                 player.Hand.Clear();
                 for (int i = 0; i < handSize; i++)
                 {
-                    player.Hand.Add(pool[cursor++]);
+                    player.Hand.Add(unseen[cursor++]);
                 }
             }
             state.LemonDeck.Clear();
-            while (cursor < pool.Count)
+            while (cursor < unseen.Count)
             {
-                state.LemonDeck.Add(pool[cursor++]);
+                state.LemonDeck.Add(unseen[cursor++]);
             }
+        }
 
-            // Black Market deck: contents drawn face-down, so its order is hidden too.
-            var bmDeck = new List<int>(state.BlackMarketDeck);
-            rng.Shuffle(bmDeck);
+        private static void ShuffleBlackMarketDeck(GameState state, DeterministicRng rng)
+        {
+            var reordered = new List<int>(state.BlackMarketDeck);
+            rng.Shuffle(reordered);
             state.BlackMarketDeck.Clear();
-            state.BlackMarketDeck.AddRange(bmDeck);
+            state.BlackMarketDeck.AddRange(reordered);
+        }
 
-            // Opponents' kept Lemon Lords are secret; re-pick 2 from what they were dealt.
+        /// <summary>Each opponent keeps as many lords as before, re-chosen from the ones they were dealt.</summary>
+        private static void RepickSecretLemonLords(GameState state, int viewerId, DeterministicRng rng)
+        {
             foreach (var player in state.Players)
             {
                 if (player.PlayerId == viewerId || player.LemonLordKept.Count == 0 ||
@@ -79,17 +91,20 @@ namespace LemonadeWars.Engine.Ai
                 {
                     continue;
                 }
-                int keep = player.LemonLordKept.Count;
+                int keptCount = player.LemonLordKept.Count;
                 var dealt = new List<string>(player.LemonLordDealt);
                 rng.Shuffle(dealt);
                 player.LemonLordKept.Clear();
-                for (int i = 0; i < keep; i++)
+                for (int i = 0; i < keptCount; i++)
                 {
                     player.LemonLordKept.Add(dealt[i]);
                 }
             }
+        }
 
-            // Fresh dice per world — otherwise every rollout replays identical rolls.
+        /// <summary>Without fresh dice per world, every rollout would replay identical rolls.</summary>
+        private static void ReseedDice(GameState state, DeterministicRng rng)
+        {
             state.RngState = ((ulong)rng.Next(int.MaxValue) << 32) ^ (ulong)rng.Next(int.MaxValue);
         }
     }

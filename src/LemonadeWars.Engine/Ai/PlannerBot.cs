@@ -7,22 +7,17 @@ using LemonadeWars.Engine.Core;
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
-    /// Medium difficulty: plans its whole turn instead of scoring one move at a time.
-    /// Every candidate is applied to a determinized copy of the game, rivals answer
-    /// with the greedy policy, and the resulting position is judged by
-    /// <see cref="PositionEvaluator"/>; the best few lines are followed up to three
-    /// actions deep. The same one-ply machinery answers response windows and
-    /// decisions, which is what lets it see that a Tantrum on a reflection keeps its
-    /// own attack alive. Deterministic for a given seed.
+    /// Plans its whole turn instead of scoring one move at a time: every candidate is
+    /// played on a determinized copy, the table settles with the greedy policy, and
+    /// <see cref="PositionEvaluator"/> judges the result; the best few lines are followed
+    /// up to three actions deep. Windows and decisions get the same one-ply read, which
+    /// is how it sees that a Tantrum on a reflection keeps its own attack alive.
+    /// Deterministic for a given seed.
     /// </summary>
-    public sealed class PlannerBot : IBot, IHeavyBot
+    public sealed partial class PlannerBot : IBot, IHeavyBot
     {
         private const int MaxDepth = 3;
-        private const int DefaultRootBeam = 4;
         private const int InnerBeam = 2;
-        private const int SettleActionCap = 80;
-        private const int LookaheadActionCap = 160;
-        private const int EvaluatorRivalMaxCandidates = 14;
         private const double OrderingTieBreak = 1e-4;
 
         private readonly DeterministicRng _rng;
@@ -37,7 +32,6 @@ namespace LemonadeWars.Engine.Ai
             _config = config ?? PlannerConfig.Medium;
         }
 
-        /// <summary>Convenience for the common knobs; the arena builds full configs itself.</summary>
         public PlannerBot(ulong seed, int budgetMs, int worlds = 2, EvaluationWeights? weights = null)
             : this(seed, new PlannerConfig { BudgetMs = budgetMs, Worlds = Math.Max(1, worlds) }, weights)
         {
@@ -75,6 +69,7 @@ namespace LemonadeWars.Engine.Ai
             game.State.Stage == GameStage.ChoosingLemonLords ||
             (game.State.PendingRoll != null && game.State.ResponseStack.Count == 0);
 
+        /// <summary>Averages every candidate over the sampled worlds; each world gets an equal slice of the budget.</summary>
         private GameAction BestByPlanning(Game game, int playerId, List<GameAction> candidates)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -85,8 +80,8 @@ namespace LemonadeWars.Engine.Ai
             {
                 var sampled = SearchTools.CloneState(game.State);
                 SearchTools.Determinize(sampled, playerId, _rng);
-                long deadline = _config.BudgetMs * (world + 1) / worlds;
-                var values = RootValues(game.Db, sampled, playerId, candidates, stopwatch, deadline);
+                long deadlineMs = _config.BudgetMs * (world + 1) / worlds;
+                var values = ValueRootCandidates(game.Db, sampled, playerId, candidates, stopwatch, deadlineMs);
                 for (int i = 0; i < candidates.Count; i++)
                 {
                     if (!double.IsNaN(values[i]))
@@ -97,9 +92,16 @@ namespace LemonadeWars.Engine.Ai
                 }
             }
 
+            int best = IndexOfBestAverage(totals, samples);
+            return best < 0 ? _rivalPolicy.Choose(game, playerId) : candidates[best];
+        }
+
+        /// <summary>-1 when no candidate was legal in any world.</summary>
+        private static int IndexOfBestAverage(double[] totals, int[] samples)
+        {
             int best = -1;
             double bestAverage = double.NegativeInfinity;
-            for (int i = 0; i < candidates.Count; i++)
+            for (int i = 0; i < totals.Length; i++)
             {
                 if (samples[i] == 0)
                 {
@@ -112,18 +114,18 @@ namespace LemonadeWars.Engine.Ai
                     best = i;
                 }
             }
-            return best < 0 ? _rivalPolicy.Choose(game, playerId) : candidates[best];
+            return best;
         }
 
         /// <summary>
-        /// One world: every root candidate gets a one-ply value, then the most promising
-        /// few are followed deeper. NaN marks a move that was illegal in this world.
+        /// One world: every root candidate gets a value, then the most promising few are
+        /// followed deeper. NaN marks a move that was illegal in this world.
         /// </summary>
-        private double[] RootValues(Data.CardDatabase db, GameState sampled, int playerId,
+        private double[] ValueRootCandidates(Data.CardDatabase db, GameState sampled, int playerId,
             List<GameAction> candidates, Stopwatch stopwatch, long deadlineMs)
         {
             var parent = Game.FromState(db, sampled);
-            var (steps, values) = Evaluate(parent, candidates, playerId, stopwatch, deadlineMs);
+            var (steps, values) = ValueCandidates(parent, candidates, playerId, stopwatch, deadlineMs);
 
             foreach (int i in TopIndices(values, Math.Max(1, _config.RootBeam)))
             {
@@ -143,20 +145,19 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Value of the best line from here: stopping now, any single next action, or
-        /// (within the beam) the best action followed by more. Rivals' interjections
-        /// are settled with the greedy policy before every evaluation.
+        /// The best of stopping now, any single next action, or (within the beam) the
+        /// best action followed by more.
         /// </summary>
-        private double Continue(Game world, int playerId, int depth, Stopwatch stopwatch, long deadlineMs)
+        private double BestLineValue(Game world, int playerId, int depth, Stopwatch stopwatch, long deadlineMs)
         {
-            double best = Leaf(world, playerId);
+            double best = LeafValue(world, playerId);
             if (depth > MaxDepth || !CanKeepActing(world, playerId))
             {
                 return best;
             }
             var children = Candidates(world, playerId, world.LegalMovesFor(playerId))
                 .Where(move => !IsStopMove(move)).ToList();
-            var (steps, values) = Evaluate(world, children, playerId, stopwatch, deadlineMs);
+            var (steps, values) = ValueCandidates(world, children, playerId, stopwatch, deadlineMs);
             for (int i = 0; i < children.Count; i++)
             {
                 if (!double.IsNaN(values[i]))
@@ -180,178 +181,12 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Worth of a settled position. With round lookahead the turn is ended on a copy,
-        /// every rival plays a turn, and the position is judged when the planner is back
-        /// on the clock. The first sample keeps the world's own roll, so lines within a
-        /// world are compared on the same die; extra samples re-seed it, trading time
-        /// for a steadier read on a chance node (sparse sampling, not one draw).
+        /// Every candidate gets the cheap one-ply read (apply, settle, evaluate). With
+        /// round lookahead on, the most promising are then re-read through it, best
+        /// first, until the deadline; the rest keep their one-ply read. A huge hand
+        /// therefore costs accuracy, never more than the budget.
         /// </summary>
-        private double Leaf(Game world, int playerId)
-        {
-            if (!_config.RoundLookahead || world.State.Stage == GameStage.InitialBuys ||
-                world.State.Stage == GameStage.Finished)
-            {
-                return _evaluator.Evaluate(world, playerId);
-            }
-            int samples = Math.Max(1, _config.RollSamples);
-            double total = 0;
-            for (int sample = 0; sample < samples; sample++)
-            {
-                var future = Game.FromState(world.Db, SearchTools.CloneState(world.State));
-                if (sample > 0)
-                {
-                    future.State.RngState ^= 0x9E3779B97F4A7C15UL * (ulong)sample;
-                }
-                total += PlayOutRound(future, world, playerId);
-            }
-            return total / samples;
-        }
-
-        /// <summary>End the planner's turn and let the table play until it is back on the clock.</summary>
-        private double PlayOutRound(Game future, Game fallback, int playerId)
-        {
-            try
-            {
-                if (CanKeepActing(future, playerId))
-                {
-                    future.Apply(new EndTurn { PlayerId = playerId });
-                }
-                for (int step = 0; step < LookaheadActionCap && !BackOnTheClock(future, playerId); step++)
-                {
-                    int actor = future.ActingPlayers()[0];
-                    bool inWindow = actor == playerId && future.State.AwaitingResponse.Contains(actor) &&
-                                    future.State.PendingDecisions.All(d => d.PlayerId != actor);
-                    future.Apply(inWindow
-                        ? new PassWindow { PlayerId = actor }
-                        : RivalMove(future, actor));
-                }
-            }
-            catch (InvalidActionException)
-            {
-                return _evaluator.Evaluate(fallback, playerId);
-            }
-            catch (InvalidOperationException)
-            {
-                return _evaluator.Evaluate(fallback, playerId);
-            }
-            return _evaluator.Evaluate(future, playerId);
-        }
-
-        /// <summary>
-        /// A rival's move inside the lookahead: greedy by default; with evaluator rivals,
-        /// its Play-phase actions are the one-ply best by the shared evaluator from the
-        /// rival's own seat (windows and decisions stay greedy — they are cheap and
-        /// already sensible).
-        /// </summary>
-        private GameAction RivalMove(Game world, int rival)
-        {
-            if (!_config.EvaluatorRivals || !CanKeepActing(world, rival))
-            {
-                return _rivalPolicy.Choose(world, rival);
-            }
-            var candidates = Candidates(world, rival, world.LegalMovesFor(rival));
-            if (candidates.Count > EvaluatorRivalMaxCandidates)
-            {
-                return _rivalPolicy.Choose(world, rival);
-            }
-            GameAction best = candidates[0];
-            double bestValue = double.NegativeInfinity;
-            foreach (var move in candidates)
-            {
-                var trial = Game.FromState(world.Db, SearchTools.CloneState(world.State));
-                try
-                {
-                    trial.Apply(move);
-                }
-                catch (InvalidActionException)
-                {
-                    continue;
-                }
-                if (!Settle(trial, rival))
-                {
-                    continue;
-                }
-                double value = _evaluator.Evaluate(trial, rival);
-                if (value > bestValue)
-                {
-                    bestValue = value;
-                    best = move;
-                }
-            }
-            return best;
-        }
-
-        private static bool BackOnTheClock(Game world, int playerId) =>
-            world.State.Stage == GameStage.Finished ||
-            (CanKeepActing(world, playerId) && world.State.ActionsRemaining > 0) ||
-            world.ActingPlayers().Count == 0;
-
-        /// <summary>The planner's seat still has the initiative: its own draft pick or Play phase, nothing pending.</summary>
-        private static bool CanKeepActing(Game world, int playerId)
-        {
-            var s = world.State;
-            if (s.Stage == GameStage.Finished || InteractionPending(s))
-            {
-                return false;
-            }
-            if (s.Stage == GameStage.InitialBuys)
-            {
-                return s.InitialBuyQueue.Count > 0 && s.InitialBuyQueue[0] == playerId;
-            }
-            return s.ActivePlayer == playerId && s.Phase == TurnPhase.Play;
-        }
-
-        private static bool InteractionPending(GameState s) =>
-            s.PendingDecisions.Count > 0 || s.AwaitingResponse.Count > 0 ||
-            s.ResponseStack.Count > 0 || s.PendingRoll != null || s.TheftQueue.Count > 0;
-
-        /// <summary>Ending the turn (or draft visit) is the baseline every line is measured against, not a step in one.</summary>
-        private static bool IsStopMove(GameAction move) => move is EndTurn || move is InitialBuyEnd;
-
-        /// <summary>
-        /// One move applied and settled, paired with the world where a rival cancelled
-        /// it. Rivals' hands are hidden, so the risk is an expectation over hand size
-        /// rather than a trust in one sampled hand; both branches are real positions
-        /// the planner can keep planning from.
-        /// </summary>
-        private readonly struct StepOutcome
-        {
-            public readonly Game? Success;
-            public readonly Game? Cancelled;
-            public readonly double SuccessValue;
-            public readonly double CancelledValue;
-            public readonly double CancelChance;
-
-            public StepOutcome(Game? success, Game? cancelled, double successValue,
-                double cancelledValue, double cancelChance)
-            {
-                Success = success;
-                Cancelled = cancelled;
-                SuccessValue = successValue;
-                CancelledValue = cancelledValue;
-                CancelChance = cancelChance;
-            }
-
-            public static StepOutcome Illegal => new StepOutcome(null, null, double.NaN, double.NaN, 0);
-
-            /// <summary>Expected worth of the move alone; NaN when it was illegal in this world.</summary>
-            public double Value => Blend(SuccessValue, CancelledValue);
-
-            public double Blend(double onSuccess, double onCancel) =>
-                Success == null ? double.NaN
-                    : (1 - CancelChance) * onSuccess + CancelChance * onCancel;
-        }
-
-        /// <summary>
-        /// Every candidate stepped and valued, within the budget. All of them get the
-        /// one-ply read first (apply, settle, evaluate — cheap). Then, with round
-        /// lookahead on, the most promising are re-valued through the lookahead in
-        /// that order until the deadline passes; the rest keep their one-ply read. A
-        /// twelve-card hand with dozens of targets therefore costs the clock, never
-        /// the table — an unbudgeted root once ran a Hard think past the session's
-        /// five-second watchdog over and over, and the game stopped.
-        /// </summary>
-        private (StepOutcome[] Steps, double[] Values) Evaluate(Game parent, List<GameAction> candidates,
+        private (StepOutcome[] Steps, double[] Values) ValueCandidates(Game parent, List<GameAction> candidates,
             int playerId, Stopwatch stopwatch, long deadlineMs)
         {
             var steps = new StepOutcome[candidates.Count];
@@ -377,155 +212,14 @@ namespace LemonadeWars.Engine.Ai
             return (steps, values);
         }
 
-        private StepOutcome Step(Game parent, GameAction move, int playerId, bool lookahead)
-        {
-            var success = Game.FromState(parent.Db, SearchTools.CloneState(parent.State));
-            try
-            {
-                success.Apply(move);
-            }
-            catch (InvalidActionException)
-            {
-                return StepOutcome.Illegal;
-            }
-            double cancelChance = CancelChance(success, playerId);
-            if (!Settle(success, playerId))
-            {
-                return StepOutcome.Illegal;
-            }
-            double successValue = Value(success, playerId, lookahead);
-            if (cancelChance <= 0)
-            {
-                return new StepOutcome(success, null, successValue, successValue, 0);
-            }
-            var cancelled = CancelledWorld(parent, move, playerId);
-            return new StepOutcome(success, cancelled, successValue,
-                Value(cancelled, playerId, lookahead), cancelChance);
-        }
-
-        /// <summary>The same step, its worlds re-read through the round lookahead.</summary>
-        private StepOutcome WithLookahead(StepOutcome step, int playerId)
-        {
-            if (step.Success == null)
-            {
-                return step;
-            }
-            double successValue = Leaf(step.Success, playerId);
-            double cancelledValue = step.Cancelled == null ? successValue : Leaf(step.Cancelled, playerId);
-            return new StepOutcome(step.Success, step.Cancelled, successValue, cancelledValue, step.CancelChance);
-        }
-
-        private double Value(Game world, int playerId, bool lookahead) =>
-            lookahead ? Leaf(world, playerId) : _evaluator.Evaluate(world, playerId);
-
         /// <summary>Best continuation from both branches of a step, blended by the cancel odds.</summary>
         private double Deepen(StepOutcome step, int playerId, int depth, Stopwatch stopwatch, long deadlineMs)
         {
-            double onSuccess = Continue(step.Success!, playerId, depth, stopwatch, deadlineMs);
+            double onSuccess = BestLineValue(step.Success!, playerId, depth, stopwatch, deadlineMs);
             double onCancel = step.Cancelled == null
                 ? step.CancelledValue
-                : Continue(step.Cancelled, playerId, depth, stopwatch, deadlineMs);
+                : BestLineValue(step.Cancelled, playerId, depth, stopwatch, deadlineMs);
             return step.Blend(onSuccess, onCancel);
-        }
-
-        /// <summary>
-        /// The position a Tantrum leaves behind: the card is in the discard, the action
-        /// is spent, nothing else happened. A cancelled purchase is refunded, so it only
-        /// costs the action.
-        /// </summary>
-        private static Game CancelledWorld(Game parent, GameAction move, int playerId)
-        {
-            var world = Game.FromState(parent.Db, SearchTools.CloneState(parent.State));
-            var s = world.State;
-            if (move is PlayLemonCard play && s.Players[playerId].Hand.Remove(play.CardInstanceId))
-            {
-                s.LemonDiscard.Add(play.CardInstanceId);
-            }
-            if (s.ActionsRemaining > 0)
-            {
-                s.ActionsRemaining--;
-            }
-            else if (s.BmOnlyActionsRemaining > 0)
-            {
-                s.BmOnlyActionsRemaining--;
-            }
-            return world;
-        }
-
-        /// <summary>
-        /// Odds a rival answers the play just made, judged from what a human could see
-        /// (hand sizes), never from the sampled hands. Attacks are answered by their
-        /// victim roughly in proportion to hand size; anything else is only worth a
-        /// rival's Tantrum when it would hand the planner the game.
-        /// </summary>
-        private double CancelChance(Game world, int playerId)
-        {
-            var s = world.State;
-            if (_config.SampledReactions || s.ResponseStack.Count == 0 || s.Players.Count < 2)
-            {
-                return 0; // sampled rivals answer for themselves; the worlds carry the risk
-            }
-            var top = s.ResponseStack[s.ResponseStack.Count - 1];
-            if (top.OwnerId != playerId || top.LemonDefId == "apologize")
-            {
-                return 0; // not ours, or untantrummable by card text
-            }
-            if (top.AttackTargetId is int victimId)
-            {
-                return 0.5 - 0.5 * ThreatAssessment.UnansweredChance(s.Players[victimId]);
-            }
-            return ThreatAssessment.IsAboutToTriggerEnd(world, s.Players[playerId]) ? 0.3 : 0.05;
-        }
-
-        /// <summary>
-        /// Run the interaction to quiescence: rivals pass every window (their risk is
-        /// priced separately) — or, with sampled reactions, answer from their sampled
-        /// hands — and answer decisions greedily; the planner itself passes windows and
-        /// answers its own decisions greedily, since re-planning inside a plan would be
-        /// unaffordable. Returns false if the world wedged.
-        /// </summary>
-        private bool Settle(Game world, int playerId)
-        {
-            try
-            {
-                for (int step = 0; step < SettleActionCap; step++)
-                {
-                    var s = world.State;
-                    if (s.Stage == GameStage.Finished || !InteractionPending(s))
-                    {
-                        return true;
-                    }
-                    var acting = world.ActingPlayers();
-                    if (acting.Count == 0)
-                    {
-                        return false;
-                    }
-                    int actor = acting[0];
-                    foreach (int awaited in acting)
-                    {
-                        if (awaited != playerId)
-                        {
-                            actor = awaited; // rivals settle first; the planner only passes when alone
-                            break;
-                        }
-                    }
-                    bool inWindow = s.AwaitingResponse.Contains(actor) &&
-                                    s.PendingDecisions.All(d => d.PlayerId != actor);
-                    bool passes = inWindow && (actor == playerId || !_config.SampledReactions);
-                    world.Apply(passes
-                        ? new PassWindow { PlayerId = actor }
-                        : _rivalPolicy.Choose(world, actor));
-                }
-                return false;
-            }
-            catch (InvalidActionException)
-            {
-                return false;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
         }
 
         /// <summary>
@@ -551,7 +245,7 @@ namespace LemonadeWars.Engine.Ai
             return kept.Count > 0 ? kept : moves.ToList();
         }
 
-        /// <summary>Indices of the highest values, best first; NaN entries never qualify.</summary>
+        /// <summary>Best first; NaN entries never qualify.</summary>
         private static IEnumerable<int> TopIndices(double[] values, int count) =>
             Enumerable.Range(0, values.Length)
                 .Where(i => !double.IsNaN(values[i]))
@@ -559,5 +253,32 @@ namespace LemonadeWars.Engine.Ai
                 .ThenBy(i => i)
                 .Take(count)
                 .ToList();
+
+        /// <summary>The seat still has the initiative: its own draft pick or Play phase, nothing pending.</summary>
+        private static bool CanKeepActing(Game world, int playerId)
+        {
+            var state = world.State;
+            if (state.Stage == GameStage.Finished || IsInteractionPending(state))
+            {
+                return false;
+            }
+            if (state.Stage == GameStage.InitialBuys)
+            {
+                return state.InitialBuyQueue.Count > 0 && state.InitialBuyQueue[0] == playerId;
+            }
+            return state.ActivePlayer == playerId && state.Phase == TurnPhase.Play;
+        }
+
+        private static bool IsInteractionPending(GameState state) =>
+            state.PendingDecisions.Count > 0 || state.AwaitingResponse.Count > 0 ||
+            state.ResponseStack.Count > 0 || state.PendingRoll != null || state.TheftQueue.Count > 0;
+
+        /// <summary>Awaited on a response window, with no decision of its own to answer first.</summary>
+        private static bool IsAnsweringWindow(GameState state, int actor) =>
+            state.AwaitingResponse.Contains(actor) &&
+            state.PendingDecisions.All(decision => decision.PlayerId != actor);
+
+        /// <summary>Ending the turn (or draft visit) is the baseline every line is measured against, not a step in one.</summary>
+        private static bool IsStopMove(GameAction move) => move is EndTurn || move is InitialBuyEnd;
     }
 }
