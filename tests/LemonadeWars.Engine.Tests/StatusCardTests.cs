@@ -2,7 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -12,7 +13,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TimeoutFinesTheBabyAndPassesTheCard()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int drawer = ActivePlayer(game);
             int baby = SeatAfterActive(game, 1);
@@ -56,7 +57,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void WhiniestBabyDiscardsOneOfTheTwoDrawnCards()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum", "out-of-stock");
             var state = game.State;
             // No Timeouts, so the turn-start draws are exactly two ordinary cards.
@@ -101,7 +102,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SpoiledRottenGoesToSoleLastAndGrantsAFreeRoll()
         {
-            var game = ReadyToPlay(names: TwoPlayers);
+            var game = ReadyToPlay(seed: 7, names: TwoPlayers);
             StripHands(game, "tantrum", "out-of-stock");
             int leader = ActivePlayer(game);
             int trailer = SeatAfterActive(game, 1);

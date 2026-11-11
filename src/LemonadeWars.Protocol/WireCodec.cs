@@ -15,9 +15,9 @@ namespace LemonadeWars.Protocol
     /// </summary>
     public static class WireCodec
     {
-        // Initialized before Settings, so actions and events use Newtonsoft defaults (PascalCase
-        // keys, numeric enums). Reordering these would change the wire and room-log format.
-        private static readonly JsonSerializer Serializer = JsonSerializer.Create(Settings);
+        // Actions and events travel with Newtonsoft defaults (PascalCase keys, numeric enums):
+        // that is the wire and room-log format. Settings below shapes envelopes and views only.
+        private static readonly JsonSerializer Serializer = JsonSerializer.Create();
 
         public static JsonSerializerSettings Settings { get; } = new JsonSerializerSettings
         {

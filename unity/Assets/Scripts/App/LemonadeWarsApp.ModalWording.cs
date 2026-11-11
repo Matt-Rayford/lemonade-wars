@@ -73,11 +73,11 @@ namespace LemonadeWars.Unity
             }
             // Responses name WHAT they answer: "Dex tantrums" alone does not say which card.
             string answered = ModalAnsweredPhrase(top);
-            if (top.DefId == "tantrum" && answered != null)
+            if (top.DefId == LemonCardIds.Tantrum && answered != null)
             {
                 return $"{NameOf(top.OwnerId)} tantrums {answered}! — respond?";
             }
-            if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+            if (top.DefId == LemonCardIds.TagYoureIt && top.RedirectTargetId is int redirect)
             {
                 // Who it is going to, with the intel that decides a counter-tantrum.
                 var target = View.Players[redirect];
@@ -85,7 +85,7 @@ namespace LemonadeWars.Unity
                 return $"{NameOf(top.OwnerId)} tags {answered ?? "the attack"} to {who} " +
                        $"(${target.Money}, {target.HandCount} cards) — respond?";
             }
-            if (top.DefId == "im-rubber-youre-glue" && answered != null)
+            if (top.DefId == LemonCardIds.ImRubberYoureGlue && answered != null)
             {
                 string backAt = top.RespondingToOwnerId is int attacker
                     ? (attacker == View.ViewerId ? "YOU" : NameOf(attacker))

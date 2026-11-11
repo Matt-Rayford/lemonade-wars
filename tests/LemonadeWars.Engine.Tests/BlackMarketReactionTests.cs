@@ -1,6 +1,7 @@
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -10,10 +11,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SwearJarChargesTantrumThrowers()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
-            int rivalId = Seat(game, 1);
+            int activeId = ActivePlayer(game);
+            int rivalId = SeatAfterActive(game, 1);
             RigEquip(game, activeId, "swear-jar");
             int plan = GiveCard(game, activeId, "market-forecasting");
             int tantrum = GiveCard(game, rivalId, "tantrum");
@@ -22,7 +23,7 @@ namespace LemonadeWars.Engine.Tests
 
             game.Apply(new PlayLemonCard { PlayerId = activeId, CardInstanceId = plan });
             game.Apply(new RespondToWindow { PlayerId = rivalId, CardInstanceId = tantrum });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // The tantrum still cancelled the plan, but its thrower paid the jar's owner $2.
             Assert.Equal(22, game.State.Players[activeId].Money);
@@ -32,10 +33,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void InflatableDecoyDiscardsAnAttack()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
-            int activeId = Active(game);
-            int rivalId = Seat(game, 1);
+            int activeId = ActivePlayer(game);
+            int rivalId = SeatAfterActive(game, 1);
             int decoy = RigEquip(game, rivalId, "inflatable-decoy");
             int attack = GiveCard(game, activeId, "hoa-violation");
             game.State.Players[activeId].Money = 20;
@@ -54,10 +55,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void BouncerLetsTheVictimCounterAttack()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
-            int activeId = Active(game);
-            int rivalId = Seat(game, 1);
+            int activeId = ActivePlayer(game);
+            int rivalId = SeatAfterActive(game, 1);
             RigEquip(game, rivalId, "bouncer");
             int attack = GiveCard(game, activeId, "hoa-violation");
             int counter = GiveCard(game, rivalId, "taxes");
@@ -71,7 +72,7 @@ namespace LemonadeWars.Engine.Tests
             Assert.Equal(rivalId, decision.PlayerId);
             // Free counter-attack: Taxes steals $2 per stand, and the attacker has 2, so $4.
             game.Apply(new PlayLemonCard { PlayerId = rivalId, CardInstanceId = counter, TargetPlayerId = activeId });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             Assert.Equal(20 + 5 - 4, game.State.Players[activeId].Money);
             Assert.Equal(20 - 5 + 4, game.State.Players[rivalId].Money);

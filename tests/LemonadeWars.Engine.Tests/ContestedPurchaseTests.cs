@@ -2,7 +2,8 @@ using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -15,7 +16,7 @@ namespace LemonadeWars.Engine.Tests
         {
             // Rule: the shelf is refilled only once the purchase is settled, so nobody sees
             // the next card while deciding whether to Tantrum.
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int buyer = ActivePlayer(game);
             int objector = SeatAfterActive(game, 1);
@@ -45,7 +46,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void CancelledPurchaseRefundsMoneyButNotAction()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int buyer = ActivePlayer(game);
             int objector = SeatAfterActive(game, 1);

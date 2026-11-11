@@ -7,10 +7,9 @@ using LemonadeWars.Engine.Core;
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
-    /// Flat determinized Monte-Carlo search (PIMC), the Hard difficulty before the
-    /// planner; kept for arena A/Bs. Each candidate move (greedy-pruned to a shortlist)
-    /// is played in several sampled hidden-info worlds and rolled out to the end of the
-    /// game with the greedy policy in every seat; the best average outcome wins.
+    /// Flat determinized Monte-Carlo search (PIMC), the Hard difficulty before the planner;
+    /// kept for arena A/Bs. Each shortlisted move is played in several sampled worlds and
+    /// rolled out to the end with the greedy policy in every seat; the best average wins.
     /// </summary>
     public sealed class SearchBot : IBot, IHeavyBot
     {
@@ -126,9 +125,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Bounded breadth on wide turns: the greedy pick first, then the move list
-        /// sampled at an even stride (it arrives grouped by type, so striding covers the
-        /// breadth instead of one combo family).
+        /// Bounded breadth on wide turns: the greedy pick first, then the move list sampled at an
+        /// even stride (it arrives grouped by type, so striding covers every family).
         /// </summary>
         private List<GameAction> Prune(Game game, int playerId, IReadOnlyList<GameAction> moves)
         {
@@ -149,7 +147,6 @@ namespace LemonadeWars.Engine.Ai
             return shortlist;
         }
 
-        /// <summary>Greedy self-play to the end, scored as a discounted win share plus a little standing.</summary>
         private double Rollout(Game game, int playerId)
         {
             int steps = 0;
@@ -172,9 +169,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Relative FULL-score position in [0,1]: in-game VP plus met Lemon Lords, with
-        /// money as the gradient. Without the lords the search rushes VP races it is
-        /// losing on the final count.
+        /// Relative FULL-score position in [0,1] (VP plus met Lemon Lords, money as the gradient):
+        /// without the lords the search rushes VP races it is losing on the final count.
         /// </summary>
         private static double Standing(Game game, int playerId)
         {

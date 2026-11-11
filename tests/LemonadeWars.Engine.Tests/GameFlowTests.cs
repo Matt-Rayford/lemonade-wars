@@ -2,11 +2,10 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.GameFlowSetup;
+using static LemonadeWars.Engine.Tests.GameScenario;
 
 namespace LemonadeWars.Engine.Tests
 {
-    /// <summary>Also home to <see cref="PassAll"/> and <see cref="ApplyAndPass"/>, which other test classes settle a game with.</summary>
     public class GameFlowTests
     {
         // ---------------------------------------------------------- purchases
@@ -14,7 +13,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void StandPricesEscalateWithOwnership()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             int active = game.State.ActivePlayer;
             var player = game.State.Players[active];
 
@@ -32,7 +31,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ActionsRunOutAfterTwo()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             int active = game.State.ActivePlayer;
             game.Apply(new DrawLemonCard { PlayerId = active });
             game.Apply(new DrawLemonCard { PlayerId = active });
@@ -44,7 +43,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void DrawsAndMarketRefreshCarryTheirCause()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             int active = game.State.ActivePlayer;
 
             // The paid sweep names the player; the refill after a purchase stays anonymous.
@@ -59,18 +58,14 @@ namespace LemonadeWars.Engine.Tests
 
             // The automatic top-of-turn draw has its own reason, so it reads as the freebie it is.
             var events = new List<GameEvent>(game.Apply(new EndTurn { PlayerId = active }));
-            while (game.State.AwaitingResponse.Count > 0)
-            {
-                events.AddRange(
-                    game.Apply(new PassWindow { PlayerId = game.State.AwaitingResponse[0] }));
-            }
+            PassWindowsOnly(game, collectEventsInto: events);
             Assert.Contains(events.OfType<CardDrawn>(), d => d.Reason == DrawReason.TurnStart);
         }
 
         [Fact]
         public void BraggingRightsEscalateAndLimitOncePerTurn()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             int active = game.State.ActivePlayer;
             var player = game.State.Players[active];
             player.Money = 100;
@@ -96,7 +91,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void MarketRefreshIsOncePerTurnAndCostsOneDollar()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             int active = game.State.ActivePlayer;
             var player = game.State.Players[active];
             int before = player.Money;
@@ -117,7 +112,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SaleRollPaysMatchingStandsAndPowerPours()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             var state = game.State;
             var moneyBefore = state.Players.Select(p => p.Money).ToList();
 
@@ -144,7 +139,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ThreeVictoryPointsTriggerFinalRoundThenGameEnds()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             var state = game.State;
             int playerCount = state.Players.Count;
 
@@ -195,7 +190,7 @@ namespace LemonadeWars.Engine.Tests
 
         private static string PlayScriptedGame(ulong seed)
         {
-            var game = ReadyToPlay(seed);
+            var game = DraftedGame(seed);
             var state = game.State;
             for (int turns = 0; turns < 12 && state.Stage != GameStage.Finished; turns++)
             {
@@ -209,55 +204,6 @@ namespace LemonadeWars.Engine.Tests
                 ApplyAndPass(game, new EndTurn { PlayerId = active });
             }
             return game.SnapshotJson();
-        }
-
-        // ------------------------------------------- settling a game in tests
-
-        internal static void ApplyAndPass(Game game, GameAction action)
-        {
-            game.Apply(action);
-            PassAll(game);
-        }
-
-        /// <summary>
-        /// Everyone declines to respond, and mandatory decisions get deterministic default
-        /// answers (discard newest), until the game is quiet.
-        /// </summary>
-        internal static void PassAll(Game game)
-        {
-            var state = game.State;
-            while (state.AwaitingResponse.Count > 0 || state.PendingDecisions.Count > 0)
-            {
-                if (state.AwaitingResponse.Count > 0)
-                {
-                    game.Apply(new PassWindow { PlayerId = state.AwaitingResponse[0] });
-                    continue;
-                }
-                var decision = state.PendingDecisions[0];
-                var player = state.Players[decision.PlayerId];
-                switch (decision.Kind)
-                {
-                    case DecisionKind.DiscardToHandLimit:
-                    case DecisionKind.WhiniestBabyDiscard:
-                        var pool = decision.EligibleCardIds ?? player.Hand;
-                        game.Apply(new SubmitDiscard
-                        {
-                            PlayerId = player.PlayerId,
-                            InstanceIds = pool
-                                .Skip(pool.Count - decision.RequiredCount).ToList(),
-                        });
-                        break;
-                    case DecisionKind.TimeoutFine:
-                        game.Apply(new SubmitTimeoutPayment { PlayerId = player.PlayerId });
-                        break;
-                    case DecisionKind.FreePlayOffer:
-                        game.Apply(new SkipFreePlay { PlayerId = player.PlayerId });
-                        break;
-                    default:
-                        throw new System.InvalidOperationException(
-                            $"PassAll cannot default {decision.Kind}; answer it explicitly in the test.");
-                }
-            }
         }
     }
 }

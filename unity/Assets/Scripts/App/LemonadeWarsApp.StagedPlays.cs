@@ -27,7 +27,7 @@ namespace LemonadeWars.Unity
             if (!onThePile && !preStaged)
             {
                 _stagedAttacker = played.PlayerId;
-                var loot = played.DefId == "finders-keepers" && played.StolenDefId != null
+                var loot = played.DefId == LemonCardIds.FindersKeepers && played.StolenDefId != null
                     ? _art.BlackMarket(played.StolenDefId, played.StolenShape ?? Shape.Square)
                     : TakenArt(played);
                 _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId,
@@ -86,9 +86,9 @@ namespace LemonadeWars.Unity
             }
             // The Inflatable Decoy is an equipped reaction with no play event of its own:
             // without a reveal it would cancel invisibly.
-            if (cancelled.WithDefId == "inflatable-decoy" && cancelled.ByPlayerId is int blocker)
+            if (cancelled.WithDefId == BlackMarketCardIds.InflatableDecoy && cancelled.ByPlayerId is int blocker)
             {
-                _fx.QueueReveal(_art.BlackMarket("inflatable-decoy", Shape.Square),
+                _fx.QueueReveal(_art.BlackMarket(BlackMarketCardIds.InflatableDecoy, Shape.Square),
                     $"{NameOf(blocker)} blocks with Inflatable Decoy!");
             }
             string byWhat = cancelled.ByPlayerId is int by && cancelled.WithDefId != null
@@ -122,7 +122,7 @@ namespace LemonadeWars.Unity
         private UnityEngine.Texture2D TakenArt(LemonCardPlayed played)
         {
             if (played.TakenDefId == null ||
-                (played.DefId != "reduce-and-reuse" && played.DefId != "reverse-engineer"))
+                (played.DefId != LemonCardIds.ReduceAndReuse && played.DefId != LemonCardIds.ReverseEngineer))
             {
                 return null;
             }

@@ -1,7 +1,7 @@
-using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -24,7 +24,7 @@ namespace LemonadeWars.Engine.Tests
             var ownerState = state.Players[owner];
             RigEquip(game, owner, "trade-winds", ownerState.Stands[0].InstanceId);
             SetEveryonesMoney(game, 20);
-            HoldRollWindowsOpen(game, outOfStockHolder: SeatAfterActive(game, 1));
+            HoldRollWindowOpen(game);
 
             game.Apply(new EndTurn { PlayerId = owner });
             Assert.Equal(RollPurpose.TurnSale, state.PendingRoll!.Purpose);
@@ -59,7 +59,7 @@ namespace LemonadeWars.Engine.Tests
             int spoiled = SeatAfterActive(game, 1);
             state.SpoiledRottenHolder = spoiled;
             SetEveryonesMoney(game, 20);
-            HoldRollWindowsOpen(game, outOfStockHolder: SeatAfterActive(game, 2));
+            HoldRollWindowOpen(game, holderSeatsAfterActive: 2);
 
             game.Apply(new EndTurn { PlayerId = previous });
             Assert.Equal(RollPurpose.TurnSale, state.PendingRoll!.Purpose);
@@ -85,19 +85,6 @@ namespace LemonadeWars.Engine.Tests
             }
         }
 
-        /// <summary>Takes a Black Market card out of the deck or the shelf and equips it on a stand.</summary>
-        private static int RigEquip(Game game, int playerId, string defId, int standInstanceId)
-        {
-            var state = game.State;
-            int card = state.BlackMarketDeck.Concat(state.Market)
-                .First(id => state.BlackMarketInstances[id].DefId == defId);
-            state.BlackMarketDeck.Remove(card);
-            state.Market.Remove(card);
-            state.Players[playerId].Stands.First(stand => stand.InstanceId == standInstanceId)
-                .Equipped.Add(card);
-            return card;
-        }
-
         /// <summary>Keeps every Power Pour off the die values these tests rig.</summary>
         private static void ParkPourNumbers(Game game)
         {
@@ -106,10 +93,6 @@ namespace LemonadeWars.Engine.Tests
                 player.Turf.PowerPourNumber = 6;
             }
         }
-
-        /// <summary>An Out of Stock in someone's hand keeps each roll's window open, so the test can set the die.</summary>
-        private static void HoldRollWindowsOpen(Game game, int outOfStockHolder) =>
-            GiveCard(game, outOfStockHolder, "out-of-stock");
 
         /// <summary>Passes everyone out of the CURRENT window only; a window opened by its resolution stays open.</summary>
         private static void PassCurrentWindow(Game game)

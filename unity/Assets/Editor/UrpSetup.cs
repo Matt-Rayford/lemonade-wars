@@ -26,33 +26,46 @@ namespace LemonadeWars.UnityEditorTools
                 AssetDatabase.CreateFolder("Assets", "Settings");
             }
 
+            var pipeline = LoadOrCreatePipeline(LoadOrCreateRenderer());
+            GraphicsSettings.defaultRenderPipeline = pipeline;
+            AssignToEveryQualityLevel(pipeline);
+
+            AssetDatabase.SaveAssets();
+            Debug.Log("URP configured: " + PipelinePath);
+        }
+
+        private static Renderer2DData LoadOrCreateRenderer()
+        {
             var rendererData = AssetDatabase.LoadAssetAtPath<Renderer2DData>(RendererPath);
             if (rendererData == null)
             {
                 rendererData = ScriptableObject.CreateInstance<Renderer2DData>();
                 AssetDatabase.CreateAsset(rendererData, RendererPath);
             }
+            return rendererData;
+        }
 
+        private static UniversalRenderPipelineAsset LoadOrCreatePipeline(Renderer2DData rendererData)
+        {
             var pipeline = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(PipelinePath);
             if (pipeline == null)
             {
                 pipeline = UniversalRenderPipelineAsset.Create(rendererData);
                 AssetDatabase.CreateAsset(pipeline, PipelinePath);
             }
+            return pipeline;
+        }
 
-            GraphicsSettings.defaultRenderPipeline = pipeline;
-
-            // Assign to every quality level, restoring the active one afterwards.
+        /// <summary>Setting a level's pipeline means switching to that level, so the active one is restored after.</summary>
+        private static void AssignToEveryQualityLevel(UniversalRenderPipelineAsset pipeline)
+        {
             int activeLevel = QualitySettings.GetQualityLevel();
-            for (int i = 0; i < QualitySettings.names.Length; i++)
+            for (int level = 0; level < QualitySettings.names.Length; level++)
             {
-                QualitySettings.SetQualityLevel(i, applyExpensiveChanges: false);
+                QualitySettings.SetQualityLevel(level, applyExpensiveChanges: false);
                 QualitySettings.renderPipeline = pipeline;
             }
             QualitySettings.SetQualityLevel(activeLevel, applyExpensiveChanges: false);
-
-            AssetDatabase.SaveAssets();
-            Debug.Log("URP configured: " + PipelinePath);
         }
     }
 }

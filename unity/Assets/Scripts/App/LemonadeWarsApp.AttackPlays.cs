@@ -62,7 +62,7 @@ namespace LemonadeWars.Unity
                     return redirect;
                 }
                 var reactionCard = View.Hand.FirstOrDefault(c => c.InstanceId == respond.CardInstanceId);
-                if (reactionCard?.DefId == "im-rubber-youre-glue" && View.StackTop != null &&
+                if (reactionCard?.DefId == LemonCardIds.ImRubberYoureGlue && View.StackTop != null &&
                     View.StackTop.OwnerId != View.ViewerId)
                 {
                     return View.StackTop.OwnerId;
@@ -212,7 +212,7 @@ namespace LemonadeWars.Unity
         private bool TargetsForDiscardOnly(IEnumerable<GameAction> moves) =>
             moves.OfType<PlayLemonCard>().Any(m =>
                 View.Hand.FirstOrDefault(c => c.InstanceId == m.CardInstanceId)?.DefId
-                    == "thats-not-fair");
+                    == LemonCardIds.ThatsNotFair);
 
         /// <summary>CardInfos for the equipped instances these moves target, in board order.</summary>
         private List<PlayerView.CardInfo> EquippedCardInfos(int victim, List<GameAction> moves)

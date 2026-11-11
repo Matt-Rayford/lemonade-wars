@@ -4,10 +4,6 @@ using System.Linq;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Buying from the shelf: Stands, Black Market cards (contestable once play has
-    /// started), Bragging Rights, and the Black Market row's refresh and refill.
-    /// </summary>
     public sealed partial class Game
     {
         // ----------------------------------------------------------- stands
@@ -153,10 +149,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// In-game purchases are contestable (rulebook p11): money is paid up front and
-        /// refunded (the action is not) if a tantrum chain cancels the purchase. The slot
-        /// stays empty until the purchase resolves, so nobody sees the next card before
-        /// deciding to Tantrum.
+        /// In-game purchases are contestable (rulebook p11): a cancel refunds the money, not the
+        /// action. The slot stays empty meanwhile, so nobody sees the next card before deciding.
         /// </summary>
         private void ContestPurchase(PlayerState player, BuyBlackMarket action, int instanceId, int price,
             List<GameEvent> events)
@@ -184,7 +178,6 @@ namespace LemonadeWars.Engine.Core
             Pump(events);
         }
 
-        /// <summary>A purchase survived its tantrum window: equip it.</summary>
         private void CompleteBlackMarketPurchase(StackItem item, List<GameEvent> events)
         {
             var player = Player(item.OwnerId);
@@ -210,9 +203,8 @@ namespace LemonadeWars.Engine.Core
             State.Players.Count == 2 ? Db.Config.BlackMarketFaceUp2Player : Db.Config.BlackMarketFaceUp;
 
         /// <summary>
-        /// Top the row back up. A single taken card is replaced in its own slot
-        /// (<paramref name="vacatedIndex"/>) so the shelf keeps its order; any further
-        /// shortfall appends.
+        /// A single taken card is replaced in its own slot (<paramref name="vacatedIndex"/>) so
+        /// the shelf keeps its order; any further shortfall appends.
         /// </summary>
         private void RefillMarket(int vacatedIndex = -1)
         {

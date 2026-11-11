@@ -7,52 +7,24 @@ using Xunit;
 namespace LemonadeWars.Engine.Tests
 {
     /// <summary>
-    /// A drafted game in its first Play phase, plus rigging that moves card instances
-    /// between zones so a scenario never depends on what the seed dealt.
+    /// Edits a game's state directly, moving card instances between zones, so a scenario
+    /// never depends on what the seed dealt.
     /// </summary>
-    internal static class InteractionScenario
+    internal static class StateRigging
     {
-        public static readonly string[] FourPlayers = { "Ana", "Ben", "Cal", "Dee" };
-        public static readonly string[] TwoPlayers = { "Ana", "Ben" };
-
-        /// <summary>Lemon Lords kept and a Bargain stand bought on every draft visit.</summary>
-        public static Game ReadyToPlay(ulong seed = 7, string[]? names = null)
-        {
-            var game = Game.Create(TestData.Db, names ?? FourPlayers, seed);
-            KeepFirstTwoLemonLords(game);
-            while (game.State.Stage == GameStage.InitialBuys)
-            {
-                int buyer = game.State.InitialBuyQueue[0];
-                game.Apply(new InitialBuyStand { PlayerId = buyer, StandTypeId = "bargain" });
-                game.Apply(new InitialBuyEnd { PlayerId = buyer });
-            }
-            GameFlowTests.PassAll(game);
-            return game;
-        }
-
-        public static void KeepFirstTwoLemonLords(Game game)
-        {
-            foreach (var player in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = player.PlayerId,
-                    KeepTitleIds = player.LemonLordDealt.Take(2).ToList(),
-                });
-            }
-        }
-
-        public static int ActivePlayer(Game game) => game.State.ActivePlayer;
-
-        public static int SeatAfterActive(Game game, int offset) =>
-            (game.State.ActivePlayer + offset) % game.State.Players.Count;
-
         // --------------------------------------------------------- lemon cards
 
         public static int GiveCard(Game game, int playerId, string defId)
         {
             int card = TakeLemonCard(game, defId);
             game.State.Players[playerId].Hand.Add(card);
+            return card;
+        }
+
+        public static int PutInLemonDiscard(Game game, string defId)
+        {
+            int card = TakeLemonCard(game, defId);
+            game.State.LemonDiscard.Add(card);
             return card;
         }
 
@@ -67,11 +39,12 @@ namespace LemonadeWars.Engine.Tests
             return tantrum;
         }
 
-        public static int PutInLemonDiscard(Game game, string defId)
+        public static void PutTantrumsInPile(Game game, int playerId, int count)
         {
-            int card = TakeLemonCard(game, defId);
-            game.State.LemonDiscard.Add(card);
-            return card;
+            for (int i = 0; i < count; i++)
+            {
+                PutTantrumInPile(game, playerId);
+            }
         }
 
         /// <summary>Looks in the deck first, then the discard, then each hand in seat order.</summary>
@@ -122,8 +95,27 @@ namespace LemonadeWars.Engine.Tests
             }
         }
 
+        /// <summary>Tantrum, Tag and Rubber-Glue: nobody can answer a play except with cards the test then deals.</summary>
+        public static void StripStackReactions(Game game) =>
+            StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
+
+        /// <summary>The stack reactions plus Profit Share, the answer to a theft.</summary>
         public static void StripAttackReactions(Game game) =>
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue", "profit-share");
+
+        /// <summary>The hand goes to the bottom of the deck.</summary>
+        public static void BuryHand(Game game, int playerId)
+        {
+            var hand = game.State.Players[playerId].Hand;
+            game.State.LemonDeck.AddRange(hand);
+            hand.Clear();
+        }
+
+        public static void StripToOneCard(Game game, int playerId, string defId)
+        {
+            BuryHand(game, playerId);
+            GiveCard(game, playerId, defId);
+        }
 
         /// <summary>To the bottom of the deck, so a draw the test triggers cannot hit one.</summary>
         public static void BuryTimeouts(Game game)
@@ -138,10 +130,30 @@ namespace LemonadeWars.Engine.Tests
             }
         }
 
-        // ------------------------------------------------- black market cards
+        // -------------------------------------------------- black market cards
+
+        /// <summary>Takes the card from the deck or the shelf; equips the Turf when no stand is given.</summary>
+        public static int RigEquip(Game game, int playerId, string defId, int? standInstanceId = null)
+        {
+            var state = game.State;
+            int found = state.BlackMarketDeck.Concat(state.Market)
+                .First(id => state.BlackMarketInstances[id].DefId == defId);
+            state.BlackMarketDeck.Remove(found);
+            state.Market.Remove(found);
+            var player = state.Players[playerId];
+            if (standInstanceId is int standId)
+            {
+                player.Stands.First(stand => stand.InstanceId == standId).Equipped.Add(found);
+            }
+            else
+            {
+                player.Turf.Equipped.Add(found);
+            }
+            return found;
+        }
 
         /// <summary>Equips whichever card tops the Black Market deck.</summary>
-        public static int RigTurfEquip(Game game, int playerId)
+        public static int RigTurfEquipFromDeckTop(Game game, int playerId)
         {
             var state = game.State;
             int card = state.BlackMarketDeck[0];
@@ -153,7 +165,7 @@ namespace LemonadeWars.Engine.Tests
         public static BlackMarketCardDef BlackMarketDefOf(Game game, int instanceId) =>
             TestData.Db.BlackMarket(game.State.BlackMarketInstances[instanceId].DefId);
 
-        // -------------------------------------------------------------- table
+        // ------------------------------------------------------------- players
 
         public static void SetEveryonesMoney(Game game, int dollars)
         {
@@ -163,13 +175,12 @@ namespace LemonadeWars.Engine.Tests
             }
         }
 
-        /// <summary>Leaves pending decisions for the test to answer; GameFlowTests.PassAll answers those too.</summary>
-        public static void PassWindowsOnly(Game game, List<GameEvent>? collectEventsInto = null)
+        /// <summary>Secret titles (Friendly Fran, Expert Whiner...) sway scores and bot choices.</summary>
+        public static void ClearLemonLords(Game game)
         {
-            while (game.State.AwaitingResponse.Count > 0)
+            foreach (var player in game.State.Players)
             {
-                var events = game.Apply(new PassWindow { PlayerId = game.State.AwaitingResponse[0] });
-                collectEventsInto?.AddRange(events);
+                player.LemonLordKept.Clear();
             }
         }
     }

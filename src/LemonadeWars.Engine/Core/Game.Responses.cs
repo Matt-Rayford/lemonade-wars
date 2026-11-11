@@ -1,34 +1,20 @@
 using System.Collections.Generic;
 using System.Linq;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Response stack, windows, and pending-decision machinery.
-    ///
-    /// The model is a simplified Magic-style stack: plays and Black Market purchases go on
-    /// <see cref="GameState.ResponseStack"/>; a window invites eligible players to respond
-    /// (Tantrum / Tag / Rubber-Glue against the top item, Out of Stock against a pending
-    /// roll, Profit Share against a resolved theft). Responses push new items. When everyone
-    /// passes, the top item resolves; Tantrums mark their target cancelled, and cancelled
-    /// items pop without effect (purchases get their money back — not the action).
-    ///
-    /// <see cref="Pump"/> is the single driver that advances everything until player input
-    /// is required. Players who cannot legally respond are auto-passed, so uncontested plays
-    /// resolve synchronously inside one Apply call.
-    ///
-    /// This file holds the driver; windows are in Game.ResponseWindows.cs, the stack in
-    /// Game.ResponseStack.cs, the response cards in Game.ResponseCards.cs.
+    /// A simplified Magic-style stack. Plays and Black Market purchases go on
+    /// <see cref="GameState.ResponseStack"/>; a window invites responses (Tantrum, Tag, Rubber-Glue
+    /// to the top item; Out of Stock to a pending roll; Profit Share to a resolved theft). When
+    /// everyone passes, the top item resolves; a cancelled item pops without effect (a purchase
+    /// refunds its money, not the action). <see cref="Pump"/> drives it all until input is needed;
+    /// players who cannot respond are auto-passed, so uncontested plays resolve in one Apply call.
     /// </summary>
     public sealed partial class Game
     {
-        private const string TantrumId = "tantrum";
-        private const string TagId = "tag-youre-it";
-        private const string RubberGlueId = "im-rubber-youre-glue";
-        private const string OutOfStockId = "out-of-stock";
-        private const string ProfitShareId = "profit-share";
 
-        /// <summary>Advance all pending machinery until the game needs player input.</summary>
         private void Pump(List<GameEvent> events)
         {
             while (PumpOnce(events))
@@ -171,9 +157,8 @@ namespace LemonadeWars.Engine.Core
                     return ClampRequiredCount(decision, player.Hand.Count);
                 case DecisionKind.AbilityDiscard:
                 case DecisionKind.WhiniestBabyDiscard:
-                    // Only the drawn cards qualify. Forget any that left the hand since (a
-                    // Timeout discard answered first, a steal), or the decision would
-                    // offer cards that are gone and reject its own moves.
+                    // Only the drawn cards qualify; forget any that left the hand since (a Timeout
+                    // discard, a steal), or the decision would offer cards that are gone.
                     decision.EligibleCardIds = decision.EligibleCardIds?
                         .Where(player.Hand.Contains).ToList();
                     return ClampRequiredCount(decision, decision.EligibleCardIds?.Count ?? player.Hand.Count);

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
@@ -27,17 +28,15 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// A tantrum on a play that neither hurts the responder nor blocks a player about
-        /// to trigger the end. Legal (any player may tantrum any tantrummable play,
-        /// rulebook p11) but bad value: it spends a card and grows the pile that the
-        /// Whiniest Baby's $3-per-tantrum Timeout fine is charged on.
+        /// A tantrum on a play that neither hurts the responder nor blocks a player about to end the game.
+        /// Legal (rulebook p11) but it spends a card and grows the pile the Whiniest Baby's Timeout fine is charged on.
         /// </summary>
         public static bool PointlessTantrum(Game game, int playerId, RespondToWindow respond)
         {
             var state = game.State;
             if (respond.EquippedInstanceId != null || state.ResponseStack.Count == 0 ||
                 !state.LemonInstances.TryGetValue(respond.CardInstanceId, out var instance) ||
-                instance.DefId != "tantrum")
+                instance.DefId != LemonCardIds.Tantrum)
             {
                 return false; // not a tantrum response: no opinion
             }
@@ -60,7 +59,7 @@ namespace LemonadeWars.Engine.Ai
                 return false;
             }
             // Expert Whiner WANTS played tantrums; spite is that lord's whole strategy.
-            return !state.Players[playerId].LemonLordKept.Contains("expert-whiner");
+            return !state.Players[playerId].LemonLordKept.Contains(LemonLordIds.ExpertWhiner);
         }
 
         /// <summary>
@@ -101,13 +100,13 @@ namespace LemonadeWars.Engine.Ai
                 case "Spiked Lemonade":
                     // A pour number we already cover adds nothing (Pour Master collects anyway).
                     return def.Number is int pourNumber && game.PourNumbersOf(me).Contains(pourNumber) &&
-                           !me.LemonLordKept.Contains("pour-master");
+                           !me.LemonLordKept.Contains(LemonLordIds.PourMaster);
                 default:
                     return false;
             }
         }
 
-        /// <summary>Drop wasted moves; never empties the list.</summary>
+        /// <summary>Never empties the list.</summary>
         public static IReadOnlyList<GameAction> DropWasted(
             Game game, int playerId, IReadOnlyList<GameAction> moves)
         {

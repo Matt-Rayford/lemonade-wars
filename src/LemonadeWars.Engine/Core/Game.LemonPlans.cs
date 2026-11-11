@@ -3,11 +3,6 @@ using System.Linq;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Resolution handlers for plan Lemon cards, dispatched from ResolveLemonPlay.
-    /// Each returns true once the play is finished. One-statement plans (Automation,
-    /// Market Forecasting, Night Shifts) resolve in the dispatcher itself.
-    /// </summary>
     public sealed partial class Game
     {
         private bool ResolveApologize(StackItem item, PlayerState owner)
@@ -25,9 +20,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// The tantrum Apologize/Blame Changer moves: the recorded pick when one was
-        /// given (older persisted games), else any copy — they're interchangeable now
-        /// that the baby tie-break tracks PLAY recency, not pile contents.
+        /// The recorded pick when one was given (older persisted games), else any copy: they are
+        /// interchangeable now that the baby tie-break tracks PLAY recency, not pile contents.
         /// </summary>
         private static TantrumRecord? PickTantrum(PlayerState owner, int? instanceId) =>
             instanceId is int id

@@ -1,10 +1,10 @@
-using System;
 using System.Collections.Generic;
+using System;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
-    /// <summary>One move applied to a copy of the world and settled, with its cancel risk.</summary>
     public sealed partial class PlannerBot
     {
         private const int SettleActionCap = 80;
@@ -12,10 +12,8 @@ namespace LemonadeWars.Engine.Ai
         private const double OrdinaryPlayCancelChance = 0.05;
 
         /// <summary>
-        /// One move applied and settled, paired with the world where a rival cancelled
-        /// it. Rivals' hands are hidden, so the risk is an expectation over hand size
-        /// rather than trust in one sampled hand; both branches are real positions the
-        /// planner can keep planning from.
+        /// One move applied and settled, paired with the world where a rival cancelled it. Hands
+        /// are hidden, so the risk is an expectation over hand size, not trust in one sampled hand.
         /// </summary>
         private readonly struct StepOutcome
         {
@@ -72,7 +70,6 @@ namespace LemonadeWars.Engine.Ai
                 PositionValue(cancelled, playerId, lookahead), cancelChance);
         }
 
-        /// <summary>The same step, its worlds re-read through the round lookahead.</summary>
         private StepOutcome WithLookahead(StepOutcome step, int playerId)
         {
             if (step.Success == null)
@@ -88,9 +85,8 @@ namespace LemonadeWars.Engine.Ai
             lookahead ? LeafValue(world, playerId) : _evaluator.Evaluate(world, playerId);
 
         /// <summary>
-        /// The position a Tantrum leaves behind: the card is in the discard, the action
-        /// is spent, nothing else happened. A cancelled purchase is refunded, so it only
-        /// costs the action.
+        /// The position a Tantrum leaves behind: card discarded, action spent, nothing else.
+        /// A cancelled purchase is refunded, so it only costs the action.
         /// </summary>
         private static Game CancelledWorld(Game parent, GameAction move, int playerId)
         {
@@ -112,10 +108,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Odds a rival answers the play just made, judged from what a human could see
-        /// (hand sizes), never from the sampled hands. Attacks are answered by their
-        /// victim roughly in proportion to hand size; anything else is only worth a
-        /// rival's Tantrum when it would hand the planner the game.
+        /// Judged from what a human could see (hand sizes), never from the sampled hands: a victim
+        /// answers an attack in proportion to hand size; other plays draw a Tantrum only when they would win the game.
         /// </summary>
         private double CancelChance(Game world, int playerId)
         {
@@ -125,7 +119,7 @@ namespace LemonadeWars.Engine.Ai
                 return 0; // sampled rivals answer for themselves; the worlds carry the risk
             }
             var top = state.ResponseStack[state.ResponseStack.Count - 1];
-            if (top.OwnerId != playerId || top.LemonDefId == "apologize")
+            if (top.OwnerId != playerId || top.LemonDefId == LemonCardIds.Apologize)
             {
                 return 0; // not ours, or untantrummable by card text
             }
@@ -139,10 +133,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Runs the interaction to quiescence. Rivals pass every window (their risk is
-        /// priced by <see cref="CancelChance"/>) unless reactions are sampled, and answer
-        /// decisions greedily; the planner passes windows and answers its own decisions
-        /// greedily, since re-planning inside a plan is unaffordable. False if the world wedged.
+        /// To quiescence; false if the world wedged. Windows are passed unless reactions are sampled
+        /// (<see cref="CancelChance"/> prices them); decisions go greedy, since re-planning inside a plan is unaffordable.
         /// </summary>
         private bool Settle(Game world, int playerId)
         {

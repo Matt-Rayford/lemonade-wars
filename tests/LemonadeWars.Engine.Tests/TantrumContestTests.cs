@@ -1,6 +1,7 @@
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -9,7 +10,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void UncontestedPlanResolvesSynchronously()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int planner = ActivePlayer(game);
             int card = GiveCard(game, planner, "automation");
@@ -25,7 +26,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TantrumCancelsPlayAndAssignsWhiniestBaby()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int planner = ActivePlayer(game);
             int objector = SeatAfterActive(game, 1);
@@ -50,7 +51,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void CounterTantrumLetsThePlayResolve()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             BuryTimeouts(game);
             int planner = ActivePlayer(game);
@@ -78,7 +79,7 @@ namespace LemonadeWars.Engine.Tests
         {
             // Rule: a Tantrum that is itself Tantrummed leaves the original card open again,
             // and its victim may answer anew with ANY reaction (here a Tag).
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             BuryTimeouts(game);
             int attacker = ActivePlayer(game);
@@ -108,7 +109,7 @@ namespace LemonadeWars.Engine.Tests
             // Rule: reactions end once everyone has passed. The victim reflects with Rubber,
             // a bystander Tantrums the Rubber unanswered, and the attack lands: the Tag the
             // victim still holds gets no second window.
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             BuryTimeouts(game);
             int attacker = ActivePlayer(game);
@@ -134,7 +135,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void CannotTantrumYourOwnCardOrRespondUninvited()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int planner = ActivePlayer(game);
             int objector = SeatAfterActive(game, 1);
@@ -147,7 +148,7 @@ namespace LemonadeWars.Engine.Tests
             Assert.DoesNotContain(planner, game.State.AwaitingResponse);
             Assert.Throws<InvalidActionException>(() =>
                 game.Apply(new RespondToWindow { PlayerId = planner, CardInstanceId = ownTantrum }));
-            GameFlowTests.PassAll(game);
+            PassAll(game);
         }
 
         [Fact]
@@ -155,7 +156,7 @@ namespace LemonadeWars.Engine.Tests
         {
             string PlayContestedTurn()
             {
-                var game = ReadyToPlay(99);
+                var game = ReadyToPlay(seed: 99);
                 StripHands(game, "tantrum");
                 int planner = ActivePlayer(game);
                 int objector = SeatAfterActive(game, 1);
@@ -165,7 +166,7 @@ namespace LemonadeWars.Engine.Tests
                 game.Apply(new PlayLemonCard { PlayerId = planner, CardInstanceId = plan });
                 game.Apply(new RespondToWindow { PlayerId = objector, CardInstanceId = objection });
                 game.Apply(new RespondToWindow { PlayerId = planner, CardInstanceId = counter });
-                GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = planner });
+                ApplyAndPass(game, new EndTurn { PlayerId = planner });
                 return game.SnapshotJson();
             }
 

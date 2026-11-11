@@ -35,8 +35,6 @@ namespace LemonadeWars.Unity
         private const int DrawSlotId = int.MinValue;
 
         private RectTransform _handHost;
-        /// <summary>Card ids left to right, as last rendered or dragged.</summary>
-        private readonly List<int> _handOrder = new List<int>();
         /// <summary>What the fan last showed: an unchanged hand is not rebuilt (see RenderHand).</summary>
         private string _handSignature;
         private float _handStartX;
@@ -61,12 +59,10 @@ namespace LemonadeWars.Unity
 
             UiKit.Clear(_handHost);
             _handFrames.Clear();
-            _handOrder.Clear();
             if (hand.Count == 0 && !canDraw)
             {
                 return;
             }
-            _handOrder.AddRange(hand.Select(card => card.InstanceId));
 
             LayOutHandFan(slotCount: hand.Count + (canDraw ? 1 : 0));
             for (int i = 0; i < hand.Count; i++)
@@ -183,13 +179,6 @@ namespace LemonadeWars.Unity
             frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
             var motion = frame.gameObject.AddComponent<HandCardMotion>();
             motion.TargetY = restY;
-            if (card.InstanceId == _raisedAfterDropCardId)
-            {
-                // Stay lifted through the rebuild, or the card falls flat and pops back up.
-                motion.TargetY = HandRaisedY;
-                frame.anchoredPosition = new Vector2(frame.anchoredPosition.x, HandRaisedY);
-                frame.SetAsLastSibling();
-            }
             int cardId = card.InstanceId;
             _handFrames.Add((cardId, frame, baseX, motion, restY));
 
@@ -197,7 +186,7 @@ namespace LemonadeWars.Unity
             {
                 UiKit.AddClick(image.gameObject, () => ActivateHandCard(cardId));
             }
-            WireHandCardDrag(image.gameObject, cardId, isPlayable, frame, motion);
+            WireHandCardDrag(image.gameObject, cardId, isPlayable);
             WireHandCardHover(image.gameObject, cardId, frame, motion, fanIndex, restY);
             _preview.Attach(image.gameObject, texture);
         }

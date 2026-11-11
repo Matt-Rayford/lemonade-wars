@@ -2,6 +2,7 @@ using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using Xunit;
 using static LemonadeWars.Engine.Tests.BotScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -19,9 +20,9 @@ namespace LemonadeWars.Engine.Tests
             var state = game.State;
             int active = state.ActivePlayer;
             int bystander = (active + 2) % 3;
-            StripReactionCards(game);
-            int plan = Hold(game, active, "market-forecasting");
-            int tantrum = Hold(game, bystander, "tantrum");
+            StripStackReactions(game);
+            int plan = GiveCard(game, active, "market-forecasting");
+            int tantrum = GiveCard(game, bystander, "tantrum");
             state.Players[bystander].LemonLordKept.Clear(); // no Friendly Fran / Expert Whiner noise
             state.Players[active].BraggingRights = 0;
             state.Players[active].FirstDibsClaimed.Clear();
@@ -49,10 +50,10 @@ namespace LemonadeWars.Engine.Tests
             int attacker = state.ActivePlayer;
             int bystander = (attacker + 1) % 3;
             int victim = (attacker + 2) % 3;
-            StripReactionCards(game);
-            int attack = Hold(game, attacker, "hoa-violation");
-            int bystanderTantrum = Hold(game, bystander, "tantrum");
-            int victimTantrum = Hold(game, victim, "tantrum");
+            StripStackReactions(game);
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int bystanderTantrum = GiveCard(game, bystander, "tantrum");
+            int victimTantrum = GiveCard(game, victim, "tantrum");
             state.Players[bystander].LemonLordKept.Clear();
             state.Players[victim].LemonLordKept.Clear();
             state.Players[victim].Money = 10;
@@ -79,11 +80,11 @@ namespace LemonadeWars.Engine.Tests
             int active = state.ActivePlayer;
             int canceller = (active + 1) % 3;
             int bystander = (active + 2) % 3;
-            StripReactionCards(game);
-            int plan = Hold(game, active, "market-forecasting");
-            int activeTantrum = Hold(game, active, "tantrum");
-            int cancellerTantrum = Hold(game, canceller, "tantrum");
-            int bystanderTantrum = Hold(game, bystander, "tantrum");
+            StripStackReactions(game);
+            int plan = GiveCard(game, active, "market-forecasting");
+            int activeTantrum = GiveCard(game, active, "tantrum");
+            int cancellerTantrum = GiveCard(game, canceller, "tantrum");
+            int bystanderTantrum = GiveCard(game, bystander, "tantrum");
             ClearLemonLords(game);
 
             game.Apply(new PlayLemonCard { PlayerId = active, CardInstanceId = plan });

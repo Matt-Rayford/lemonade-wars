@@ -2,7 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -12,26 +13,26 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void PennyPincherIsClaimedOnTheFifthBargainStand()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             player.Money = 100;
             game.State.FirstDibsRow.Clear();
             game.State.FirstDibsRow.Add("penny-pincher");
 
             // 2 from the draft; buy 2 more, end turn, buy the 5th next round.
-            GameFlowTests.ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
-            GameFlowTests.ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
+            ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
+            ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
             Assert.Empty(player.FirstDibsClaimed);
 
             for (int i = 0; i < game.State.Players.Count; i++)
             {
-                GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = Active(game) });
+                ApplyAndPass(game, new EndTurn { PlayerId = ActivePlayer(game) });
             }
-            Assert.Equal(activeId, Active(game));
+            Assert.Equal(activeId, ActivePlayer(game));
             player.Money = 100;
-            GameFlowTests.ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
+            ApplyAndPass(game, new BuyStand { PlayerId = activeId, StandTypeId = "bargain" });
 
             Assert.Contains("penny-pincher", player.FirstDibsClaimed);
             Assert.Empty(game.State.FirstDibsRow);
@@ -41,14 +42,14 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void BigEarnerTriggersFromRollEarnings()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             game.State.FirstDibsRow.Clear();
             game.State.FirstDibsRow.Add("big-earner");
             game.State.RollStats[activeId] = new RollStats { Earned = 9 };
 
-            GameFlowTests.ApplyAndPass(game, new DrawLemonCard { PlayerId = activeId });
+            ApplyAndPass(game, new DrawLemonCard { PlayerId = activeId });
 
             Assert.Contains("big-earner", game.State.Players[activeId].FirstDibsClaimed);
         }
@@ -56,15 +57,15 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void CrankyPantsCountsPileTantrums()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             game.State.FirstDibsRow.Clear();
             game.State.FirstDibsRow.Add("cranky-pants");
-            RigTantrums(game, activeId, 3);
+            PutTantrumsInPile(game, activeId, 3);
 
-            GameFlowTests.ApplyAndPass(game, new DrawLemonCard { PlayerId = activeId });
+            ApplyAndPass(game, new DrawLemonCard { PlayerId = activeId });
 
             Assert.Contains("cranky-pants", player.FirstDibsClaimed);
         }
@@ -72,7 +73,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void LemonLordTitlesScoreAtGameEnd()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "out-of-stock");
             var state = game.State;
             int first = state.FirstPlayer;
@@ -105,11 +106,11 @@ namespace LemonadeWars.Engine.Tests
                     if (active.PlayerId == first)
                     {
                         active.Money = 100;
-                        GameFlowTests.ApplyAndPass(game, new BuyBraggingRights { PlayerId = first });
+                        ApplyAndPass(game, new BuyBraggingRights { PlayerId = first });
                     }
                     if (state.Stage != GameStage.Finished)
                     {
-                        GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = state.ActivePlayer });
+                        ApplyAndPass(game, new EndTurn { PlayerId = state.ActivePlayer });
                     }
                 }
             }

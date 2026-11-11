@@ -46,7 +46,6 @@ namespace LemonadeWars.Engine.Core
         // ---- Setup-only bookkeeping ----
         /// <summary>Player ids in snake-draft order for initial buys; consumed front to back.</summary>
         public List<int> InitialBuyQueue { get; } = new List<int>();
-        /// <summary>Whether the current initial-buy player has bought their mandatory Stand.</summary>
         public bool InitialBuyStandDone { get; set; }
 
         // ---- Interaction machinery ----
@@ -108,7 +107,6 @@ namespace LemonadeWars.Engine.Core
         public int? EndTriggeredBy { get; set; }
         public List<int> Winners { get; } = new List<int>();
 
-        /// <summary>RNG state; advances with every shuffle and roll.</summary>
         public ulong RngState { get; set; }
     }
 }

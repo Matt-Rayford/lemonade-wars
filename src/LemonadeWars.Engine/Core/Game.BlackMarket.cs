@@ -5,13 +5,7 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Equipped Black Market cards at sale time: computed stats (sale numbers, pour
-    /// numbers, earnings, discounts) and On Sale / Power Pour trigger resolution.
-    /// The choices those triggers raise are answered in Game.AbilityChoices.cs; activated
-    /// abilities live in Game.TurnAbilities.cs, reactions to plays in
-    /// Game.EquippedReactions.cs.
-    /// </summary>
+    /// <summary>Equipped Black Market cards at sale time: computed stats and On Sale / Power Pour triggers.</summary>
     public sealed partial class Game
     {
         // -------------------------------------------------- computed stats
@@ -50,8 +44,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// What this stand pays when it sells: base + its own bonuses (Diluted/Pink Lemonade)
-        /// + adjacency (a Lefty Loosey on the right neighbor / Righty Tighty on the left).
+        /// Base + the stand's own bonuses (Diluted/Pink Lemonade) + adjacency (a Lefty Loosey
+        /// on the right neighbor, a Righty Tighty on the left).
         /// </summary>
         public int StandEarnings(PlayerState player, StandInstance stand)
         {
@@ -60,10 +54,10 @@ namespace LemonadeWars.Engine.Core
             {
                 switch (EquippedDef(id).Id)
                 {
-                    case "diluted-lemonade":
+                    case BlackMarketCardIds.DilutedLemonade:
                         earnings += 2;
                         break;
-                    case "pink-lemonade":
+                    case BlackMarketCardIds.PinkLemonade:
                         earnings += 1;
                         break;
                 }
@@ -72,11 +66,11 @@ namespace LemonadeWars.Engine.Core
             int index = player.Stands.IndexOf(stand);
             if (index + 1 < player.Stands.Count)
             {
-                earnings += player.Stands[index + 1].Equipped.Count(id => EquippedDef(id).Id == "lefty-loosey");
+                earnings += player.Stands[index + 1].Equipped.Count(id => EquippedDef(id).Id == BlackMarketCardIds.LeftyLoosey);
             }
             if (index - 1 >= 0)
             {
-                earnings += player.Stands[index - 1].Equipped.Count(id => EquippedDef(id).Id == "righty-tighty");
+                earnings += player.Stands[index - 1].Equipped.Count(id => EquippedDef(id).Id == BlackMarketCardIds.RightyTighty);
             }
             return earnings;
         }
@@ -84,12 +78,9 @@ namespace LemonadeWars.Engine.Core
         private int CountOnTurf(PlayerState player, string defId) =>
             player.Turf.Equipped.Count(id => EquippedDef(id).Id == defId);
 
-        /// <summary>
-        /// Black Market price after Peddlin' Pete discounts. The discount counts during
-        /// the setup draft too (designer ruling).
-        /// </summary>
+        /// <summary>Peddlin' Pete's discount counts during the setup draft too (designer ruling).</summary>
         public int BlackMarketPrice(int playerId, BlackMarketCardDef def) =>
-            Math.Max(0, def.Cost - CountOnTurf(Player(playerId), "peddlin-pete"));
+            Math.Max(0, def.Cost - CountOnTurf(Player(playerId), BlackMarketCardIds.PeddlinPete));
 
         // ------------------------------------------------------ roll stats
 
@@ -148,7 +139,6 @@ namespace LemonadeWars.Engine.Core
 
         // ------------------------------------------------- sale resolution
 
-        /// <summary>One stand sells: pay out its earnings, then fire its On Sale triggers.</summary>
         private void SellStand(PlayerState player, StandInstance stand, List<GameEvent> events)
         {
             int earnings = StandEarnings(player, stand);
@@ -166,12 +156,12 @@ namespace LemonadeWars.Engine.Core
                 var def = EquippedDef(id);
                 switch (def.Id)
                 {
-                    case "meditation":
+                    case BlackMarketCardIds.Meditation:
                         events.Add(new AbilityTriggered { PlayerId = player.PlayerId, DefId = def.Id });
                         QueueDraws(player.PlayerId, 1, countsForRoll: true);
                         break;
-                    case "juice-box-joey":
-                    case "nap-time-nino":
+                    case BlackMarketCardIds.JuiceBoxJoey:
+                    case BlackMarketCardIds.NapTimeNino:
                         EnqueueVictimChoice(player, id, events);
                         break;
                         // diluted-lemonade / pink-lemonade are folded into StandEarnings.
@@ -179,7 +169,6 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>A player's power pour fired: base $1 plus every equipped Power Pour trigger.</summary>
         private void TriggerPowerPour(PlayerState player, List<GameEvent> events)
         {
             events.Add(new PowerPourTriggered { PlayerId = player.PlayerId });
@@ -200,35 +189,35 @@ namespace LemonadeWars.Engine.Core
             events.Add(new AbilityTriggered { PlayerId = player.PlayerId, DefId = def.Id });
             switch (def.Id)
             {
-                case "early-worm":
+                case BlackMarketCardIds.EarlyWorm:
                     GainFromRoll(player, 1, def.Name, events);
                     break;
-                case "interest":
+                case BlackMarketCardIds.Interest:
                     GainFromRoll(player, PourNumbersOf(player).Count, def.Name, events);
                     break;
-                case "revelation":
+                case BlackMarketCardIds.Revelation:
                     QueueDraws(player.PlayerId, 1, countsForRoll: true);
                     break;
-                case "whispers-of-fate":
+                case BlackMarketCardIds.WhispersOfFate:
                     // "+2 Lemon cards, then discard 1 OF THEM": the draw queue raises the
                     // discard decision once the two cards exist.
                     QueueDraws(player.PlayerId, 2, countsForRoll: true,
                         discardAfterCount: 1, discardAfterSourceInstanceId: instanceId);
                     break;
-                case "gone-fishin":
-                case "two-bit-timmy":
-                case "half-pint-harry":
-                case "dons-blessings":
-                case "family-business":
+                case BlackMarketCardIds.GoneFishin:
+                case BlackMarketCardIds.TwoBitTimmy:
+                case BlackMarketCardIds.HalfPintHarry:
+                case BlackMarketCardIds.DonsBlessings:
+                case BlackMarketCardIds.FamilyBusiness:
                     EnqueueVictimChoice(player, instanceId, events);
                     break;
-                case "innovation":
+                case BlackMarketCardIds.Innovation:
                     if (HasPourCardToCopy(player, instanceId))
                     {
                         AddAbilityDecision(player, DecisionKind.InnovationCopy, instanceId, events);
                     }
                     break;
-                case "word-of-mouth":
+                case BlackMarketCardIds.WordOfMouth:
                     if (player.Stands.Count > 0)
                     {
                         AddAbilityDecision(player, DecisionKind.WordOfMouthStand, instanceId, events);
@@ -238,7 +227,7 @@ namespace LemonadeWars.Engine.Core
         }
 
         private static bool IsCopyablePourCard(BlackMarketCardDef def) =>
-            def.Timing == EffectTiming.PowerPour && def.Id != "innovation";
+            def.Timing == EffectTiming.PowerPour && def.Id != BlackMarketCardIds.Innovation;
 
         private bool HasPourCardToCopy(PlayerState player, int? innovationInstanceId) =>
             player.Turf.Equipped.Any(id =>

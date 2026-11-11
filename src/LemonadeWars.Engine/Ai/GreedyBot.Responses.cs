@@ -1,6 +1,7 @@
-using System;
 using System.Linq;
+using System;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
@@ -23,15 +24,15 @@ namespace LemonadeWars.Engine.Ai
                 : null;
             switch (defId)
             {
-                case "tantrum":
+                case LemonCardIds.Tantrum:
                     return stackTop == null ? 0 : ScoreTantrum(game, me, stackTop);
-                case "tag-youre-it":
+                case LemonCardIds.TagYoureIt:
                     return ScoreTag(game, me, respond, stackTop);
-                case "im-rubber-youre-glue":
+                case LemonCardIds.ImRubberYoureGlue:
                     return stackTop?.AttackTargetId == me.PlayerId ? 68 : 4;
-                case "out-of-stock":
+                case LemonCardIds.OutOfStock:
                     return ScoreOutOfStock(game, me);
-                case "profit-share":
+                case LemonCardIds.ProfitShare:
                     return 80;
                 default:
                     return 5;
@@ -44,18 +45,17 @@ namespace LemonadeWars.Engine.Ai
             // Friendly Fran (zero tantrums) is a whole VP: a spotless pile makes
             // throwing one much less attractive.
             double franBrake = me.TantrumPile.Count == 0 &&
-                me.LemonLordKept.Contains("friendly-fran") ? 30 : 0;
+                me.LemonLordKept.Contains(LemonLordIds.FriendlyFran) ? 30 : 0;
             if (stackTop.AttackTargetId == me.PlayerId)
             {
                 return 60 - franBrake;
             }
             if (IsResponseToOwnPlay(state, stackTop, me))
             {
-                // Reviving our cancelled play is 55. A Tag or Rubber-Glue on our attack
-                // rates higher: left alone it turns the attack around, and the bot would
-                // end up tantruming its own card one step later.
-                bool redirectsOurAttack = stackTop.LemonDefId == "tag-youre-it" ||
-                                          stackTop.LemonDefId == "im-rubber-youre-glue";
+                // A Tag or Rubber-Glue on our attack rates above reviving a cancelled play: left
+                // alone it turns the attack around, and the bot would tantrum its own card a step later.
+                bool redirectsOurAttack = stackTop.LemonDefId == LemonCardIds.TagYoureIt ||
+                                          stackTop.LemonDefId == LemonCardIds.ImRubberYoureGlue;
                 return (redirectsOurAttack ? 58 : 55) - franBrake;
             }
             // A player one VP from triggering the end: deny them anything big.
@@ -70,10 +70,9 @@ namespace LemonadeWars.Engine.Ai
                 }
                 return 25 - franBrake;
             }
-            // A play that doesn't touch us: a tantrum on it is spite (and feeds the
-            // Whiniest Baby fine), so passing wins. Expert Whiner is the exception:
-            // played tantrums ARE its VP condition.
-            return me.LemonLordKept.Contains("expert-whiner") ? 12 : (2 - franBrake);
+            // A tantrum on a play that doesn't touch us is spite (and feeds the Whiniest Baby fine), so
+            // passing wins. Expert Whiner is the exception: played tantrums ARE its VP condition.
+            return me.LemonLordKept.Contains(LemonLordIds.ExpertWhiner) ? 12 : (2 - franBrake);
         }
 
         private static double ScoreTag(Game game, PlayerState me, RespondToWindow respond, StackItem? stackTop)
@@ -89,7 +88,6 @@ namespace LemonadeWars.Engine.Ai
             return 65 + 5 * redirectThreat;
         }
 
-        /// <summary>Reroll when the current value earns us nothing.</summary>
         private static double ScoreOutOfStock(Game game, PlayerState me)
         {
             int rolled = game.State.PendingRoll?.Value ?? 0;
@@ -98,7 +96,6 @@ namespace LemonadeWars.Engine.Ai
             return earnsOnRoll ? 2 : 14;
         }
 
-        /// <summary>The stack top is a reaction (Tantrum / Tag / Rubber-Glue) aimed at a play of ours.</summary>
         private static bool IsResponseToOwnPlay(GameState state, StackItem stackTop, PlayerState me) =>
             stackTop.RespondingToItemId is int answeredId &&
             state.ResponseStack.Any(item => item.ItemId == answeredId && item.OwnerId == me.PlayerId);
@@ -107,7 +104,7 @@ namespace LemonadeWars.Engine.Ai
         {
             var state = game.State;
             string defId = game.Db.BlackMarket(state.BlackMarketInstances[ability.EquippedInstanceId].DefId).Id;
-            if (defId == "liquid-energy")
+            if (defId == BlackMarketCardIds.LiquidEnergy)
             {
                 return 26;
             }
@@ -120,11 +117,11 @@ namespace LemonadeWars.Engine.Ai
             int earningsNow = EarningsOnRoll(game, me, rolled);
             switch (defId)
             {
-                case "downsell":
+                case BlackMarketCardIds.Downsell:
                     return EarningsOnRoll(game, me, Math.Max(1, rolled - 1)) > earningsNow ? 30 : 1;
-                case "sugared-up":
+                case BlackMarketCardIds.SugaredUp:
                     return EarningsOnRoll(game, me, Math.Min(6, rolled + 1)) > earningsNow ? 30 : 1;
-                case "take-two":
+                case BlackMarketCardIds.TakeTwo:
                     return earningsNow == 0 ? 22 : 1;
                 default:
                     return 1;

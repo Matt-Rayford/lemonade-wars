@@ -2,7 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -11,7 +12,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void OutOfStockRerollsTheSaleDie()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "out-of-stock");
             int roller = ActivePlayer(game);
             int responder = SeatAfterActive(game, 1);
@@ -34,7 +35,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void NightShiftsSellsForTheRollerOnly()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum", "out-of-stock");
             int roller = ActivePlayer(game);
             int card = GiveCard(game, roller, "night-shifts");
@@ -55,7 +56,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void StealTheCashboxSkimsTheNextSale()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue",
                 "profit-share", "out-of-stock");
             int thief = ActivePlayer(game);

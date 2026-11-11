@@ -3,7 +3,8 @@ using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -12,7 +13,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SmearCampaignStealsTwoAndCostsNoAction()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -34,7 +35,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TrashPandasSwapsHands()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -51,10 +52,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void RummageSaleSellsEquipsForHalfRoundedUp()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int seller = ActivePlayer(game);
-            int equipped = RigTurfEquip(game, seller);
+            int equipped = RigTurfEquipFromDeckTop(game, seller);
             int cost = BlackMarketDefOf(game, equipped).Cost;
             int card = GiveCard(game, seller, "rummage-sale");
             int moneyBefore = game.State.Players[seller].Money;
@@ -73,7 +74,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ReverseEngineerForcesThePlayOfARecoveredCard()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int player = ActivePlayer(game);
             int automation = PutInLemonDiscard(game, "automation");
@@ -103,7 +104,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ReverseEngineerOffersEveryDiscardedCopy()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int player = ActivePlayer(game);
             // The picker shows the physical pile, so BOTH discarded Automations must be
@@ -135,7 +136,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ReduceAndReuseOffersEveryDiscardedBlackMarketCopy()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int player = ActivePlayer(game);
             var state = game.State;

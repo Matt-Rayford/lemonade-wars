@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 using UnityEngine;
 
 namespace LemonadeWars.Unity
@@ -69,7 +70,7 @@ namespace LemonadeWars.Unity
             if (View.TheftOnMe && View.StackTop == null)
             {
                 if (move is RespondToWindow respond && View.TheftRecoverable is int back &&
-                    HandCardDefId(respond.CardInstanceId) == "profit-share")
+                    HandCardDefId(respond.CardInstanceId) == LemonCardIds.ProfitShare)
                 {
                     return $"Play Profit Share — take ${back} back";
                 }

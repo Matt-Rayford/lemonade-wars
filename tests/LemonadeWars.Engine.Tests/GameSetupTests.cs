@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.GameFlowSetup;
+using static LemonadeWars.Engine.Tests.GameScenario;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -11,7 +11,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SetupDealsHandsMoneyTurfsAndMarkets()
         {
-            var game = NewGame();
+            var game = NewGame(seed: 42);
             var state = game.State;
 
             Assert.Equal(GameStage.ChoosingLemonLords, state.Stage);
@@ -40,14 +40,14 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TwoPlayerGameDealsFiveMarketCards()
         {
-            var game = NewGame(names: new[] { "Ana", "Ben" });
+            var game = NewGame(seed: 42, names: TwoPlayers);
             Assert.Equal(5, game.State.Market.Count);
         }
 
         [Fact]
         public void LemonLordChoiceValidatesAndAdvances()
         {
-            var game = NewGame();
+            var game = NewGame(seed: 42);
             var firstSeat = game.State.Players[0];
 
             Assert.Throws<InvalidActionException>(() => game.Apply(new ChooseLemonLords
@@ -68,7 +68,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void InitialBuysSnakeAndRequireAStand()
         {
-            var game = NewGame();
+            var game = NewGame(seed: 42);
             KeepFirstTwoLemonLords(game);
 
             var state = game.State;
@@ -131,7 +131,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void FinishingInitialBuysStartsFirstTurnWithADraw()
         {
-            var game = ReadyToPlay();
+            var game = DraftedGame(seed: 42);
             var state = game.State;
             Assert.Equal(GameStage.Playing, state.Stage);
             Assert.Equal(state.FirstPlayer, state.ActivePlayer);

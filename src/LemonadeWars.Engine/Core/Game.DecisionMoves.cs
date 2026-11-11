@@ -4,7 +4,6 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>Legal answers to a player's pending decisions (see Game.LegalMoves.cs).</summary>
     public sealed partial class Game
     {
         /// <summary>
@@ -153,7 +152,7 @@ namespace LemonadeWars.Engine.Core
             {
                 return;
             }
-            bool needsEquipDestination = item.LemonDefId == "finders-keepers";
+            bool needsEquipDestination = item.LemonDefId == LemonCardIds.FindersKeepers;
             foreach (int equippedId in AllEquipped(Player(item.AttackTargetId!.Value)))
             {
                 if (!needsEquipDestination)
@@ -238,17 +237,14 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>
-        /// Innovation copies one of its owner's other Power Pour turf cards, never itself
-        /// or a second Innovation.
-        /// </summary>
+        /// <summary>Innovation never copies itself or a second Innovation.</summary>
         private void AddInnovationCopyMoves(List<GameAction> moves, PlayerState player, PendingDecision decision)
         {
             foreach (int equippedId in player.Turf.Equipped)
             {
                 var def = EquippedDef(equippedId);
                 if (equippedId != decision.SourceInstanceId &&
-                    def.Timing == EffectTiming.PowerPour && def.Id != "innovation")
+                    def.Timing == EffectTiming.PowerPour && def.Id != BlackMarketCardIds.Innovation)
                 {
                     moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, EquippedInstanceId = equippedId });
                 }

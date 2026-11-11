@@ -5,15 +5,11 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Everything before the first turn: building and dealing the table, the Lemon Lord
-    /// keep-2 choice, and the snake draft of initial buys (rulebook p5).
-    /// </summary>
     public sealed partial class Game
     {
         // ------------------------------------------------------ table setup
 
-        /// <summary>Create a game and run automatic setup up to the Lemon Lord keep-2 choice.</summary>
+        /// <summary>Runs automatic setup up to the Lemon Lord keep-2 choice.</summary>
         public static Game Create(CardDatabase db, IReadOnlyList<string> playerNames, ulong seed)
         {
             var config = db.Config;
@@ -172,7 +168,6 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>Players later keep some of these via <see cref="ChooseLemonLords"/>.</summary>
         private void DealLemonLordCandidates()
         {
             var lordIds = Db.LemonLordTitles.Select(t => t.Id).ToList();

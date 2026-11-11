@@ -24,10 +24,7 @@ namespace LemonadeWars.Engine.Core
             _rng = rng;
         }
 
-        /// <summary>
-        /// Wrap an existing state snapshot (e.g. a deep clone for AI search). The RNG
-        /// resumes from the snapshot's RngState, so determinism carries across copies.
-        /// </summary>
+        /// <summary>The RNG resumes from the snapshot's RngState, so a clone (AI search) stays deterministic.</summary>
         public static Game FromState(CardDatabase db, GameState state) =>
             new Game(db, state, new DeterministicRng(state.RngState));
 
@@ -35,7 +32,6 @@ namespace LemonadeWars.Engine.Core
 
         // ----------------------------------------------------- action entry
 
-        /// <summary>Validate and execute a player action, returning the events it produced.</summary>
         public IReadOnlyList<GameEvent> Apply(GameAction action)
         {
             RequireInteractionGate(action);
@@ -179,7 +175,6 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>Common checks for anything that costs one of the turn's actions.</summary>
         private void RequireTurnAction(GameAction action)
         {
             RequireActivePlayerInPlayPhase(action);

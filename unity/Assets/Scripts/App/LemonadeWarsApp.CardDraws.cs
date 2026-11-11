@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Unity
 {
@@ -45,7 +46,7 @@ namespace LemonadeWars.Unity
         {
             _fx.QueueSound(Sfx.CardDraw);
             _timeoutCardInFlight = true;
-            var timeoutArt = _art.Lemon(TimeoutDefId);
+            var timeoutArt = _art.Lemon(LemonCardIds.Timeout);
             void Land()
             {
                 _timeoutCardInFlight = false;

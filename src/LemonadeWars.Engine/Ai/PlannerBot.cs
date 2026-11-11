@@ -181,10 +181,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Every candidate gets the cheap one-ply read (apply, settle, evaluate). With
-        /// round lookahead on, the most promising are then re-read through it, best
-        /// first, until the deadline; the rest keep their one-ply read. A huge hand
-        /// therefore costs accuracy, never more than the budget.
+        /// A one-ply read for every candidate; with round lookahead the best are re-read through
+        /// it until the deadline, so a huge hand costs accuracy, never more than the budget.
         /// </summary>
         private (StepOutcome[] Steps, double[] Values) ValueCandidates(Game parent, List<GameAction> candidates,
             int playerId, Stopwatch stopwatch, long deadlineMs)
@@ -223,9 +221,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Legal moves worth planning over: wasted ones dropped, and stand placements
-        /// collapsed to the two ends of the row (only adjacency upgrades care where a
-        /// stand sits, and both ends cover them).
+        /// Wasted moves dropped, and stand placements collapsed to the two ends of the row
+        /// (only adjacency upgrades care where a stand sits, and both ends cover them).
         /// </summary>
         private static List<GameAction> Candidates(Game game, int playerId, IReadOnlyList<GameAction> moves)
         {

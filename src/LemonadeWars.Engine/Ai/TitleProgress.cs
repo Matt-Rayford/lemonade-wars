@@ -17,35 +17,35 @@ namespace LemonadeWars.Engine.Ai
         {
             switch (titleId)
             {
-                case "balanced-set":
+                case FirstDibsIds.BalancedSet:
                 {
                     var shapes = ShapesOf(game, player);
                     return (Fraction(shapes.Count(shape => shape == Shape.Circle), 2)
                         + Fraction(shapes.Count(shape => shape == Shape.Diamond), 2)
                         + Fraction(shapes.Count(shape => shape == Shape.Square), 2)) / 3;
                 }
-                case "block-builder":
+                case FirstDibsIds.BlockBuilder:
                     return Fraction(ShapesOf(game, player).Count(shape => shape == Shape.Square), 6);
-                case "diamond-dealer":
+                case FirstDibsIds.DiamondDealer:
                     return Fraction(ShapesOf(game, player).Count(shape => shape == Shape.Diamond), 6);
-                case "full-circle":
+                case FirstDibsIds.FullCircle:
                     return Fraction(ShapesOf(game, player).Count(shape => shape == Shape.Circle), 6);
-                case "connoisseur":
-                    return Fraction(CountStands(player, "gourmet"), 3) * 0.75
-                        + (player.Stands.Any(stand => stand.StandTypeId != "gourmet") ? 0.25 : 0);
-                case "local-legend":
-                    return Fraction(CountStands(player, "classic"), 4);
-                case "penny-pincher":
-                    return Fraction(CountStands(player, "bargain"), 5);
-                case "cranky-pants":
+                case FirstDibsIds.Connoisseur:
+                    return Fraction(CountStands(player, StandTypeIds.Gourmet), 3) * 0.75
+                        + (player.Stands.Any(stand => stand.StandTypeId != StandTypeIds.Gourmet) ? 0.25 : 0);
+                case FirstDibsIds.LocalLegend:
+                    return Fraction(CountStands(player, StandTypeIds.Classic), 4);
+                case FirstDibsIds.PennyPincher:
+                    return Fraction(CountStands(player, StandTypeIds.Bargain), 5);
+                case FirstDibsIds.CrankyPants:
                     return Fraction(player.TantrumPile.Count, 3);
-                case "expander":
+                case FirstDibsIds.Expander:
                     return Fraction(player.Turf.Equipped.Count, 5);
-                case "innovator":
+                case FirstDibsIds.Innovator:
                     return Fraction(player.Stands.Sum(stand => stand.Equipped.Count), 5);
-                case "big-earner":
+                case FirstDibsIds.BigEarner:
                     return Fraction(BestSingleRollEarnings(game, player), 9);
-                case "stand-surge":
+                case FirstDibsIds.StandSurge:
                     return Fraction(player.Stands.Count == 0 ? 0 : player.Stands.Max(stand =>
                         game.StandEarnings(player, stand) - game.Db.StandType(stand.StandTypeId).BaseEarnings), 3);
                 default:
@@ -53,7 +53,6 @@ namespace LemonadeWars.Engine.Ai
             }
         }
 
-        /// <summary>Progress toward a Lemon Lord's end-game condition.</summary>
         public static double LemonLord(Game game, PlayerState player, string lordId)
         {
             if (game.MeetsLemonLord(player, lordId))
@@ -63,59 +62,58 @@ namespace LemonadeWars.Engine.Ai
             var equipped = EquippedDefs(game, player).ToList();
             switch (lordId)
             {
-                case "bare-bones":
+                case LemonLordIds.BareBones:
                     return Fraction(player.Stands.Count(stand => stand.Equipped.Count == 0), 3);
-                case "budget-beast":
+                case LemonLordIds.BudgetBeast:
                     return Fraction(player.Stands
-                        .Where(stand => stand.StandTypeId == "bargain")
+                        .Where(stand => stand.StandTypeId == StandTypeIds.Bargain)
                         .Select(stand => game.StandEarnings(player, stand))
                         .DefaultIfEmpty(0).Max(), 3);
-                case "elite-squeezer":
+                case LemonLordIds.EliteSqueezer:
                     return Fraction(player.Stands
-                        .Where(stand => stand.StandTypeId == "gourmet")
+                        .Where(stand => stand.StandTypeId == StandTypeIds.Gourmet)
                         .Select(stand => stand.Equipped.Count)
                         .DefaultIfEmpty(0).Max(), 4);
-                case "expert-whiner":
+                case LemonLordIds.ExpertWhiner:
                     return ExpertWhinerProgress(game, player);
-                case "friendly-fran":
+                case LemonLordIds.FriendlyFran:
                     return 0; // met or not: a dirty pile is only cleaned by Apologize
-                case "fuming-phil":
+                case LemonLordIds.FumingPhil:
                     return Fraction(CountHand(game, player, LemonCardType.Attack), 5);
-                case "pam-the-planner":
+                case LemonLordIds.PamThePlanner:
                     return Fraction(CountHand(game, player, LemonCardType.Plan), 5);
-                case "hoarder":
+                case LemonLordIds.Hoarder:
                     return Fraction(player.Hand.Count, 10);
-                case "meltdown-master":
+                case LemonLordIds.MeltdownMaster:
                     return Fraction(player.Hand.Count(id =>
-                        game.State.LemonInstances[id].DefId == "tantrum"), 3);
-                case "cash-queen":
+                        game.State.LemonInstances[id].DefId == LemonCardIds.Tantrum), 3);
+                case LemonLordIds.CashQueen:
                     return Fraction(equipped.Count(def => def.Cost >= 6), 3);
-                case "pour-master":
+                case LemonLordIds.PourMaster:
                     return Fraction(equipped.Count(def => def.Name == "Spiked Lemonade"), 2);
-                case "pushover":
+                case LemonLordIds.Pushover:
                     return Fraction(equipped.Count(def => def.Name == "Pushy Salesman"), 4);
-                case "card-shark":
+                case LemonLordIds.CardShark:
                     return Fraction(equipped.Count(def => def.Icons.Contains("draw")), 2);
-                case "flow-master":
+                case LemonLordIds.FlowMaster:
                     return Fraction(equipped.Count(def => def.Timing == EffectTiming.PowerPour), 4);
-                case "no-bullies-allowed":
+                case LemonLordIds.NoBulliesAllowed:
                     return Fraction(equipped.Count(def => def.Category == "Defense"), 2);
-                case "profit-pusher":
+                case LemonLordIds.ProfitPusher:
                     return Fraction(equipped.Count(def => def.Icons.Contains("dollar")), 3);
-                case "roll-wrangler":
+                case LemonLordIds.RollWrangler:
                     return Fraction(equipped.Count(def => def.Category == "Roll Modification"), 3);
-                case "sales-engine":
+                case LemonLordIds.SalesEngine:
                     return Fraction(equipped.Count(def => def.Timing == EffectTiming.OnSale), 3);
-                case "swindling-sammy":
+                case LemonLordIds.SwindlingSammy:
                     return Fraction(equipped.Count(def => def.Icons.Contains("steal-card")), 2);
-                case "thieving-tommy":
+                case LemonLordIds.ThievingTommy:
                     return Fraction(equipped.Count(def => def.Icons.Contains("steal-dollar")), 2);
                 default:
                     return 0;
             }
         }
 
-        /// <summary>The most any single die face would pay this player.</summary>
         public static int BestSingleRollEarnings(Game game, PlayerState player)
         {
             int best = 0;

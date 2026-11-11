@@ -50,7 +50,7 @@ namespace LemonadeWars.Engine.Ai
             return rivalCount == 0 ? mine : mine - SoftMax(rivals, rivalCount, Weights.RivalTemperature);
         }
 
-        /// <summary>Absolute worth of one player's position; public so tests can probe terms.</summary>
+        /// <summary>Public so tests can probe terms.</summary>
         public double PlayerScore(Game game, PlayerState player, int viewerId, double horizon)
         {
             var features = PositionFeatures.Extract(game, player, viewerId, horizon);

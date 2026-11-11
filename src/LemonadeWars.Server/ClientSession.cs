@@ -152,12 +152,13 @@ public sealed class ClientSession
             await SendErrorAsync("Too many identity changes.");
             return;
         }
-        _identity = _players.Identify((string?)message["playerKey"], (string?)message["name"]);
-        if (_identity == null)
+        var identity = _players.Identify((string?)message["playerKey"], (string?)message["name"]);
+        if (identity == null)
         {
             await SendErrorAsync("Invalid player key.");
             return;
         }
+        _identity = identity;
         // A re-hello under a different key moves this connection's turn alerts to that player.
         _connections.Unregister(_connection);
         _connections.Register(_identity.PlayerId, _connection);
@@ -182,6 +183,7 @@ public sealed class ClientSession
             await SendErrorAsync("The server is full right now — try again later.");
             return;
         }
+        LeaveCurrentRoom();
         _room = _rooms.Create();
         _room.Join((string?)message["name"] ?? "", null, _identity?.PlayerId, _connection, out _);
     }
@@ -194,6 +196,11 @@ public sealed class ClientSession
             await SendErrorAsync("No room with that code.");
             return;
         }
+        if (found == _room && found.SeatIndexOf(_connection) >= 0)
+        {
+            await SendErrorAsync("You are already in that room.");
+            return;
+        }
         var seat = found.Join((string?)message["name"] ?? "", (string?)message["token"],
             _identity?.PlayerId, _connection, out string error);
         if (seat == null)
@@ -201,7 +208,19 @@ public sealed class ClientSession
             await SendErrorAsync(error);
             return;
         }
+        // Only once the new seat is taken: a refused join leaves you where you were.
+        if (found != _room)
+        {
+            LeaveCurrentRoom();
+        }
         _room = found;
+    }
+
+    /// <summary>A connection sits in one room; without this its old seat would stay shown as connected.</summary>
+    private void LeaveCurrentRoom()
+    {
+        _room?.Leave(_connection);
+        _room = null;
     }
 
     private static bool TryParseJson(string text, out JObject message)

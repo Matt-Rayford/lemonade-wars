@@ -67,7 +67,6 @@ namespace LemonadeWars.Engine.Ai
             return $"Buy {def.Name} (${game.BlackMarketPrice(purchase.PlayerId, def)}) onto {destination}{replacing}";
         }
 
-        /// <summary>What the play is aimed at, plus where a stolen or taken equip lands.</summary>
         private static string PlayDetail(Game game, PlayLemonCard play) =>
             PlayTarget(game, play) +
             EquipDestination(game, play.PlayerId, play.EquipStandInstanceId, play.EquipReplaceInstanceId);
@@ -78,7 +77,7 @@ namespace LemonadeWars.Engine.Ai
             if (play.TargetPlayerId is int lootedPlayerId && play.TargetEquippedInstanceId is int lootId)
             {
                 // Finders Keepers takes the card, That's Not Fair! only trashes it.
-                string verb = state.LemonInstances[play.CardInstanceId].DefId == "thats-not-fair"
+                string verb = state.LemonInstances[play.CardInstanceId].DefId == LemonCardIds.ThatsNotFair
                     ? "discard"
                     : "steal";
                 return $" -> {PlayerName(game, lootedPlayerId)}: {verb} {BlackMarketName(game, lootId)}";
@@ -165,7 +164,7 @@ namespace LemonadeWars.Engine.Ai
         {
             var retargeted = game.State.ResponseStack.FirstOrDefault(item => item.ItemId == retarget.StackItemId);
             string lootName = BlackMarketName(game, retarget.TargetEquippedInstanceId ?? 0);
-            string verb = retargeted?.LemonDefId == "thats-not-fair" ? "Discard" : "Steal";
+            string verb = retargeted?.LemonDefId == LemonCardIds.ThatsNotFair ? "Discard" : "Steal";
             return $"{verb} {lootName}" + EquipDestination(
                 game, retarget.PlayerId, retarget.EquipStandInstanceId, retarget.EquipReplaceInstanceId);
         }

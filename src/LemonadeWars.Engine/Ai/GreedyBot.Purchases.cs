@@ -11,8 +11,8 @@ namespace LemonadeWars.Engine.Ai
         /// an unclaimed First Dibs stand title tips the scales.
         /// </summary>
         private static double ScoreDraftStand(Game game, PlayerState me, InitialBuyStand draftStand) =>
-            (draftStand.StandTypeId == "classic" ? 60
-                : draftStand.StandTypeId == "bargain" ? 55 : 50)
+            (draftStand.StandTypeId == StandTypeIds.Classic ? 60
+                : draftStand.StandTypeId == StandTypeIds.Bargain ? 55 : 50)
                 + StandTitleBonus(game, me, draftStand.StandTypeId);
 
         private static double ScoreBraggingRights(Game game, PlayerState me, bool isLastLap)
@@ -32,8 +32,8 @@ namespace LemonadeWars.Engine.Ai
             {
                 return 8;
             }
-            double typeValue = buyStand.StandTypeId == "gourmet" ? 46
-                : buyStand.StandTypeId == "classic" ? 48 : 44;
+            double typeValue = buyStand.StandTypeId == StandTypeIds.Gourmet ? 46
+                : buyStand.StandTypeId == StandTypeIds.Classic ? 48 : 44;
             return typeValue - me.Stands.Count * 4 + StandTitleBonus(game, me, buyStand.StandTypeId)
                 - (isLastLap ? 10 : 0);
         }
@@ -78,7 +78,7 @@ namespace LemonadeWars.Engine.Ai
                     // hold Pour Master (end with 2+ Spiked Lemonades) and collect anyway.
                     if (def.Number is int pourNumber && game.PourNumbersOf(me).Contains(pourNumber))
                     {
-                        return me.LemonLordKept.Contains("pour-master") ? 5 : -25;
+                        return me.LemonLordKept.Contains(LemonLordIds.PourMaster) ? 5 : -25;
                     }
                     return 7;
                 }
@@ -99,13 +99,13 @@ namespace LemonadeWars.Engine.Ai
             bool feedsHoarder = false;
             foreach (string lordId in UnmetLords(game, me))
             {
-                if (lordId == "hoarder")
+                if (lordId == LemonLordIds.Hoarder)
                 {
                     draw = 32; // needs 10 cards in hand — keep drawing
                     feedsHoarder = true;
                 }
-                else if (lordId == "fuming-phil" || lordId == "pam-the-planner" ||
-                         lordId == "meltdown-master")
+                else if (lordId == LemonLordIds.FumingPhil || lordId == LemonLordIds.PamThePlanner ||
+                         lordId == LemonLordIds.MeltdownMaster)
                 {
                     draw += 5; // fishing for the counted card type
                 }

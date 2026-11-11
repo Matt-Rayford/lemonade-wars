@@ -1,7 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
@@ -15,15 +16,12 @@ namespace LemonadeWars.Engine.Ai
     {
         private static readonly HashSet<string> ReactionDefIds = new HashSet<string>
         {
-            "tantrum", "tag-youre-it", "im-rubber-youre-glue",
+            LemonCardIds.Tantrum, LemonCardIds.TagYoureIt, LemonCardIds.ImRubberYoureGlue,
         };
         private const int TimeoutHandLimit = 10;
         private const int MaxCountedReactions = 2;
 
-        /// <summary>
-        /// Feature order: <see cref="Extract"/> fills its row in it and
-        /// <see cref="EvaluationWeights.ToVector"/> follows it.
-        /// </summary>
+        /// <summary>Feature order, shared by <see cref="Extract"/> and <see cref="EvaluationWeights.ToVector"/>.</summary>
         public static readonly string[] Names =
         {
             nameof(EvaluationWeights.VictoryPoint),
@@ -91,10 +89,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Kept lords are secret: the viewer scores their own picks; every rival is
-        /// scored on the average of what they were dealt (each dealt title kept with
-        /// probability kept/dealt) — the same guess a human can make from the setup.
-        /// Progress is squared so finishing a lord beats dabbling in two.
+        /// Kept lords are secret: a rival is scored on the average of what they were dealt (each kept
+        /// with probability kept/dealt). Progress is squared so finishing a lord beats dabbling in two.
         /// </summary>
         private static (double Met, double Progress) Lords(Game game, PlayerState player, int viewerId)
         {
@@ -157,18 +153,18 @@ namespace LemonadeWars.Engine.Ai
                 }
             }
             // A Timeout draw forces discards above the limit; a hoarder lord changes the sign.
-            int overflow = player.Hand.Count > TimeoutHandLimit - 1 && !player.LemonLordKept.Contains("hoarder")
+            int overflow = player.Hand.Count > TimeoutHandLimit - 1 && !player.LemonLordKept.Contains(LemonLordIds.Hoarder)
                 ? player.Hand.Count - (TimeoutHandLimit - 1)
                 : 0;
             return (Math.Min(reactions, MaxCountedReactions), overflow);
         }
 
         private static bool WantsTantrums(Game game, PlayerState player) =>
-            player.LemonLordKept.Contains("expert-whiner") ||
-            (game.State.FirstDibsRow.Contains("cranky-pants") && player.TantrumPile.Count < 3);
+            player.LemonLordKept.Contains(LemonLordIds.ExpertWhiner) ||
+            (game.State.FirstDibsRow.Contains(FirstDibsIds.CrankyPants) && player.TantrumPile.Count < 3);
 
         private static bool HoldsUnwantedWhiniestBaby(GameState state, PlayerState player) =>
-            state.WhiniestBabyHolder == player.PlayerId && !player.LemonLordKept.Contains("expert-whiner");
+            state.WhiniestBabyHolder == player.PlayerId && !player.LemonLordKept.Contains(LemonLordIds.ExpertWhiner);
 
         /// <summary>0 for the active player, nearly 1 for the one who just went.</summary>
         private static double ShareOfRoundUntilNextTurn(GameState state, PlayerState player)

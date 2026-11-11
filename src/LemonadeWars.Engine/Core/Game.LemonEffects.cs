@@ -6,11 +6,8 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Playing a plan or attack Lemon card: the submit path, the per-card resolution
-    /// dispatch, attack retargeting, and the equip/theft helpers the cards share.
-    /// Submit-time validation is in Game.LemonValidation.cs; the card handlers are in
-    /// Game.LemonPlans.cs and Game.LemonAttacks.cs. Instants are window responses
-    /// (Game.ResponseCards.cs).
+    /// Playing a plan or attack Lemon card: submit, per-card dispatch, attack retargeting, and
+    /// the equip/theft helpers the cards share. Instants are window responses, not plays.
     /// </summary>
     public sealed partial class Game
     {
@@ -48,6 +45,10 @@ namespace LemonadeWars.Engine.Core
             }
 
             ValidatePlayParams(def, action, player);
+            // Resolved with the other checks: a bad target must fail before anything is spent.
+            int? attackTarget = def.Type == LemonCardType.Attack
+                ? ResolveDeclaredTarget(def.Id, action)
+                : (int?)null;
 
             if (freePlay == null)
             {
@@ -59,21 +60,13 @@ namespace LemonadeWars.Engine.Core
             }
             player.Hand.Remove(action.CardInstanceId);
 
-            int? attackTarget = def.Type == LemonCardType.Attack
-                ? ResolveDeclaredTarget(def.Id, action)
-                : (int?)null;
-
             PushStackItem(
                 LemonPlayStackItem(player, action, def, isFreePlay: freePlay != null, attackTarget),
                 events);
             Pump(events);
         }
 
-        /// <summary>
-        /// The free play this player is answering, if any: a free-play offer, Reverse
-        /// Engineer's forced play, or Bouncer's counter-attack. Free plays skip the phase
-        /// and action checks.
-        /// </summary>
+        /// <summary>A free play (an offer, Reverse Engineer's forced play, Bouncer's counter) skips the phase and action checks.</summary>
         private PendingDecision? FreePlayDecisionFor(int playerId) =>
             State.PendingDecisions.FirstOrDefault(d =>
                 d.PlayerId == playerId &&
@@ -109,7 +102,7 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Attacks name a victim; That's Not Fair! derives it from the chosen card.</summary>
         private int ResolveDeclaredTarget(string defId, PlayLemonCard action)
         {
-            if (defId == "thats-not-fair")
+            if (defId == LemonCardIds.ThatsNotFair)
             {
                 return FindEquipOwner(action.TargetEquippedInstanceId!.Value).PlayerId;
             }
@@ -127,41 +120,41 @@ namespace LemonadeWars.Engine.Core
         // ------------------------------------------------------- resolution
 
         /// <summary>
-        /// Resolve a plan/attack. Returns false when paused for an AttackRetarget decision
-        /// (attack was Tagged/reflected and its specifics went stale — the attacker re-picks).
+        /// Returns false when paused for an AttackRetarget decision: the attack was
+        /// Tagged/reflected, its specifics went stale, and the attacker re-picks.
         /// </summary>
         private bool ResolveLemonPlay(StackItem item, List<GameEvent> events)
         {
             var owner = Player(item.OwnerId);
             switch (item.LemonDefId)
             {
-                case "apologize": return ResolveApologize(item, owner);
-                case "automation":
+                case LemonCardIds.Apologize: return ResolveApologize(item, owner);
+                case LemonCardIds.Automation:
                     State.ActionsRemaining += 2;
                     return true;
-                case "blame-changer": return ResolveBlameChanger(item, owner, events);
-                case "connections": return ResolveConnections(item, owner, events);
-                case "doorbuster-sale": return ResolveDoorbusterSale(item, owner, events);
-                case "finders-keepers": return ResolveFindersKeepers(item, owner, events);
-                case "hoa-violation":
+                case LemonCardIds.BlameChanger: return ResolveBlameChanger(item, owner, events);
+                case LemonCardIds.Connections: return ResolveConnections(item, owner, events);
+                case LemonCardIds.DoorbusterSale: return ResolveDoorbusterSale(item, owner, events);
+                case LemonCardIds.FindersKeepers: return ResolveFindersKeepers(item, owner, events);
+                case LemonCardIds.HoaViolation:
                     StealMoney(AttackVictim(item), owner, 5, "hoa violation", events);
                     return true;
-                case "market-forecasting":
+                case LemonCardIds.MarketForecasting:
                     QueueDraws(owner.PlayerId, 3);
                     return true;
-                case "night-shifts":
+                case LemonCardIds.NightShifts:
                     OpenRollWindow(RollPurpose.NightShifts, owner.PlayerId, events);
                     return true;
-                case "rebrand": return ResolveRebrand(item, owner, events);
-                case "reduce-and-reuse": return ResolveReduceAndReuse(item, owner, events);
-                case "reverse-engineer": return ResolveReverseEngineer(item, owner, events);
-                case "rummage-sale": return ResolveRummageSale(item, owner, events);
-                case "sharing-is-caring": return ResolveSharingIsCaring(item, owner, events);
-                case "smear-campaign": return ResolveSmearCampaign(item, owner, events);
-                case "steal-the-cashbox": return ResolveStealTheCashbox(item, owner, events);
-                case "taxes": return ResolveTaxes(item, owner, events);
-                case "thats-not-fair": return ResolveThatsNotFair(item, events);
-                case "trash-pandas": return ResolveTrashPandas(item, owner, events);
+                case LemonCardIds.Rebrand: return ResolveRebrand(item, owner, events);
+                case LemonCardIds.ReduceAndReuse: return ResolveReduceAndReuse(item, owner, events);
+                case LemonCardIds.ReverseEngineer: return ResolveReverseEngineer(item, owner, events);
+                case LemonCardIds.RummageSale: return ResolveRummageSale(item, owner, events);
+                case LemonCardIds.SharingIsCaring: return ResolveSharingIsCaring(item, owner, events);
+                case LemonCardIds.SmearCampaign: return ResolveSmearCampaign(item, owner, events);
+                case LemonCardIds.StealTheCashbox: return ResolveStealTheCashbox(item, owner, events);
+                case LemonCardIds.Taxes: return ResolveTaxes(item, owner, events);
+                case LemonCardIds.ThatsNotFair: return ResolveThatsNotFair(item, events);
+                case LemonCardIds.TrashPandas: return ResolveTrashPandas(item, owner, events);
                 default:
                     throw new InvalidActionException($"No resolution handler for '{item.LemonDefId}'.");
             }
@@ -179,10 +172,8 @@ namespace LemonadeWars.Engine.Core
         // ------------------------------------------------ attack retargeting
 
         /// <summary>
-        /// The attack's specifics are stale (it was Tagged/reflected). If the new victim has
-        /// nothing valid, the attack fizzles; otherwise the attacker re-picks (designer ruling).
-        /// Returns false while the re-pick is pending: the item stays on the stack until
-        /// SubmitRetarget.
+        /// A Tagged/reflected attack fizzles if its new victim has nothing valid; otherwise the attacker
+        /// re-picks (designer ruling) and this returns false, leaving the item stacked until SubmitRetarget.
         /// </summary>
         private bool RequestRetargetOrFizzle(StackItem item, PlayerState victim, List<GameEvent> events)
         {
@@ -192,7 +183,7 @@ namespace LemonadeWars.Engine.Core
             }
             // Finders Keepers also needs somewhere to PUT a stolen card — with no valid
             // destination for any of the victim's cards, the retarget would deadlock.
-            if (item.LemonDefId == "finders-keepers")
+            if (item.LemonDefId == LemonCardIds.FindersKeepers)
             {
                 var owner = Player(item.OwnerId);
                 bool anyDestination = AllEquipped(victim)
@@ -227,7 +218,7 @@ namespace LemonadeWars.Engine.Core
             item.EquipStandInstanceId = action.EquipStandInstanceId;
             item.EquipReplaceInstanceId = action.EquipReplaceInstanceId;
 
-            if (item.LemonDefId == "finders-keepers")
+            if (item.LemonDefId == LemonCardIds.FindersKeepers)
             {
                 ValidateEquipDestination(Player(item.OwnerId), EquippedDef(equippedId),
                     action.EquipStandInstanceId, action.EquipReplaceInstanceId);
@@ -273,9 +264,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// Equip a Black Market instance on the player's board, discarding the replaced
-        /// card when the destination is full. False, with nothing changed, when the
-        /// destination is gone or is full with no valid card to replace.
+        /// Discards the replaced card when the destination is full. False, with nothing changed,
+        /// when the destination is gone or is full with no valid card to replace.
         /// </summary>
         private bool TryEquip(PlayerState player, int bmInstanceId, int? standInstanceId, int? replaceId,
             List<GameEvent> events, int pricePaid = 0)
@@ -325,7 +315,6 @@ namespace LemonadeWars.Engine.Core
             return true;
         }
 
-        /// <summary>Equips the card where the play said, or discards it if that destination went stale.</summary>
         private void EquipOrDiscard(PlayerState player, int bmInstanceId, StackItem item, List<GameEvent> events)
         {
             if (!TryEquip(player, bmInstanceId, item.EquipStandInstanceId, item.EquipReplaceInstanceId, events))
@@ -334,7 +323,7 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>Transfer money capped by what the victim has; opens the Profit Share window.</summary>
+        /// <summary>An attack's steal, capped by what the victim has; opens the Profit Share window.</summary>
         private void StealMoney(PlayerState from, PlayerState to, int amount, string reason, List<GameEvent> events)
         {
             int actual = Math.Min(amount, from.Money);

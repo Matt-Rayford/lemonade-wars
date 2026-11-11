@@ -1,5 +1,6 @@
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Unity
 {
@@ -113,12 +114,12 @@ namespace LemonadeWars.Unity
                 return $"{owner} {plays} {card} on {victim}";
             }
             string answered = StackAnsweredPhrase(top);
-            if (top.DefId == "tag-youre-it" && top.RedirectTargetId is int redirect)
+            if (top.DefId == LemonCardIds.TagYoureIt && top.RedirectTargetId is int redirect)
             {
                 string who = redirect == View.ViewerId ? "you" : NameOf(redirect);
                 return $"{owner} {plays} {card} — {answered ?? "the attack"} goes to {who}";
             }
-            if (top.DefId == "im-rubber-youre-glue" && answered != null)
+            if (top.DefId == LemonCardIds.ImRubberYoureGlue && answered != null)
             {
                 return $"{owner} {plays} {card} — {answered} is reflected back";
             }

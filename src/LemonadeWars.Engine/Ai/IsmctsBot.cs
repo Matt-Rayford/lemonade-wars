@@ -8,13 +8,11 @@ using Newtonsoft.Json;
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
-    /// Single-observer Information Set MCTS (Cowling, Powley &amp; Whitehouse 2012):
-    /// ONE search tree grown from the searcher's seat across many sampled worlds. Each
-    /// iteration determinizes the hidden information afresh, descends using only the
-    /// actions legal in that world (UCB1 with availability counts, the subset-armed
-    /// bandit correction), expands one untried action and evaluates with a greedy
-    /// rollout. Nodes carry a reward per PLAYER and selection maximizes the acting
-    /// player's own, so simulated opponents play to win rather than to spite.
+    /// Single-observer Information Set MCTS (Cowling, Powley &amp; Whitehouse 2012): ONE
+    /// tree grown from the searcher's seat across many sampled worlds, descending by UCB1
+    /// with availability counts over the actions legal in each world. Nodes carry a reward
+    /// per PLAYER and selection maximizes the actor's own, so simulated opponents play to
+    /// win rather than to spite.
     /// </summary>
     public sealed class IsmctsBot : IBot, IHeavyBot
     {
@@ -45,15 +43,9 @@ namespace LemonadeWars.Engine.Ai
         private readonly int _rolloutDepth;
         private readonly PositionEvaluator? _evaluator;
 
-        /// <param name="rolloutDepth">
-        /// Actions per rollout before cutting to the static evaluation. Full-game
-        /// rollouts (the default) give the cleanest signal but far fewer iterations
-        /// fit a budget; truncating trades that signal for a much bigger tree.
-        /// </param>
-        /// <param name="evaluator">
-        /// When set, truncated games are rewarded by this evaluator (squashed to [0,1])
-        /// instead of the built-in standing formula.
-        /// </param>
+        /// <param name="rolloutDepth">Actions per rollout before cutting to the static evaluation:
+        /// truncating trades the clean full-game signal for a much bigger tree.</param>
+        /// <param name="evaluator">Rewards truncated games (squashed to [0,1]) instead of the standing formula.</param>
         public IsmctsBot(ulong seed, int budgetMs = 300, int maxIterations = int.MaxValue,
             int rolloutDepth = int.MaxValue, PositionEvaluator? evaluator = null)
         {
@@ -183,10 +175,7 @@ namespace LemonadeWars.Engine.Ai
             Backpropagate(path, Rewards(world, players, steps));
         }
 
-        /// <summary>
-        /// This world's legal actions that already have a child under <paramref name="node"/>,
-        /// in legal-move order, plus the first one that does not.
-        /// </summary>
+        /// <summary>In legal-move order; <paramref name="firstUntried"/> is the first legal action with no child yet.</summary>
         private static List<(Node Child, GameAction Action)> TriedActions(
             Node node, List<GameAction> legal, out GameAction? firstUntried)
         {
@@ -276,9 +265,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Finished games: per-player win share, impatience-discounted, plus a sliver of
-        /// standing. Truncated games: standing alone, a heuristic proxy for win
-        /// probability squashed to [0,1] against the strongest rival.
+        /// Finished games: win share, impatience-discounted, plus a sliver of standing.
+        /// Truncated games: standing alone, squashed to [0,1] against the strongest rival.
         /// </summary>
         private static double[] StandingRewards(Game world, int players, int steps)
         {

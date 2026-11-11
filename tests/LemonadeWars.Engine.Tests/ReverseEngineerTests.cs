@@ -2,6 +2,7 @@ using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
 using static LemonadeWars.Engine.Tests.BotScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {

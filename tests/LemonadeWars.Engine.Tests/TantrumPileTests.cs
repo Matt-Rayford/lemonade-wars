@@ -1,7 +1,8 @@
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -11,7 +12,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ApologizeCannotBeTantrummedAndClearsATantrum()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int player = ActivePlayer(game);
             int armedRival = SeatAfterActive(game, 1);
@@ -35,7 +36,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ApologizeAutoPicksAndLapsesTheBabyTitle()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum");
             int player = ActivePlayer(game);
             // The only Tantrum in any pile, and the Baby title with it.
@@ -56,7 +57,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void BabyTieGoesToMostRecentTantrumPlayer()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int thrower = SeatAfterActive(game, 1);
@@ -68,7 +69,7 @@ namespace LemonadeWars.Engine.Tests
             game.State.Players[attacker].Money = 20;
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = thrower });
             game.Apply(new RespondToWindow { PlayerId = thrower, CardInstanceId = tantrum });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
             Assert.Equal(thrower, game.State.WhiniestBabyHolder);
             Assert.True(game.State.Players[thrower].LastTantrumPlaySeq > 0);
 
@@ -76,7 +77,7 @@ namespace LemonadeWars.Engine.Tests
             PutTantrumInPile(game, attacker);
             int blame = GiveCard(game, attacker, "blame-changer");
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = blame, TargetPlayerId = blamed });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // Tied 1-1: the ruling gives the title to the most recent Tantrum PLAYER, not the latest gain.
             Assert.Equal(1, game.State.Players[thrower].TantrumPile.Count);
@@ -87,7 +88,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void BlameChangerHandsOverATantrumAndTheBaby()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
             int blamer = ActivePlayer(game);
             int blamed = SeatAfterActive(game, 1);
@@ -106,6 +107,23 @@ namespace LemonadeWars.Engine.Tests
             Assert.Empty(game.State.Players[blamer].TantrumPile);
             Assert.Single(game.State.Players[blamed].TantrumPile);
             Assert.Equal(blamed, game.State.WhiniestBabyHolder);
+        }
+
+        [Fact]
+        public void AnAttackWithoutAVictimIsRefusedBeforeAnythingIsSpent()
+        {
+            var game = ReadyToPlay(seed: 7);
+            int blamer = ActivePlayer(game);
+            PutTantrumInPile(game, blamer);
+            int card = GiveCard(game, blamer, "blame-changer");
+            int actionsBefore = game.State.ActionsRemaining;
+
+            Assert.Throws<InvalidActionException>(() =>
+                game.Apply(new PlayLemonCard { PlayerId = blamer, CardInstanceId = card }));
+
+            Assert.Contains(card, game.State.Players[blamer].Hand);
+            Assert.Equal(actionsBefore, game.State.ActionsRemaining);
+            Assert.Empty(game.State.ResponseStack);
         }
     }
 }

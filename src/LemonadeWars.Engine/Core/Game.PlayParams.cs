@@ -5,55 +5,51 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Per-card play parameterizations and the board-query/combination helpers behind
-    /// them. Shared by move enumeration (Game.LegalMoves.cs), forced-play validation,
-    /// and attack retargeting. The order plays are yielded in is part of the contract:
-    /// bots break ties by it and the client lists options in it.
-    /// Combinatorial choices (multi-card discards, Rummage Sale subsets) are capped at a
-    /// bounded sample, trading exhaustive coverage for move-list size.
+    /// Per-card play parameterizations, shared by move enumeration, forced-play validation and
+    /// attack retargeting. The order plays are yielded in is a contract: bots break ties by it
+    /// and the client lists options in it. Combinatorial choices (multi-card discards, Rummage
+    /// Sale subsets) are capped at a bounded sample.
     /// </summary>
     public sealed partial class Game
     {
         private const int RummageSaleMaxCards = 3;
         private const int RummageSaleMoveCap = 40;
 
-        /// <summary>Combination counts up to this are enumerated in full; larger ones are sampled.</summary>
         private const int ExhaustiveComboLimit = 30;
         private const int SampledComboLimit = 10;
 
-        /// <summary>Every valid parameterization for playing a plan/attack from hand.</summary>
         private IEnumerable<PlayLemonCard> PlayParamCombos(PlayerState player, int cardId, LemonCardDef def)
         {
             switch (def.Id)
             {
-                case "automation":
-                case "market-forecasting":
-                case "night-shifts":
+                case LemonCardIds.Automation:
+                case LemonCardIds.MarketForecasting:
+                case LemonCardIds.NightShifts:
                     return new[] { NewPlay(player, cardId) };
 
-                case "apologize": return ApologizePlays(player, cardId);
-                case "blame-changer": return BlameChangerPlays(player, cardId);
-                case "connections": return ConnectionsPlays(player, cardId);
-                case "doorbuster-sale": return DoorbusterSalePlays(player, cardId);
-                case "finders-keepers": return FindersKeepersPlays(player, cardId);
+                case LemonCardIds.Apologize: return ApologizePlays(player, cardId);
+                case LemonCardIds.BlameChanger: return BlameChangerPlays(player, cardId);
+                case LemonCardIds.Connections: return ConnectionsPlays(player, cardId);
+                case LemonCardIds.DoorbusterSale: return DoorbusterSalePlays(player, cardId);
+                case LemonCardIds.FindersKeepers: return FindersKeepersPlays(player, cardId);
 
-                case "hoa-violation":
-                case "sharing-is-caring":
-                case "smear-campaign":
-                case "taxes":
-                case "trash-pandas":
+                case LemonCardIds.HoaViolation:
+                case LemonCardIds.SharingIsCaring:
+                case LemonCardIds.SmearCampaign:
+                case LemonCardIds.Taxes:
+                case LemonCardIds.TrashPandas:
                     return PlaysTargetingEach(OpponentsOf(player), player, cardId);
 
-                case "rebrand": return RebrandPlays(player, cardId);
-                case "reduce-and-reuse": return ReduceAndReusePlays(player, cardId);
-                case "reverse-engineer": return ReverseEngineerPlays(player, cardId);
-                case "rummage-sale": return RummageSalePlays(player, cardId);
+                case LemonCardIds.Rebrand: return RebrandPlays(player, cardId);
+                case LemonCardIds.ReduceAndReuse: return ReduceAndReusePlays(player, cardId);
+                case LemonCardIds.ReverseEngineer: return ReverseEngineerPlays(player, cardId);
+                case LemonCardIds.RummageSale: return RummageSalePlays(player, cardId);
 
-                case "steal-the-cashbox":
+                case LemonCardIds.StealTheCashbox:
                     return PlaysTargetingEach(
                         OpponentsOf(player).Where(victim => victim.Turf.TrapInstanceId == null), player, cardId);
 
-                case "thats-not-fair": return ThatsNotFairPlays(player, cardId);
+                case LemonCardIds.ThatsNotFair: return ThatsNotFairPlays(player, cardId);
 
                 default:
                     return Enumerable.Empty<PlayLemonCard>();
@@ -242,10 +238,7 @@ namespace LemonadeWars.Engine.Core
         private IEnumerable<int> AllEquipped(PlayerState player) =>
             player.Turf.Equipped.Concat(player.Stands.SelectMany(s => s.Equipped));
 
-        /// <summary>
-        /// Valid equip destinations for a Black Market def on this player's board:
-        /// (standInstanceId, replaceInstanceId) pairs; (null, x) targets the turf.
-        /// </summary>
+        /// <summary>A null StandId targets the turf.</summary>
         private IEnumerable<(int? StandId, int? ReplaceId)> DestinationsFor(PlayerState player, BlackMarketCardDef def)
         {
             if (def.Target != EquipTarget.Stand)
@@ -286,10 +279,7 @@ namespace LemonadeWars.Engine.Core
         private bool IsStandFull(StandInstance stand) =>
             stand.Equipped.Count >= Db.StandType(stand.StandTypeId).UpgradeSlots;
 
-        /// <summary>
-        /// Combinations of <paramref name="comboSize"/> cards from a zone. Exhaustive when
-        /// small; otherwise a deterministic sliding-window sample so the move list stays bounded.
-        /// </summary>
+        /// <summary>Exhaustive when small; otherwise a deterministic sliding-window sample, so the move list stays bounded.</summary>
         private static List<List<int>> CardCombos(IReadOnlyList<int> cards, int comboSize)
         {
             var combos = new List<List<int>>();
@@ -343,12 +333,11 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// Plans and attacks can be recovered and played at once — except another
-        /// Reverse Engineer: two copies recovering each other is a forced-play chain
-        /// that never ends.
+        /// Plans and attacks, except another Reverse Engineer: two copies recovering each other
+        /// is a forced-play chain that never ends.
         /// </summary>
         private static bool IsReverseEngineerable(LemonCardDef def) =>
             (def.Type == LemonCardType.Plan || def.Type == LemonCardType.Attack) &&
-            def.Id != "reverse-engineer";
+            def.Id != LemonCardIds.ReverseEngineer;
     }
 }

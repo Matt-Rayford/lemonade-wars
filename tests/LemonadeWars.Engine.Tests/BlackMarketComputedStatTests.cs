@@ -1,7 +1,8 @@
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -11,8 +12,8 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void PushySalesmanAddsItsPrintedNumber()
         {
-            var game = ReadyToPlay();
-            var player = game.State.Players[Active(game)];
+            var game = ReadyToPlay(seed: 11);
+            var player = game.State.Players[ActivePlayer(game)];
             var bargainStand = player.Stands[0]; // sells on 1-3
             RigEquip(game, player.PlayerId, "pushy-salesman-6", bargainStand.InstanceId);
 
@@ -22,9 +23,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void SpikedLemonadeAddsPourNumberAndInterestPaysPerNumber()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             player.Turf.PowerPourNumber = 2;
             RigEquip(game, activeId, "spiked-lemonade-5");
@@ -42,8 +43,8 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void LeftyAndRightyBoostNeighborStands()
         {
-            var game = ReadyToPlay();
-            var player = game.State.Players[Active(game)];
+            var game = ReadyToPlay(seed: 11);
+            var player = game.State.Players[ActivePlayer(game)];
             var left = player.Stands[0];
             var right = player.Stands[1];
             RigEquip(game, player.PlayerId, "lefty-loosey", right.InstanceId);  // boosts stand to its left
@@ -56,8 +57,8 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void StandRowInsertPositionIsRespected()
         {
-            var game = ReadyToPlay();
-            int activeId = Active(game);
+            var game = ReadyToPlay(seed: 11);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             player.Money = 50;
             var originalFirst = player.Stands[0].InstanceId;

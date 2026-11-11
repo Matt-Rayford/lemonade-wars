@@ -1,7 +1,8 @@
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -11,7 +12,7 @@ namespace LemonadeWars.Engine.Tests
         public void PeddlinPeteDiscountsDuringTheSetupDraft()
         {
             var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal" }, 4242);
-            GameFlowSetup.KeepFirstTwoLemonLords(game);
+            KeepFirstTwoLemonLords(game);
             Assert.Equal(GameStage.InitialBuys, game.State.Stage);
 
             int buyer = game.State.InitialBuyQueue[0];
@@ -26,21 +27,21 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ShoppingSpreeAndPeddlinPeteDiscountPurchases()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int next = Seat(game, 1);
+            int next = SeatAfterActive(game, 1);
             RigEquip(game, next, "shopping-spree");
             RigEquip(game, next, "peddlin-pete");
 
-            GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = Active(game) });
-            Assert.Equal(next, Active(game));
+            ApplyAndPass(game, new EndTurn { PlayerId = ActivePlayer(game) });
+            Assert.Equal(next, ActivePlayer(game));
             Assert.Equal(1, game.State.BmOnlyActionsRemaining);
 
             var player = game.State.Players[next];
             player.Money = 50;
             // Burn both normal actions first: the buy must still work via Shopping Spree.
-            GameFlowTests.ApplyAndPass(game, new DrawLemonCard { PlayerId = next });
-            GameFlowTests.ApplyAndPass(game, new DrawLemonCard { PlayerId = next });
+            ApplyAndPass(game, new DrawLemonCard { PlayerId = next });
+            ApplyAndPass(game, new DrawLemonCard { PlayerId = next });
 
             int marketCardId = game.State.Market[0];
             var def = TestData.Db.BlackMarket(game.State.BlackMarketInstances[marketCardId].DefId);
@@ -49,7 +50,7 @@ namespace LemonadeWars.Engine.Tests
             {
                 buy.TargetStandInstanceId = player.Stands[0].InstanceId;
             }
-            GameFlowTests.ApplyAndPass(game, buy);
+            ApplyAndPass(game, buy);
 
             Assert.Equal(50 - (def.Cost - 1), player.Money); // Pete's $1 discount
             Assert.Equal(0, game.State.BmOnlyActionsRemaining);

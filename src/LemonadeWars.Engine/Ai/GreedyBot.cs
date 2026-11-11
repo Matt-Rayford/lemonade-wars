@@ -36,10 +36,7 @@ namespace LemonadeWars.Engine.Ai
             return best;
         }
 
-        /// <summary>
-        /// Every legal move, best-first by the greedy score. Stable: ties keep the
-        /// engine's enumeration order.
-        /// </summary>
+        /// <summary>Best-first by the greedy score; stable, so ties keep the engine's enumeration order.</summary>
         public List<GameAction> Ranked(Game game, int playerId)
         {
             var moves = game.LegalMovesFor(playerId);
@@ -111,7 +108,7 @@ namespace LemonadeWars.Engine.Ai
             switch (def.Type)
             {
                 case LemonCardType.Instant:
-                    value = def.Id == "tantrum" ? 8 : 6;
+                    value = def.Id == LemonCardIds.Tantrum ? 8 : 6;
                     break;
                 case LemonCardType.Attack:
                     value = 5;
@@ -123,19 +120,19 @@ namespace LemonadeWars.Engine.Ai
             // Cards that count toward an unmet hand-composition lord are keepers.
             foreach (string lordId in UnmetLords(game, me))
             {
-                if (lordId == "fuming-phil" && def.Type == LemonCardType.Attack)
+                if (lordId == LemonLordIds.FumingPhil && def.Type == LemonCardType.Attack)
                 {
                     value += 5;
                 }
-                else if (lordId == "pam-the-planner" && def.Type == LemonCardType.Plan)
+                else if (lordId == LemonLordIds.PamThePlanner && def.Type == LemonCardType.Plan)
                 {
                     value += 5;
                 }
-                else if (lordId == "meltdown-master" && def.Id == "tantrum")
+                else if (lordId == LemonLordIds.MeltdownMaster && def.Id == LemonCardIds.Tantrum)
                 {
                     value += 6;
                 }
-                else if (lordId == "hoarder")
+                else if (lordId == LemonLordIds.Hoarder)
                 {
                     value += 2;
                 }

@@ -5,68 +5,65 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Submit-time validation of a plan/attack play's parameters, one validator per
-    /// card. Runs before the card leaves the hand, so a throw here changes nothing.
-    /// </summary>
+    /// <summary>Runs before the card leaves the hand, so a throw here changes nothing.</summary>
     public sealed partial class Game
     {
         private void ValidatePlayParams(LemonCardDef def, PlayLemonCard action, PlayerState player)
         {
             switch (def.Id)
             {
-                case "apologize":
-                case "blame-changer":
+                case LemonCardIds.Apologize:
+                case LemonCardIds.BlameChanger:
                     ValidateTantrumToMove(def, action, player);
                     break;
 
-                case "connections":
+                case LemonCardIds.Connections:
                     ValidateConnections(action, player);
                     break;
 
-                case "doorbuster-sale":
+                case LemonCardIds.DoorbusterSale:
                     RequireOwnStand(def, action, player);
                     break;
 
-                case "rebrand":
+                case LemonCardIds.Rebrand:
                     ValidateRebrand(action, RequireOwnStand(def, action, player));
                     break;
 
-                case "finders-keepers":
+                case LemonCardIds.FindersKeepers:
                     ValidateFindersKeepers(action, player);
                     break;
 
-                case "reduce-and-reuse":
+                case LemonCardIds.ReduceAndReuse:
                     ValidateReduceAndReuse(action, player);
                     break;
 
-                case "reverse-engineer":
+                case LemonCardIds.ReverseEngineer:
                     ValidateReverseEngineer(action);
                     break;
 
-                case "rummage-sale":
+                case LemonCardIds.RummageSale:
                     ValidateRummageSale(action, player);
                     break;
 
-                case "steal-the-cashbox":
+                case LemonCardIds.StealTheCashbox:
                     ValidateStealTheCashbox(action, player);
                     break;
 
-                case "thats-not-fair":
+                case LemonCardIds.ThatsNotFair:
                     ValidateThatsNotFair(action, player);
                     break;
 
-                case "hoa-violation":
-                case "sharing-is-caring":
-                case "smear-campaign":
-                case "taxes":
-                case "trash-pandas":
+                case LemonCardIds.HoaViolation:
+                case LemonCardIds.SharingIsCaring:
+                case LemonCardIds.SmearCampaign:
+                case LemonCardIds.Taxes:
+                case LemonCardIds.TrashPandas:
                     RequireOtherPlayer(action.TargetPlayerId, player.PlayerId);
                     break;
 
-                case "automation":
-                case "market-forecasting":
-                case "night-shifts":
+                case LemonCardIds.Automation:
+                case LemonCardIds.MarketForecasting:
+                case LemonCardIds.NightShifts:
                     break;
 
                 default:
@@ -220,10 +217,6 @@ namespace LemonadeWars.Engine.Core
             return State.Players[target];
         }
 
-        /// <summary>
-        /// Throws unless the Black Market card can be equipped on this player's board: on
-        /// the named Stand (or the Turf when none is named), with a card to replace when full.
-        /// </summary>
         private void ValidateEquipDestination(
             PlayerState player, BlackMarketCardDef def, int? standInstanceId, int? replaceId)
         {

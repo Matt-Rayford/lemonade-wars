@@ -4,9 +4,8 @@ using System.Collections.Generic;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Deterministic, serializable RNG (splitmix64). Given the same seed and the same
-    /// sequence of calls, every platform produces identical results — the foundation for
-    /// replays, network sync, and reproducible tests. Never use System.Random in the engine.
+    /// Serializable splitmix64: the same seed and call sequence give identical results on every
+    /// platform, which replays, network sync and tests rely on. Never use System.Random in the engine.
     /// </summary>
     public sealed class DeterministicRng
     {
@@ -27,7 +26,6 @@ namespace LemonadeWars.Engine.Core
             return z ^ (z >> 31);
         }
 
-        /// <summary>Uniform integer in [0, exclusiveMax).</summary>
         public int Next(int exclusiveMax)
         {
             if (exclusiveMax <= 0)
@@ -45,10 +43,8 @@ namespace LemonadeWars.Engine.Core
             return (int)(value % bound);
         }
 
-        /// <summary>Die roll: uniform in [1, sides].</summary>
         public int Roll(int sides) => Next(sides) + 1;
 
-        /// <summary>In-place Fisher-Yates shuffle.</summary>
         public void Shuffle<T>(IList<T> list)
         {
             for (int i = list.Count - 1; i > 0; i--)

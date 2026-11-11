@@ -4,10 +4,9 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// What one seat is allowed to see. This is the ONLY state object that should ever
-    /// cross the network to a client: full <see cref="GameState"/> (deck order, other
-    /// hands, secret titles, RNG state) stays server-side. Rich enough to drive the whole
-    /// client UI without touching the Game object.
+    /// What one seat is allowed to see, and the ONLY state object that may cross the network to a
+    /// client: the full <see cref="GameState"/> (deck order, other hands, secret titles, RNG
+    /// state) stays server-side.
     /// </summary>
     public sealed class PlayerView
     {
@@ -20,7 +19,6 @@ namespace LemonadeWars.Engine.Core
         public int BmOnlyActionsRemaining { get; set; }
         /// <summary>Seats the game currently waits on (turn, window, or decisions).</summary>
         public List<int> ActingPlayers { get; set; } = new List<int>();
-        /// <summary>Whose pick it is during the setup draft.</summary>
         public int? CurrentInitialBuyer { get; set; }
 
         public List<PlayerPanel> Players { get; set; } = new List<PlayerPanel>();
@@ -55,14 +53,12 @@ namespace LemonadeWars.Engine.Core
         // ---- Interaction surface ----
         public List<int> AwaitingResponse { get; set; } = new List<int>();
         public int? PendingRollValue { get; set; }
-        /// <summary>What the pending die is for, so the UI can name it (Night Shifts, etc.).</summary>
         public RollPurpose? PendingRollPurpose { get; set; }
         public int? PendingRollerId { get; set; }
         /// <summary>Trade Winds only: the single stand this roll applies to (null = not stand-scoped).</summary>
         public int? PendingRollStandInstanceId { get; set; }
         /// <summary>Top of the response stack, when a window is open.</summary>
         public StackTopInfo? StackTop { get; set; }
-        /// <summary>The viewer's own pending decisions, with the payloads their UI needs.</summary>
         public List<DecisionInfo> MyDecisions { get; set; } = new List<DecisionInfo>();
         /// <summary>Who owes a Timeout fine right now — the whole table sees the card — and how much.</summary>
         public int? TimeoutFinePlayerId { get; set; }

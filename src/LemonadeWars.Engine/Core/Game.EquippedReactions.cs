@@ -5,21 +5,16 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// Equipped Black Market cards that react to another player's play: Inflatable Decoy
-    /// (discards an attack aimed at its owner), Swear Jar (taxes tantrums) and Bouncer
-    /// (a free attack back).
-    /// </summary>
     public sealed partial class Game
     {
         /// <summary>
-        /// Immediate and untantrummable (card text): the attack dies on the spot, and so
-        /// does the decoy. Nothing goes on the stack.
+        /// Inflatable Decoy is immediate and untantrummable (card text): the attack and the
+        /// decoy both die on the spot, and nothing goes on the stack.
         /// </summary>
         private void RespondWithDecoy(PlayerState player, int decoyId, List<GameEvent> events)
         {
             if (!player.Turf.Equipped.Contains(decoyId) ||
-                EquippedDef(decoyId).Id != "inflatable-decoy")
+                EquippedDef(decoyId).Id != BlackMarketCardIds.InflatableDecoy)
             {
                 throw new InvalidActionException("Only an equipped Inflatable Decoy can respond this way.");
             }
@@ -46,7 +41,7 @@ namespace LemonadeWars.Engine.Core
                 OwnerId = attack.OwnerId,
                 DefId = attack.LemonDefId,
                 ByPlayerId = player.PlayerId,
-                WithDefId = "inflatable-decoy",
+                WithDefId = BlackMarketCardIds.InflatableDecoy,
             });
             events.Add(new CardsDiscarded { PlayerId = player.PlayerId, InstanceIds = new List<int> { decoyId } });
             BumpRevision();
@@ -55,7 +50,7 @@ namespace LemonadeWars.Engine.Core
         /// <summary>Swear Jar: each tantrum played against this player's card costs the thrower $2 per jar.</summary>
         private void ChargeSwearJars(PlayerState thrower, PlayerState target, List<GameEvent> events)
         {
-            int jars = CountOnTurf(target, "swear-jar");
+            int jars = CountOnTurf(target, BlackMarketCardIds.SwearJar);
             if (jars == 0)
             {
                 return;
@@ -84,7 +79,7 @@ namespace LemonadeWars.Engine.Core
             }
             var victim = Player(victimId);
             var bouncers = victim.Turf.Equipped
-                .Where(id => EquippedDef(id).Id == "bouncer")
+                .Where(id => EquippedDef(id).Id == BlackMarketCardIds.Bouncer)
                 .ToList();
             if (bouncers.Count == 0)
             {

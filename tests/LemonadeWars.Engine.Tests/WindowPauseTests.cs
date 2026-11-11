@@ -3,7 +3,7 @@ using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
 
 namespace LemonadeWars.Engine.Tests
 {

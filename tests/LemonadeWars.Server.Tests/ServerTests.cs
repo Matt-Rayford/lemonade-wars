@@ -78,8 +78,7 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task HostPlaysAgainstThreeServerBots()
     {
         await using var host = await TestClient.ConnectAsync(_factory);
-        var room = await host.CreateRoomAsync("Solo");
-        string code = (string)room["code"]!;
+        await host.CreateRoomAsync("Solo");
 
         for (int i = 0; i < 3; i++)
         {
@@ -90,7 +89,6 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
 
         var final = await host.PlayRandomlyUntilGameOverAsync(seed: 7);
         Assert.NotEmpty((JArray)final["view"]!["winners"]!);
-        Assert.Equal(code, (string)room["code"]!); // sanity: same room throughout
     }
 
     // --------------------------------------------------------------- lobby
@@ -110,6 +108,52 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         await guest.SendAsync(new { type = "leave_room" });
         var afterLeave = await host.NextOfTypeAsync("room");
         Assert.Single((JArray)afterLeave["seats"]!);
+    }
+
+    [Fact]
+    public async Task CreatingARoomLeavesTheOneYouWereIn()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        var firstRoom = await host.CreateRoomAsync("Host");
+        string firstCode = (string)firstRoom["code"]!;
+
+        await using var wanderer = await TestClient.ConnectAsync(_factory);
+        await wanderer.JoinRoomAsync(firstCode, "Wanderer");
+        var withWanderer = await host.NextOfTypeAsync("room");
+        Assert.Equal(2, ((JArray)withWanderer["seats"]!).Count);
+
+        var secondRoom = await wanderer.CreateRoomAsync("Wanderer");
+        Assert.NotEqual(firstCode, (string)secondRoom["code"]!);
+        var afterMove = await host.NextOfTypeAsync("room", timeoutSeconds: 5);
+        Assert.Single((JArray)afterMove["seats"]!);
+    }
+
+    [Fact]
+    public async Task JoiningAnotherRoomLeavesTheOneYouWereIn()
+    {
+        await using var firstHost = await TestClient.ConnectAsync(_factory);
+        string firstCode = (string)(await firstHost.CreateRoomAsync("First"))["code"]!;
+        await using var secondHost = await TestClient.ConnectAsync(_factory);
+        string secondCode = (string)(await secondHost.CreateRoomAsync("Second"))["code"]!;
+
+        await using var wanderer = await TestClient.ConnectAsync(_factory);
+        await wanderer.JoinRoomAsync(firstCode, "Wanderer");
+        await firstHost.NextOfTypeAsync("room");
+
+        await wanderer.JoinRoomAsync(secondCode, "Wanderer");
+        var firstRoomAfterMove = await firstHost.NextOfTypeAsync("room", timeoutSeconds: 5);
+        Assert.Single((JArray)firstRoomAfterMove["seats"]!);
+    }
+
+    [Fact]
+    public async Task JoiningTheRoomYouAreAlreadyInIsRefused()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        string code = (string)(await host.CreateRoomAsync("Host"))["code"]!;
+
+        await host.SendAsync(new { type = "join_room", code, name = "Host again" });
+        var refused = await host.NextOfTypeAsync("error", timeoutSeconds: 5);
+        Assert.Contains("already in that room", (string)refused["message"]!);
     }
 
     [Fact]
@@ -238,6 +282,22 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         });
         var refused = await churner.NextOfTypeAsync("error");
         Assert.Contains("identity", (string)refused["message"]!);
+    }
+
+    [Fact]
+    public async Task ARejectedHelloKeepsTheIdentityYouHad()
+    {
+        await using var player = await TestClient.ConnectAsync(_factory);
+        await player.HelloAsync("kept-identity-key-" + Guid.NewGuid().ToString("N"), "Keeper");
+
+        await player.SendAsync(new { type = "hello", playerKey = "short", name = "Keeper" });
+        await player.NextOfTypeAsync("error");
+
+        // list_games answers only a connection that has an identity.
+        await player.SendAsync(new { type = "list_games" });
+        var reply = await player.NextAsync(
+            message => (string?)message["type"] == "games" || (string?)message["type"] == "error");
+        Assert.Equal("games", (string)reply["type"]!);
     }
 
     [Fact]

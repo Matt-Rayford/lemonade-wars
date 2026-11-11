@@ -10,18 +10,14 @@ namespace LemonadeWars.Engine.Core
     /// </summary>
     public sealed partial class Game
     {
-        /// <summary>Card defs that the rules exempt from tantrums.</summary>
         private static readonly HashSet<string> Untantrummable = new HashSet<string>
         {
-            "apologize", // card text: "This card cannot be tantrummed"
+            LemonCardIds.Apologize, // card text: "This card cannot be tantrummed"
         };
 
         // ------------------------------------------------------------ opening
 
-        /// <summary>
-        /// Make sure the current context's window has been opened for this revision.
-        /// Returns true when the window is already settled (nobody left to ask).
-        /// </summary>
+        /// <summary>Returns true when the window is already settled (nobody left to ask).</summary>
         private bool EnsureWindow(List<GameEvent> events)
         {
             if (State.LastWindowRevision != State.InteractionRevision)
@@ -29,9 +25,8 @@ namespace LemonadeWars.Engine.Core
                 State.LastWindowRevision = State.InteractionRevision;
                 State.AwaitingResponse.Clear();
                 var top = State.ResponseStack.Count > 0 ? TopStackItem() : null;
-                // Each stack item is offered to the table once. One that resurfaces while
-                // the stack unwinds resolves unasked, unless a re-aim or a countered
-                // Tantrum reopened it by clearing WindowOffered (Game.ResponseCards.cs).
+                // Each stack item is offered to the table once: resurfacing as the stack unwinds, it
+                // resolves unasked unless a re-aim or a countered Tantrum cleared WindowOffered.
                 if (top == null || !top.WindowOffered)
                 {
                     if (top != null)
@@ -79,7 +74,6 @@ namespace LemonadeWars.Engine.Core
 
         // ------------------------------------------------------- who is asked
 
-        /// <summary>Who may respond to the current context — players holding a qualifying card.</summary>
         private IEnumerable<int> EligibleResponders()
         {
             if (State.ResponseStack.Count > 0)
@@ -110,9 +104,9 @@ namespace LemonadeWars.Engine.Core
                 }
                 // Inflatable Decoy defends its owner only: you must BE the target.
                 bool hasDecoy = isAttack && top.AttackTargetId == player.PlayerId &&
-                    player.Turf.Equipped.Any(id => EquippedDef(id).Id == "inflatable-decoy");
-                if ((isTantrummable && HoldsLemonCard(player, TantrumId)) ||
-                    (isAttack && (HoldsLemonCard(player, TagId) || HoldsLemonCard(player, RubberGlueId))) ||
+                    player.Turf.Equipped.Any(id => EquippedDef(id).Id == BlackMarketCardIds.InflatableDecoy);
+                if ((isTantrummable && HoldsLemonCard(player, LemonCardIds.Tantrum)) ||
+                    (isAttack && (HoldsLemonCard(player, LemonCardIds.TagYoureIt) || HoldsLemonCard(player, LemonCardIds.ImRubberYoureGlue))) ||
                     hasDecoy)
                 {
                     yield return player.PlayerId;
@@ -124,7 +118,7 @@ namespace LemonadeWars.Engine.Core
         private IEnumerable<int> TheftResponders(PendingTheftResponse theft)
         {
             var victim = State.Players[theft.VictimId];
-            if (HoldsLemonCard(victim, ProfitShareId))
+            if (HoldsLemonCard(victim, LemonCardIds.ProfitShare))
             {
                 yield return victim.PlayerId;
             }
@@ -138,7 +132,7 @@ namespace LemonadeWars.Engine.Core
         {
             foreach (var player in State.Players)
             {
-                if (HoldsLemonCard(player, OutOfStockId) ||
+                if (HoldsLemonCard(player, LemonCardIds.OutOfStock) ||
                     (player.PlayerId == State.ActivePlayer && HasUnusedRollAbility(player)))
                 {
                     yield return player.PlayerId;
@@ -197,19 +191,19 @@ namespace LemonadeWars.Engine.Core
             string defId = State.LemonInstances[action.CardInstanceId].DefId;
             switch (defId)
             {
-                case TantrumId:
+                case LemonCardIds.Tantrum:
                     RespondWithTantrum(player, action, events);
                     break;
-                case TagId:
+                case LemonCardIds.TagYoureIt:
                     RespondWithTag(player, action, events);
                     break;
-                case RubberGlueId:
+                case LemonCardIds.ImRubberYoureGlue:
                     RespondWithRubberGlue(player, action, events);
                     break;
-                case OutOfStockId:
+                case LemonCardIds.OutOfStock:
                     RespondWithOutOfStock(player, action, events);
                     break;
-                case ProfitShareId:
+                case LemonCardIds.ProfitShare:
                     RespondWithProfitShare(player, action, events);
                     break;
                 default:

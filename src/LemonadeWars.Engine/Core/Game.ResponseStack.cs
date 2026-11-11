@@ -4,10 +4,6 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// The response stack itself: pushing a play or purchase, resolving the top item, and
-    /// popping resolved or cancelled items to their discards.
-    /// </summary>
     public sealed partial class Game
     {
         private StackItem TopStackItem() => State.ResponseStack[State.ResponseStack.Count - 1];
@@ -62,9 +58,8 @@ namespace LemonadeWars.Engine.Core
         }
 
         /// <summary>
-        /// The card a take is aimed at — a shelf card (Connections), a discarded Black
-        /// Market card (Reduce and Reuse) or a discarded Lemon card (Reverse Engineer) —
-        /// so the table can show the loot beside the play.
+        /// The card a take is aimed at (Connections' shelf card, Reduce and Reuse's or Reverse
+        /// Engineer's discarded card), so the table can show the loot beside the play.
         /// </summary>
         private (string? DefId, Shape? Shape, bool IsLemon) TakenByPlay(StackItem item)
         {
@@ -88,7 +83,7 @@ namespace LemonadeWars.Engine.Core
 
         // ------------------------------------------------------------ resolve
 
-        /// <summary>Resolve the top stack item. Returns false if resolution paused on a decision.</summary>
+        /// <summary>Returns false if resolution paused on a decision.</summary>
         private bool ResolveTopItem(List<GameEvent> events)
         {
             var top = TopStackItem();
@@ -111,19 +106,19 @@ namespace LemonadeWars.Engine.Core
         {
             switch (item.LemonDefId)
             {
-                case TantrumId:
+                case LemonCardIds.Tantrum:
                     ResolveTantrum(item, events);
                     return true;
-                case TagId:
+                case LemonCardIds.TagYoureIt:
                     ResolveTag(item, events);
                     return true;
-                case RubberGlueId:
+                case LemonCardIds.ImRubberYoureGlue:
                     ResolveRubberGlue(item, events);
                     return true;
-                case OutOfStockId:
+                case LemonCardIds.OutOfStock:
                     ResolveOutOfStock(item, events);
                     return true;
-                case ProfitShareId:
+                case LemonCardIds.ProfitShare:
                     ResolveProfitShare(item, events);
                     return true;
                 default:
@@ -131,10 +126,7 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>
-        /// Card-specific handlers live in Game.LemonEffects.cs. Returns false when an
-        /// attack that was re-aimed by a Tag pauses for its owner's AttackRetarget decision.
-        /// </summary>
+        /// <summary>Returns false when a re-aimed attack pauses for its owner's AttackRetarget decision.</summary>
         private bool ResolvePlanOrAttack(StackItem item, List<GameEvent> events)
         {
             if (!ResolveLemonPlay(item, events))
@@ -152,7 +144,6 @@ namespace LemonadeWars.Engine.Core
 
         // ---------------------------------------------------------------- pop
 
-        /// <summary>Pop an item that resolved; its card (if any, and not a tantrum/trap) goes to the discard.</summary>
         private void PopResolved(StackItem item, List<GameEvent> events)
         {
             State.ResponseStack.Remove(item);
@@ -164,13 +155,11 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>Pop a cancelled item: purchases refund money; cards go to the discard.</summary>
         private void PopCancelled(StackItem item, List<GameEvent> events)
         {
             State.ResponseStack.Remove(item);
-            // The window open on this item dies with it. An Inflatable Decoy cancels
-            // WITHOUT pushing a new item, so nothing else would recompute who is awaited
-            // and they would be left with a pass-only window on a play that is gone.
+            // The window on this item dies with it: an Inflatable Decoy cancels WITHOUT pushing a
+            // new item, so nothing else would recompute who is awaited.
             State.AwaitingResponse.Clear();
             BumpRevision();
             if (item.Kind == StackItemKind.BlackMarketPurchase)
@@ -204,7 +193,7 @@ namespace LemonadeWars.Engine.Core
             {
                 string defId = State.LemonInstances[id].DefId;
                 // Tantrums live in piles; a placed Steal the Cashbox trap lives on a turf.
-                if (defId != TantrumId && !IsPlacedTrap(id))
+                if (defId != LemonCardIds.Tantrum && !IsPlacedTrap(id))
                 {
                     State.LemonDiscard.Add(id);
                 }

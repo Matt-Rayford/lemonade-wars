@@ -1,6 +1,7 @@
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -9,7 +10,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void HoaViolationStealsFive()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -26,7 +27,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TagMovesTheAttackToAnotherPlayer()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -41,7 +42,7 @@ namespace LemonadeWars.Engine.Tests
             Assert.Throws<InvalidActionException>(() => game.Apply(
                 new RespondToWindow { PlayerId = tagger, CardInstanceId = tag, RedirectTargetId = attacker }));
             game.Apply(new RespondToWindow { PlayerId = tagger, CardInstanceId = tag, RedirectTargetId = newVictim });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             Assert.Equal(25, game.State.Players[attacker].Money);
             Assert.Equal(20, game.State.Players[victim].Money); // dodged
@@ -51,7 +52,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void RubberGlueReflectsTheAttack()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -62,7 +63,7 @@ namespace LemonadeWars.Engine.Tests
 
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
             game.Apply(new RespondToWindow { PlayerId = victim, CardInstanceId = rubber });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             Assert.Equal(15, game.State.Players[attacker].Money);
             Assert.Equal(25, game.State.Players[victim].Money);
@@ -71,7 +72,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TwoPlayerTagDiscardsTheAttack()
         {
-            var game = ReadyToPlay(names: TwoPlayers);
+            var game = ReadyToPlay(seed: 7, names: TwoPlayers);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -82,7 +83,7 @@ namespace LemonadeWars.Engine.Tests
 
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
             game.Apply(new RespondToWindow { PlayerId = victim, CardInstanceId = tag });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // 2-player rule: with nobody to move it to, the attack is discarded.
             Assert.Equal(20, game.State.Players[attacker].Money);
@@ -93,7 +94,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ProfitShareRecoversHalfRoundedUp()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
@@ -115,7 +116,7 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void ProfitShareWindowOpensAfterPassingTheAttackWindow()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);

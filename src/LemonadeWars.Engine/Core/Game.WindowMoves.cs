@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Legal responses for a player the open window is waiting on (see
-    /// Game.LegalMoves.cs). Passing is always first; what else is offered depends on
-    /// what the window is about: the top of the response stack, a theft, or a roll.
+    /// Passing is always offered first; the rest depends on what the window is about: the top of
+    /// the response stack, a theft, or a roll.
     /// </summary>
     public sealed partial class Game
     {
@@ -22,7 +22,7 @@ namespace LemonadeWars.Engine.Core
             {
                 if (State.TheftQueue[0].VictimId == player.PlayerId)
                 {
-                    AddCardResponse(moves, player, ProfitShareId);
+                    AddCardResponse(moves, player, LemonCardIds.ProfitShare);
                 }
             }
             else if (State.PendingRoll != null)
@@ -39,14 +39,14 @@ namespace LemonadeWars.Engine.Core
             }
             if (IsTantrummable(top))
             {
-                AddCardResponse(moves, player, TantrumId);
+                AddCardResponse(moves, player, LemonCardIds.Tantrum);
             }
             if (!IsAttackItem(top))
             {
                 return;
             }
             AddTagResponses(moves, player, top);
-            AddCardResponse(moves, player, RubberGlueId);
+            AddCardResponse(moves, player, LemonCardIds.ImRubberYoureGlue);
             bool isVictim = top.AttackTargetId == player.PlayerId;
             if (isVictim)
             {
@@ -60,7 +60,7 @@ namespace LemonadeWars.Engine.Core
         /// </summary>
         private void AddTagResponses(List<GameAction> moves, PlayerState player, StackItem attack)
         {
-            if (!(FirstInHand(player, TagId) is int tagId))
+            if (!(FirstInHand(player, LemonCardIds.TagYoureIt) is int tagId))
             {
                 return;
             }
@@ -87,7 +87,7 @@ namespace LemonadeWars.Engine.Core
         private void AddDecoyResponse(List<GameAction> moves, PlayerState player)
         {
             foreach (int decoyId in player.Turf.Equipped
-                .Where(id => EquippedDef(id).Id == "inflatable-decoy").Take(1))
+                .Where(id => EquippedDef(id).Id == BlackMarketCardIds.InflatableDecoy).Take(1))
             {
                 moves.Add(new RespondToWindow { PlayerId = player.PlayerId, EquippedInstanceId = decoyId });
             }
@@ -95,7 +95,7 @@ namespace LemonadeWars.Engine.Core
 
         private void AddRollResponses(List<GameAction> moves, PlayerState player)
         {
-            AddCardResponse(moves, player, OutOfStockId);
+            AddCardResponse(moves, player, LemonCardIds.OutOfStock);
             if (player.PlayerId != State.ActivePlayer)
             {
                 return;

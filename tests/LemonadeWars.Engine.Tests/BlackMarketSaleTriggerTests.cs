@@ -2,7 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -12,9 +13,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void MeditationDrawsOnSale()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             RigEquip(game, activeId, "meditation", player.Stands[0].InstanceId);
             int hand = player.Hand.Count;
@@ -27,10 +28,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void JuiceBoxJoeyStealsFromAChosenVictim()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
-            int rivalId = Seat(game, 1);
+            int activeId = ActivePlayer(game);
+            int rivalId = SeatAfterActive(game, 1);
             var player = game.State.Players[activeId];
             RigEquip(game, activeId, "juice-box-joey", player.Stands[0].InstanceId);
             foreach (var p in game.State.Players)
@@ -44,7 +45,7 @@ namespace LemonadeWars.Engine.Tests
             var decision = Assert.Single(game.State.PendingDecisions);
             Assert.Equal(DecisionKind.AbilityVictim, decision.Kind);
             game.Apply(new SubmitAbilityChoice { PlayerId = activeId, TargetPlayerId = rivalId });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // Two bargains sold (+$2), $1 stolen, and $1 more if the owner's pour number is the 2 rolled.
             Assert.Equal(20 + 2 + 1 + (game.PourNumbersOf(player).Contains(2) ? 1 : 0),
@@ -54,9 +55,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void VictimChoiceAbilitiesCanBeDeclined()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             RigEquip(game, activeId, "juice-box-joey", player.Stands[0].InstanceId);
             foreach (var p in game.State.Players)
@@ -75,7 +76,7 @@ namespace LemonadeWars.Engine.Tests
             var events = game.Apply(new SubmitAbilityChoice { PlayerId = activeId, Decline = true });
             Assert.Contains(events, e => e is AbilityDeclined);
             Assert.Empty(game.State.PendingDecisions);
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // Nobody was robbed: every rival still holds their $20.
             foreach (var p in game.State.Players)
@@ -90,9 +91,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void WhispersOfFateDrawsTwoDiscardsOne()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             player.Turf.PowerPourNumber = 4;
             RigEquip(game, activeId, "whispers-of-fate");
@@ -117,7 +118,7 @@ namespace LemonadeWars.Engine.Tests
                 PlayerId = activeId,
                 CardInstanceIds = new List<int> { player.Hand[^1] },
             });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             Assert.Equal(hand + 1, player.Hand.Count); // +2 drawn, -1 discarded
         }
@@ -125,10 +126,10 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void HalfPintHarryStealsARandomCardAndGivesOneBack()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum");
-            int activeId = Active(game);
-            int victimId = Seat(game, 1);
+            int activeId = ActivePlayer(game);
+            int victimId = SeatAfterActive(game, 1);
             var player = game.State.Players[activeId];
             var victim = game.State.Players[victimId];
             player.Turf.PowerPourNumber = 6;
@@ -149,13 +150,39 @@ namespace LemonadeWars.Engine.Tests
                 PlayerId = activeId,
                 CardInstanceIds = new List<int> { given },
             });
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             Assert.Contains(stolen, player.Hand);
             Assert.Contains(given, victim.Hand);
             Assert.Equal(playerHand, player.Hand.Count);      // net zero: +1 stolen, -1 given
             // Victim: -1 stolen, +1 given back, +1 turn-start draw (they are next player).
             Assert.Equal(victimHand + 1, victim.Hand.Count);
+        }
+
+        [Fact]
+        public void DrawsFromADryDeckDoNotCountTowardDoubleScoop()
+        {
+            var game = ReadyToPlay(seed: 11);
+            StripHands(game, "tantrum");
+            int activeId = ActivePlayer(game);
+            var player = game.State.Players[activeId];
+            RigEquip(game, activeId, "meditation", player.Stands[0].InstanceId);
+            RigEquip(game, activeId, "meditation", player.Stands[1].InstanceId);
+            if (!game.State.FirstDibsRow.Contains("double-scoop"))
+            {
+                game.State.FirstDibsRow.Add("double-scoop");
+            }
+            int handBefore = player.Hand.Count;
+
+            // Double Scoop wants two cards KEPT from one roll; with nothing left to draw, none arrive.
+            game.Apply(new EndTurn { PlayerId = activeId });
+            game.State.PendingRoll!.Value = 1; // both bargains sell, so both Meditations trigger
+            game.State.LemonDeck.Clear();
+            game.State.LemonDiscard.Clear();
+            PassAll(game);
+
+            Assert.Equal(handBefore, player.Hand.Count);
+            Assert.DoesNotContain("double-scoop", player.FirstDibsClaimed);
         }
     }
 }

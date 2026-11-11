@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -30,7 +31,7 @@ namespace LemonadeWars.Engine.Tests
             {
                 firstSeat.Money = 25;
                 secondSeat.Money = 25;
-                RigTantrums(tiedGame, secondSeat.PlayerId, 2);
+                PutTantrumsInPile(tiedGame, secondSeat.PlayerId, 2);
             });
             var state = game.State;
 
@@ -45,8 +46,8 @@ namespace LemonadeWars.Engine.Tests
             {
                 firstSeat.Money = 25;
                 secondSeat.Money = 25;
-                RigTantrums(tiedGame, firstSeat.PlayerId, 1);
-                RigTantrums(tiedGame, secondSeat.PlayerId, 1);
+                PutTantrumsInPile(tiedGame, firstSeat.PlayerId, 1);
+                PutTantrumsInPile(tiedGame, secondSeat.PlayerId, 1);
             });
             var state = game.State;
             int first = state.FirstPlayer;
@@ -61,7 +62,7 @@ namespace LemonadeWars.Engine.Tests
         /// </summary>
         private static Game FinishTiedOnVictoryPoints(Action<Game, PlayerState, PlayerState> rig)
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "out-of-stock");
             var state = game.State;
             int first = state.FirstPlayer;
@@ -74,10 +75,7 @@ namespace LemonadeWars.Engine.Tests
                 state.LemonDeck.Remove(id);
             }
             state.FirstDibsRow.Clear();
-            foreach (var player in state.Players)
-            {
-                player.LemonLordKept.Clear();
-            }
+            ClearLemonLords(game);
 
             var firstSeat = state.Players[first];
             var secondSeat = state.Players[second];
@@ -93,7 +91,7 @@ namespace LemonadeWars.Engine.Tests
             // First player already sits on 3 VP, so their EndTurn starts the final round.
             for (int i = 0; i < state.Players.Count; i++)
             {
-                GameFlowTests.ApplyAndPass(game, new EndTurn { PlayerId = state.ActivePlayer });
+                ApplyAndPass(game, new EndTurn { PlayerId = state.ActivePlayer });
             }
 
             Assert.Equal(GameStage.Finished, state.Stage);

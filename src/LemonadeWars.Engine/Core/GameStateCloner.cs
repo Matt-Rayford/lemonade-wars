@@ -4,10 +4,9 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Hand-written deep copy of <see cref="GameState"/>, about ten times faster than
-    /// the JSON round-trip, which matters because search bots clone hundreds of times
-    /// per decision. A field missed here is a silent bug, so the engine tests compare
-    /// this copy against the JSON copy across whole fuzzed games.
+    /// Hand-written deep copy, about ten times faster than a JSON round-trip (search bots clone
+    /// hundreds of times per decision). A missed field is a silent bug, so the engine tests
+    /// compare this copy against the JSON copy across whole fuzzed games.
     /// </summary>
     public static class GameStateCloner
     {

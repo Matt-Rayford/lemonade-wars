@@ -4,10 +4,8 @@ using System.Linq;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Submit actions that answer blocking <see cref="PendingDecision"/>s shared across
-    /// subsystems: forced discards, the Timeout fine, and skipping optional free plays.
-    /// Card-specific decision answers live with their cards (SubmitRetarget in
-    /// Game.LemonEffects.cs, SubmitAbilityChoice in Game.BlackMarket.cs).
+    /// Answers to the decisions no single card owns: forced discards, the Timeout fine,
+    /// skipping a free play. Card-specific answers live with their cards.
     /// </summary>
     public sealed partial class Game
     {
@@ -68,8 +66,7 @@ namespace LemonadeWars.Engine.Core
             var player = Player(action.PlayerId);
 
             // Black Market cards go FIRST: selling a stand discards its remaining equips
-            // uncompensated, so an equip listed with its stand must be cashed in before
-            // the stand goes.
+            // uncompensated, so an equip listed with its stand is cashed in before it.
             foreach (int bmId in action.SellBmInstanceIds.Distinct())
             {
                 SellEquippedCardAtCost(player, bmId, events);
@@ -139,9 +136,8 @@ namespace LemonadeWars.Engine.Core
 
             if (decision.Kind == DecisionKind.ForcedPlay)
             {
-                // "Play it immediately" is mandatory: skippable only when the recovered card
-                // has no legal parameterization (e.g. That's Not Fair! with no opposing
-                // equips). The card then stays in hand.
+                // "Play it immediately" is mandatory: skippable only when the recovered card has no
+                // legal play (That's Not Fair! with no opposing equips); it then stays in hand.
                 var player = Player(action.PlayerId);
                 int cardId = decision.CardInstanceId!.Value;
                 var def = Db.Lemon(State.LemonInstances[cardId].DefId);

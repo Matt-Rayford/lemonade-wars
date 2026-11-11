@@ -1,5 +1,6 @@
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
@@ -63,7 +64,7 @@ namespace LemonadeWars.Engine.Ai
             {
                 return 20;
             }
-            if (attack.LemonDefId == "finders-keepers")
+            if (attack.LemonDefId == LemonCardIds.FindersKeepers)
             {
                 return 20 + StolenValue(game, me, lootId, retarget.EquipStandInstanceId);
             }

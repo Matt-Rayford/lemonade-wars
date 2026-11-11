@@ -251,7 +251,6 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <summary>A response (Tantrum, Tag, Rubber) names the stack item it answers.</summary>
         private void NameAnsweredItem(PlayerView.StackTopInfo info, StackItem top)
         {
             var answered = top.RespondingToItemId is int answeredItemId

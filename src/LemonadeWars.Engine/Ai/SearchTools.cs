@@ -24,10 +24,8 @@ namespace LemonadeWars.Engine.Ai
                 JsonConvert.SerializeObject(state, Settings), Settings)!;
 
         /// <summary>
-        /// Rewrites the clone's hidden information into ONE possible world consistent
-        /// with what <paramref name="viewerId"/> can see. Public zones and the viewer's
-        /// own cards are untouched, so a search can only exploit knowledge a human in
-        /// that seat would also have.
+        /// Rewrites the clone's hidden information into ONE world consistent with what
+        /// <paramref name="viewerId"/> can see, so a search only exploits what a human in that seat would know.
         /// </summary>
         public static void Determinize(GameState state, int viewerId, DeterministicRng rng)
         {

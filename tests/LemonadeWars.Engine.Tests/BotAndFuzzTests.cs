@@ -129,14 +129,7 @@ namespace LemonadeWars.Engine.Tests
         public void ViewsHideOtherHandsAndSecrets()
         {
             var game = NewGame(42, 4);
-            foreach (var player in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = player.PlayerId,
-                    KeepTitleIds = player.LemonLordDealt.Take(2).ToList(),
-                });
-            }
+            GameScenario.KeepFirstTwoLemonLords(game);
 
             var view = game.ViewFor(0);
 
@@ -189,10 +182,9 @@ namespace LemonadeWars.Engine.Tests
         // ---------------------------------------------------- move soundness
 
         [Fact]
-        public void EveryEnumeratedMoveAppliesCleanly()
+        public void ActorsAlwaysHaveAMoveAndBystandersHaveNone()
         {
-            // Checks the cheaper contract across one random game: acting players always
-            // have a move, nobody else has any, and the chosen move never throws.
+            // Across one random game; the move each actor picks must also apply without throwing.
             var game = NewGame(999, 4);
             var bots = Bots(4, 999);
             int guard = 0;

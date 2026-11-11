@@ -26,7 +26,6 @@ public class PersistenceTests
 
         string code;
         string token;
-        JToken moneyBefore;
 
         // ---- First server lifetime: a game against bots, three human moves, then the process dies.
         using (var first = new WebApplicationFactory<Program>())
@@ -45,18 +44,15 @@ public class PersistenceTests
             await host.SendAsync(new { type = "start_game" });
 
             int submitted = 0;
-            JObject lastUpdate = null!;
             while (submitted < 3)
             {
                 var update = await host.NextOfTypeAsync("update");
-                lastUpdate = update;
                 if (update["moves"] is JArray moves && moves.Count > 0)
                 {
                     await host.SendAsync(new { type = "action", action = moves[0]!["action"] });
                     submitted++;
                 }
             }
-            moneyBefore = lastUpdate["view"]!["players"]!;
             await host.DisposeAsync();
         }
 

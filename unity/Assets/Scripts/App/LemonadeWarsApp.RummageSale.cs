@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -14,8 +15,6 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed partial class LemonadeWarsApp
     {
-        private const string RummageSaleDefId = "rummage-sale";
-        private const string TimeoutDefId = "timeout";
         private const int RummageSaleMaxCards = 3;
 
         private sealed class AssetSaleFlow
@@ -32,7 +31,7 @@ namespace LemonadeWars.Unity
             public System.Func<int, int> PriceOf;
             public System.Action<List<int>> Confirm;
 
-            public bool IsTimeoutFine => StagedDefId == TimeoutDefId;
+            public bool IsTimeoutFine => StagedDefId == LemonCardIds.Timeout;
         }
 
         private AssetSaleFlow _sale;
@@ -41,7 +40,7 @@ namespace LemonadeWars.Unity
         private string _preStagedDefId;
 
         private bool IsRummageSale(PlayLemonCard play) =>
-            View.Hand.FirstOrDefault(c => c.InstanceId == play.CardInstanceId)?.DefId == RummageSaleDefId;
+            View.Hand.FirstOrDefault(c => c.InstanceId == play.CardInstanceId)?.DefId == LemonCardIds.RummageSale;
 
         private bool TimeoutSaleActive => _sale != null && _sale.IsTimeoutFine;
 
@@ -56,14 +55,14 @@ namespace LemonadeWars.Unity
             _prompt.Hide();
             BeginAssetSale(new AssetSaleFlow
             {
-                StagedDefId = RummageSaleDefId,
+                StagedDefId = LemonCardIds.RummageSale,
                 HandCardId = cardInstanceId,
                 MaxPicks = RummageSaleMaxCards,
                 Cancelable = true,
                 PriceOf = key => (_db.BlackMarket(EquippedInfoOf(key).DefId).Cost + 1) / 2,
                 Confirm = picked =>
                 {
-                    _preStagedDefId = RummageSaleDefId; // the staged card is already on the table
+                    _preStagedDefId = LemonCardIds.RummageSale; // the staged card is already on the table
                     Submit(new PlayLemonCard
                     {
                         CardInstanceId = cardInstanceId,
@@ -88,7 +87,7 @@ namespace LemonadeWars.Unity
             var me = View.Players[View.ViewerId];
             BeginAssetSale(new AssetSaleFlow
             {
-                StagedDefId = TimeoutDefId,
+                StagedDefId = LemonCardIds.Timeout,
                 MaxPicks = int.MaxValue,
                 FineOwed = View.TimeoutFineAmount,
                 Cancelable = false,

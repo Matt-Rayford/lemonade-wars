@@ -3,7 +3,6 @@ using LemonadeWars.Engine.Core;
 
 namespace LemonadeWars.Engine.Ai
 {
-    /// <summary>Round lookahead: a line is judged when the planner is next on the clock.</summary>
     public sealed partial class PlannerBot
     {
         private const int LookaheadActionCap = 160;
@@ -11,11 +10,8 @@ namespace LemonadeWars.Engine.Ai
         private const ulong RollResampleSalt = 0x9E3779B97F4A7C15UL;
 
         /// <summary>
-        /// Worth of a settled position. With round lookahead the turn is ended on a copy,
-        /// every rival plays a turn, and the position is judged when the planner is back
-        /// on the clock. The first sample keeps the world's own roll, so lines within a
-        /// world are compared on the same die; extra samples re-seed it for a steadier
-        /// read on the chance node.
+        /// With round lookahead, the turn is ended on a copy and judged once the planner is back on the
+        /// clock. The first sample keeps the world's own roll, so lines in a world share a die; extras re-seed it.
         /// </summary>
         private double LeafValue(Game world, int playerId)
         {
@@ -38,10 +34,7 @@ namespace LemonadeWars.Engine.Ai
             return total / samples;
         }
 
-        /// <summary>
-        /// Ends the planner's turn and lets the table play until it is back on the clock.
-        /// A future that wedges is valued as <paramref name="fallback"/>, the position before the round.
-        /// </summary>
+        /// <summary>A future that wedges is valued as <paramref name="fallback"/>, the position before the round.</summary>
         private double PlayOutRound(Game future, Game fallback, int playerId)
         {
             try
@@ -71,9 +64,8 @@ namespace LemonadeWars.Engine.Ai
         }
 
         /// <summary>
-        /// Greedy by default. With evaluator rivals, a rival's Play-phase actions are the
-        /// one-ply best by the shared evaluator from its own seat; windows and decisions
-        /// stay greedy (cheap and already sensible), as do turns too wide to evaluate.
+        /// Greedy unless evaluator rivals are on: then Play-phase actions are the one-ply best from
+        /// the rival's own seat; windows, decisions and turns too wide to evaluate stay greedy.
         /// </summary>
         private GameAction RivalMove(Game world, int rival)
         {

@@ -89,9 +89,8 @@ namespace LemonadeWars.Engine.Core
     }
 
     /// <summary>
-    /// An in-game Black Market purchase was paid for and is now open to a Tantrum:
-    /// the card has left its shelf slot, which stays empty until the purchase
-    /// resolves (BlackMarketPurchased, or a cancel) and MarketRefilled follows.
+    /// An in-game purchase was paid for and is open to a Tantrum: its shelf slot stays empty until
+    /// the purchase resolves (BlackMarketPurchased, or a cancel) and MarketRefilled follows.
     /// </summary>
     public sealed class BlackMarketPurchaseStarted : GameEvent
     {
@@ -99,7 +98,6 @@ namespace LemonadeWars.Engine.Core
         public int InstanceId { get; set; }
         public string DefId { get; set; } = "";
         public Shape Shape { get; set; }
-        /// <summary>The shelf slot the card left.</summary>
         public int MarketIndex { get; set; }
         public int Price { get; set; }
         public override string ToString() => $"P{PlayerId} is buying {DefId}";

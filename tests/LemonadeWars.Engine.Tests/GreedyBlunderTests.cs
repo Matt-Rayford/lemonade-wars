@@ -4,6 +4,7 @@ using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using Xunit;
 using static LemonadeWars.Engine.Tests.BotScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -153,12 +154,12 @@ namespace LemonadeWars.Engine.Tests
             var state = game.State;
             int attacker = state.ActivePlayer;
             int victim = (attacker + 1) % 3;
-            StripReactionCards(game);
+            StripStackReactions(game);
             ClearLemonLords(game);
 
-            int findersKeepers = Hold(game, attacker, "finders-keepers");
-            int attackerTantrum = Hold(game, attacker, "tantrum");
-            int rubberGlue = Hold(game, victim, "im-rubber-youre-glue");
+            int findersKeepers = GiveCard(game, attacker, "finders-keepers");
+            int attackerTantrum = GiveCard(game, attacker, "tantrum");
+            int rubberGlue = GiveCard(game, victim, "im-rubber-youre-glue");
             EquipFromDeck(game, state.Players[victim], "pink-lemonade", state.Players[victim].Stands[0]);
 
             var steal = game.LegalMovesFor(attacker).OfType<PlayLemonCard>()
@@ -182,12 +183,12 @@ namespace LemonadeWars.Engine.Tests
             int attacker = state.ActivePlayer;
             int victim = (attacker + 1) % 3;
             int redirectedTo = (attacker + 2) % 3;
-            StripReactionCards(game);
+            StripStackReactions(game);
             ClearLemonLords(game);
 
-            int attack = Hold(game, attacker, "hoa-violation");
-            int attackerTantrum = Hold(game, attacker, "tantrum");
-            int tag = Hold(game, victim, "tag-youre-it");
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int attackerTantrum = GiveCard(game, attacker, "tantrum");
+            int tag = GiveCard(game, victim, "tag-youre-it");
             state.Players[victim].Money = 10;
 
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
@@ -209,7 +210,7 @@ namespace LemonadeWars.Engine.Tests
             int victim = (attacker + 1) % 4;
             int thirdSeat = (attacker + 2) % 4;
             int fourthSeat = (attacker + 3) % 4;
-            StripReactionCards(game);
+            StripStackReactions(game);
             ClearLemonLords(game);
 
             // Redirect candidates enumerate by player id: make the LATER one the leader.
@@ -218,8 +219,8 @@ namespace LemonadeWars.Engine.Tests
             leader.BraggingRights = 2;
             straggler.BraggingRights = 0;
 
-            int attack = Hold(game, attacker, "hoa-violation");
-            int tag = Hold(game, victim, "tag-youre-it");
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int tag = GiveCard(game, victim, "tag-youre-it");
             state.Players[victim].Money = 10;
 
             game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
@@ -244,8 +245,8 @@ namespace LemonadeWars.Engine.Tests
 
             // The revealed hand: a throwaway plan first, the tantrum second.
             BuryHand(game, victim.PlayerId);
-            int rummage = Hold(game, victim.PlayerId, "rummage-sale");
-            int tantrum = Hold(game, victim.PlayerId, "tantrum");
+            int rummage = GiveCard(game, victim.PlayerId, "rummage-sale");
+            int tantrum = GiveCard(game, victim.PlayerId, "tantrum");
             state.PendingDecisions.Add(new PendingDecision
             {
                 PlayerId = actor,

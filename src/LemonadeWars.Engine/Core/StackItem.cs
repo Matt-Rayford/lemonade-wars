@@ -3,9 +3,8 @@ using System.Collections.Generic;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// One pending play/purchase on the response stack. Items resolve last-in-first-out
-    /// once every eligible player has passed on the top item. A Tantrum, when it resolves,
-    /// cancels the item it was played against; cancelled items pop without effect.
+    /// One pending play or purchase on the response stack. Items resolve last-in-first-out once
+    /// everyone has passed on the top one; a resolving Tantrum cancels the item it answers.
     /// </summary>
     public sealed class StackItem
     {
@@ -16,9 +15,8 @@ namespace LemonadeWars.Engine.Core
         /// <summary>True when this play bypassed the action cost (instants, Smear Campaign's follow-up, forced plays).</summary>
         public bool FreePlay { get; set; }
         /// <summary>
-        /// This item has had its response window: the stack now resolves top-down without
-        /// asking again. Reset when the Tantrum answering it is itself Tantrummed, and when
-        /// an attack is re-aimed at a new victim.
+        /// This item has had its response window, so the stack resolves without asking again. Reset
+        /// when the Tantrum answering it is itself Tantrummed, and when an attack is re-aimed.
         /// </summary>
         public bool WindowOffered { get; set; }
 

@@ -13,7 +13,7 @@ namespace LemonadeWars.Engine.Core
     {
         private static readonly HashSet<string> RollAbilityIds = new HashSet<string>
         {
-            "downsell", "sugared-up", "take-two",
+            BlackMarketCardIds.Downsell, BlackMarketCardIds.SugaredUp, BlackMarketCardIds.TakeTwo,
         };
 
         private bool HasUnusedRollAbility(PlayerState player) =>
@@ -29,11 +29,11 @@ namespace LemonadeWars.Engine.Core
             {
                 return false;
             }
-            if (defId == "downsell" && State.PendingRoll.Value <= 1)
+            if (defId == BlackMarketCardIds.Downsell && State.PendingRoll.Value <= 1)
             {
                 return false;
             }
-            if (defId == "sugared-up" && State.PendingRoll.Value >= Db.Config.SaleDieSides)
+            if (defId == BlackMarketCardIds.SugaredUp && State.PendingRoll.Value >= Db.Config.SaleDieSides)
             {
                 return false;
             }
@@ -60,14 +60,14 @@ namespace LemonadeWars.Engine.Core
             var def = EquippedDef(action.EquippedInstanceId);
             switch (def.Id)
             {
-                case "downsell":
-                case "sugared-up":
+                case BlackMarketCardIds.Downsell:
+                case BlackMarketCardIds.SugaredUp:
                     NudgePendingRoll(player, action.EquippedInstanceId, def, events);
                     break;
-                case "take-two":
+                case BlackMarketCardIds.TakeTwo:
                     RerollPendingRoll(player, action.EquippedInstanceId, def, events);
                     break;
-                case "liquid-energy":
+                case BlackMarketCardIds.LiquidEnergy:
                     StartExtraSaleRoll(player, action.EquippedInstanceId, def, events);
                     break;
                 default:
@@ -76,18 +76,17 @@ namespace LemonadeWars.Engine.Core
             Pump(events);
         }
 
-        /// <summary>Downsell lowers the pending roll by one; Sugared Up raises it by one.</summary>
         private void NudgePendingRoll(PlayerState player, int instanceId, BlackMarketCardDef def, List<GameEvent> events)
         {
             var roll = State.PendingRoll
                 ?? throw new InvalidActionException($"{def.Name} modifies a die that was just rolled.");
             if (!RollAbilityUsable(def.Id))
             {
-                throw new InvalidActionException(def.Id == "downsell"
+                throw new InvalidActionException(def.Id == BlackMarketCardIds.Downsell
                     ? "Downsell cannot lower a roll of 1."
                     : "Sugared Up cannot raise a roll of 6.");
             }
-            roll.Value = def.Id == "downsell"
+            roll.Value = def.Id == BlackMarketCardIds.Downsell
                 ? Math.Max(1, roll.Value - 1)
                 : Math.Min(Db.Config.SaleDieSides, roll.Value + 1);
             RecordRollModification(player, instanceId, def, roll, events);

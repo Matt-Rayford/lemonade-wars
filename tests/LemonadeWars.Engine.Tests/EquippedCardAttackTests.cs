@@ -2,7 +2,8 @@ using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
-using static LemonadeWars.Engine.Tests.InteractionScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -12,14 +13,14 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TaggedThatsNotFairRequiresRetarget()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int attacker = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
             int tagger = SeatAfterActive(game, 2);
             int newVictim = SeatAfterActive(game, 3);
-            int victimsCard = RigTurfEquip(game, victim);
-            int newVictimsCard = RigTurfEquip(game, newVictim);
+            int victimsCard = RigTurfEquipFromDeckTop(game, victim);
+            int newVictimsCard = RigTurfEquipFromDeckTop(game, newVictim);
             int attack = GiveCard(game, attacker, "thats-not-fair");
             int tag = GiveCard(game, tagger, "tag-youre-it");
 
@@ -51,11 +52,11 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void FindersKeepersStealsAnEquippedCard()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int thief = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
-            int victimsCard = RigTurfEquip(game, victim);
+            int victimsCard = RigTurfEquipFromDeckTop(game, victim);
             int attack = GiveCard(game, thief, "finders-keepers");
 
             game.Apply(new PlayLemonCard
@@ -76,14 +77,14 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void TaggedFindersKeepersDropsTheStaleStolenCard()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 7);
             StripAttackReactions(game);
             int thief = ActivePlayer(game);
             int victim = SeatAfterActive(game, 1);
             int tagger = SeatAfterActive(game, 2);
             int newVictim = SeatAfterActive(game, 3);
-            int victimsCard = RigTurfEquip(game, victim);
-            RigTurfEquip(game, newVictim);
+            int victimsCard = RigTurfEquipFromDeckTop(game, victim);
+            RigTurfEquipFromDeckTop(game, newVictim);
             int attack = GiveCard(game, thief, "finders-keepers");
             int tag = GiveCard(game, tagger, "tag-youre-it");
 

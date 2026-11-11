@@ -1,7 +1,9 @@
+using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
-using static LemonadeWars.Engine.Tests.BlackMarketScenario;
+using static LemonadeWars.Engine.Tests.GameScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -10,9 +12,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void DownsellModifiesThePendingRoll()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "out-of-stock");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             var player = game.State.Players[activeId];
             int downsell = RigEquip(game, activeId, "downsell");
             HoldRollWindowOpen(game);
@@ -30,7 +32,7 @@ namespace LemonadeWars.Engine.Tests
             // Once per turn.
             Assert.Throws<InvalidActionException>(() =>
                 game.Apply(new UseTurnAbility { PlayerId = activeId, EquippedInstanceId = downsell }));
-            GameFlowTests.PassAll(game);
+            PassAll(game);
 
             // Roll 3: both bargains sell.
             Assert.True(game.State.Players[activeId].Money >= money + 2);
@@ -39,9 +41,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void BoundaryRollsHideDownsellAndSugaredUp()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "out-of-stock");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             int downsell = RigEquip(game, activeId, "downsell");
             int sugared = RigEquip(game, activeId, "sugared-up");
             GiveCard(game, activeId, "out-of-stock"); // keeps the roll window open for the owner
@@ -69,9 +71,9 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void LiquidEnergyGrantsAnExtraTableSale()
         {
-            var game = ReadyToPlay();
+            var game = ReadyToPlay(seed: 11);
             StripHands(game, "tantrum", "out-of-stock");
-            int activeId = Active(game);
+            int activeId = ActivePlayer(game);
             int liquid = RigEquip(game, activeId, "liquid-energy");
             var money = game.State.Players.Select(p => p.Money).ToList();
 
@@ -87,6 +89,27 @@ namespace LemonadeWars.Engine.Tests
                 }
             }
             Assert.Equal(TurnPhase.Play, game.State.Phase); // turn continues
+        }
+
+        [Fact]
+        public void TradeWindsStillRollsForStandsQueuedBehindOneThatIsGone()
+        {
+            var game = ReadyToPlay(seed: 11);
+            StripHands(game, "tantrum");
+            int activeId = ActivePlayer(game);
+            int standingStandId = game.State.Players[activeId].Stands[0].InstanceId;
+            const int soldStandId = 9_999;
+            // The end-of-turn queue as it stands after a queued stand was sold mid-turn.
+            game.State.TradeWindsBuilt = true;
+            game.State.TradeWindsQueue.Add(soldStandId);
+            game.State.TradeWindsQueue.Add(standingStandId);
+
+            var events = new List<GameEvent>(game.Apply(new EndTurn { PlayerId = activeId }));
+            PassWindowsOnly(game, events);
+
+            var tradeWindsRoll = Assert.Single(events.OfType<SaleRolled>(),
+                roll => roll.Purpose == RollPurpose.TradeWinds);
+            Assert.Equal(standingStandId, tradeWindsRoll.StandInstanceId);
         }
     }
 }

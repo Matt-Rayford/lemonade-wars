@@ -1,5 +1,6 @@
 using System.Linq;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Engine.Data;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -88,7 +89,7 @@ namespace LemonadeWars.Unity
             if (wanted && !_table.TimeoutCardShown)
             {
                 _timeoutCardShownAt = Time.time;
-                _table.ShowTimeoutCard(_art.Lemon(TimeoutDefId));
+                _table.ShowTimeoutCard(_art.Lemon(LemonCardIds.Timeout));
             }
             else if (!wanted)
             {

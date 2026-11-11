@@ -1,13 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
-    /// <summary>
-    /// The choices a triggered Black Market ability asks of its owner: who to rob, which
-    /// card to take or hand back, what to discard, which Power Pour card to copy, which
-    /// Stand to sell.
-    /// </summary>
     public sealed partial class Game
     {
         private static bool IsAbilityDecision(DecisionKind kind) =>
@@ -66,22 +62,22 @@ namespace LemonadeWars.Engine.Core
 
             switch (def.Id)
             {
-                case "juice-box-joey":
-                case "gone-fishin":
+                case BlackMarketCardIds.JuiceBoxJoey:
+                case BlackMarketCardIds.GoneFishin:
                     TriggerSteal(victim, owner, 1, def.Name, events);
                     break;
-                case "two-bit-timmy":
+                case BlackMarketCardIds.TwoBitTimmy:
                     TriggerSteal(victim, owner, 2, def.Name, events);
                     break;
-                case "nap-time-nino":
-                case "half-pint-harry":
+                case BlackMarketCardIds.NapTimeNino:
+                case BlackMarketCardIds.HalfPintHarry:
                     StealRandomCardThenGiveBack(owner, victim, decision.SourceInstanceId, events);
                     break;
-                case "family-business":
+                case BlackMarketCardIds.FamilyBusiness:
                     TriggerSteal(victim, owner, 1, def.Name, events);
                     StealRandomCardThenGiveBack(owner, victim, decision.SourceInstanceId, events);
                     break;
-                case "dons-blessings":
+                case BlackMarketCardIds.DonsBlessings:
                     if (victim.Hand.Count > 0)
                     {
                         AddDecision(new PendingDecision

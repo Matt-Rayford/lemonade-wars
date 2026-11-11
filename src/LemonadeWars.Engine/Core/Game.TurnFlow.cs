@@ -1,19 +1,18 @@
 using System.Collections.Generic;
 using System.Linq;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Turn lifecycle: the stepped turn start (Spoiled Rotten roll, draws, Whiniest Baby
-    /// discard) and the end-of-turn sequence (sale roll, Trade Winds rolls, VP trigger,
-    /// turn pass). Every step advances through the pump so response windows can
-    /// interleave anywhere. The rolls themselves resolve in Game.SaleRolls.cs.
+    /// The stepped turn start (Spoiled Rotten roll, draws, Whiniest Baby discard) and the end of
+    /// turn (sale roll, Trade Winds rolls, VP trigger, turn pass). Every step advances through the
+    /// pump, so response windows can interleave anywhere.
     /// </summary>
     public sealed partial class Game
     {
         // ------------------------------------------------------ turn start
 
-        /// <summary>Begin the active player's turn; steps advance through the pump.</summary>
         private void StartTurn(List<GameEvent> events)
         {
             State.Phase = TurnPhase.Start;
@@ -25,7 +24,7 @@ namespace LemonadeWars.Engine.Core
             State.TradeWindsBuilt = false;
             State.TradeWindsQueue.Clear();
             // Shopping Spree: +1 Black-Market-only buy action per equipped copy.
-            State.BmOnlyActionsRemaining = CountOnTurf(Player(State.ActivePlayer), "shopping-spree");
+            State.BmOnlyActionsRemaining = CountOnTurf(Player(State.ActivePlayer), BlackMarketCardIds.ShoppingSpree);
             State.TurnStartInProgress = true;
             State.TurnStartStep = 0;
             events.Add(new TurnStarted { PlayerId = State.ActivePlayer });
@@ -165,7 +164,7 @@ namespace LemonadeWars.Engine.Core
             State.TradeWindsBuilt = true;
             foreach (var stand in active.Stands)
             {
-                int copies = stand.Equipped.Count(id => EquippedDef(id).Id == "trade-winds");
+                int copies = stand.Equipped.Count(id => EquippedDef(id).Id == BlackMarketCardIds.TradeWinds);
                 for (int copy = 0; copy < copies; copy++)
                 {
                     State.TradeWindsQueue.Add(stand.InstanceId);
@@ -175,19 +174,20 @@ namespace LemonadeWars.Engine.Core
 
         private bool TryOpenNextTradeWindsRoll(PlayerState active, List<GameEvent> events)
         {
-            if (State.TradeWindsQueue.Count == 0)
+            while (State.TradeWindsQueue.Count > 0)
             {
-                return false;
+                int standId = State.TradeWindsQueue[0];
+                State.TradeWindsQueue.RemoveAt(0);
+                // A stand sold since the queue was built forfeits only its own roll.
+                if (!active.Stands.Any(s => s.InstanceId == standId))
+                {
+                    continue;
+                }
+                events.Add(new AbilityTriggered { PlayerId = active.PlayerId, DefId = BlackMarketCardIds.TradeWinds });
+                OpenRollWindow(RollPurpose.TradeWinds, active.PlayerId, events, standId);
+                return true;
             }
-            int standId = State.TradeWindsQueue[0];
-            State.TradeWindsQueue.RemoveAt(0);
-            if (!active.Stands.Any(s => s.InstanceId == standId))
-            {
-                return false;
-            }
-            events.Add(new AbilityTriggered { PlayerId = active.PlayerId, DefId = "trade-winds" });
-            OpenRollWindow(RollPurpose.TradeWinds, active.PlayerId, events, standId);
-            return true;
+            return false;
         }
     }
 }

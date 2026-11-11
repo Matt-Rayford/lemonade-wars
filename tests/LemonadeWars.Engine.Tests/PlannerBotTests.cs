@@ -7,6 +7,7 @@ using LemonadeWars.Engine.Data;
 using Newtonsoft.Json;
 using Xunit;
 using static LemonadeWars.Engine.Tests.BotScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -193,11 +194,11 @@ namespace LemonadeWars.Engine.Tests
             var state = game.State;
             int attacker = state.ActivePlayer;
             int victim = (attacker + 1) % 3;
-            StripReactionCards(game);
+            StripStackReactions(game);
             ClearLemonLords(game);
-            int attack = Hold(game, attacker, "finders-keepers");
-            int tantrum = Hold(game, attacker, "tantrum");
-            int rubberGlue = Hold(game, victim, "im-rubber-youre-glue");
+            int attack = GiveCard(game, attacker, "finders-keepers");
+            int tantrum = GiveCard(game, attacker, "tantrum");
+            int rubberGlue = GiveCard(game, victim, "im-rubber-youre-glue");
             // Something worth stealing on the victim's first stand, and something on the
             // attacker's for the bounce.
             int loot = EquipOnFirstStand(game, victim, "diluted-lemonade");

@@ -9,9 +9,6 @@ namespace LemonadeWars.Engine.Core
     /// parameterized so that each returned action Applies cleanly. This is the contract
     /// the UI (button states), AI opponents, and the fuzz tests all share — including
     /// the ORDER moves are listed in, which bots break ties by.
-    /// This file holds the entry points plus setup-draft and turn moves; answers to
-    /// pending decisions are in Game.DecisionMoves.cs, window responses in
-    /// Game.WindowMoves.cs, per-card play parameterizations in Game.PlayParams.cs.
     /// </summary>
     public sealed partial class Game
     {
@@ -49,7 +46,6 @@ namespace LemonadeWars.Engine.Core
             return acting;
         }
 
-        /// <summary>All legal actions for one player in the current state.</summary>
         public List<GameAction> LegalMovesFor(int playerId)
         {
             var moves = new List<GameAction>();
@@ -98,7 +94,6 @@ namespace LemonadeWars.Engine.Core
             return moves;
         }
 
-        /// <summary>Every pair of the Lemon Lords this player was dealt, until they have kept one.</summary>
         private static void AddLemonLordChoices(List<GameAction> moves, PlayerState player)
         {
             if (player.LemonLordKept.Count > 0)
@@ -203,7 +198,7 @@ namespace LemonadeWars.Engine.Core
         {
             foreach (int equippedId in player.Turf.Equipped)
             {
-                if (EquippedDef(equippedId).Id == "liquid-energy" && !State.UsedTurnAbilities.Contains(equippedId))
+                if (EquippedDef(equippedId).Id == BlackMarketCardIds.LiquidEnergy && !State.UsedTurnAbilities.Contains(equippedId))
                 {
                     moves.Add(new UseTurnAbility { PlayerId = player.PlayerId, EquippedInstanceId = equippedId });
                 }
@@ -247,7 +242,6 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        /// <param name="budget">Spending cap; defaults to all the player's money.</param>
         private void AddBlackMarketBuys(List<GameAction> moves, PlayerState player, int? budget = null)
         {
             int spendable = budget ?? player.Money;

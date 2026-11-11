@@ -1,14 +1,13 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
+using System;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Resolution handlers for attack Lemon cards, dispatched from ResolveLemonPlay.
-    /// Each returns true once the play is finished, or false while it waits on the
-    /// attacker to re-pick a stale target (see RequestRetargetOrFizzle). HOA Violation
-    /// resolves in the dispatcher itself.
+    /// Each attack handler returns true once the play is finished, or false while the
+    /// attacker re-picks a stale target (see RequestRetargetOrFizzle).
     /// </summary>
     public sealed partial class Game
     {
@@ -81,9 +80,8 @@ namespace LemonadeWars.Engine.Core
             {
                 events.Add(new CardsStolen { FromPlayerId = victim.PlayerId, ToPlayerId = owner.PlayerId, Count = steals });
             }
-            // "Then you may play any card" (designer ruling): the smear gives its action
-            // back instead of opening a free-play prompt. A free-played smear (Bouncer)
-            // never spent one, so it gets nothing back.
+            // "Then you may play any card" (designer ruling): the smear refunds its action instead of
+            // opening a free-play prompt. A free-played smear (Bouncer) never spent one.
             if (!item.FreePlay)
             {
                 State.ActionsRemaining += 1;
@@ -107,7 +105,7 @@ namespace LemonadeWars.Engine.Core
         private bool ResolveTaxes(StackItem item, PlayerState owner, List<GameEvent> events)
         {
             var victim = AttackVictim(item);
-            StealMoney(victim, owner, Math.Min(2 * victim.Stands.Count, 10), "taxes", events);
+            StealMoney(victim, owner, Math.Min(2 * victim.Stands.Count, 10), LemonCardIds.Taxes, events);
             return true;
         }
 

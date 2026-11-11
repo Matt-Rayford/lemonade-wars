@@ -43,7 +43,6 @@ namespace LemonadeWars.Unity
                     Debug.LogWarning("[LW] watchdog: one effect busy >8s — clearing. " + _fx.DebugState());
                     _fx.Clear();
                     _playTheatre.Clear();
-                    _playTheatre.Clear();
                     _fxBusySince = -1f;
                 }
             }

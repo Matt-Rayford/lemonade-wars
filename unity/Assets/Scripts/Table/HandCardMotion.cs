@@ -9,8 +9,6 @@ namespace LemonadeWars.Unity
     public sealed class HandCardMotion : MonoBehaviour
     {
         public float TargetY;
-        /// <summary>Set while a neighbour is being dragged past; null leaves X alone.</summary>
-        public float? TargetX;
 
         private RectTransform _rect;
 
@@ -24,10 +22,6 @@ namespace LemonadeWars.Unity
             var position = _rect.anchoredPosition;
             float ease = 1f - Mathf.Exp(-14f * Time.deltaTime);
             position.y = Mathf.Lerp(position.y, TargetY, ease);
-            if (TargetX is float targetX)
-            {
-                position.x = Mathf.Lerp(position.x, targetX, ease);
-            }
             _rect.anchoredPosition = position;
         }
     }

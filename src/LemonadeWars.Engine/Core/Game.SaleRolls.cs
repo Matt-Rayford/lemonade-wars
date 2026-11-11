@@ -1,6 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
+using System;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
@@ -42,10 +43,7 @@ namespace LemonadeWars.Engine.Core
             State.PostRollContinuation = roll.Purpose;
         }
 
-        /// <summary>
-        /// Apply a final die value. Base payouts land first, then interactive triggers
-        /// queue decisions (rulebook p13 ordering).
-        /// </summary>
+        /// <summary>Base payouts land first, then interactive triggers queue decisions (rulebook p13 ordering).</summary>
         private void FinalizeSale(PendingRoll roll, List<GameEvent> events)
         {
             SellMatchingStands(roll, events);
@@ -99,7 +97,7 @@ namespace LemonadeWars.Engine.Core
         private void PayTipJars(PendingRoll roll, List<GameEvent> events)
         {
             var roller = Player(roll.RollerId);
-            int jars = CountOnTurf(roller, "tip-jars");
+            int jars = CountOnTurf(roller, BlackMarketCardIds.TipJars);
             if (jars == 0)
             {
                 return;
@@ -107,7 +105,7 @@ namespace LemonadeWars.Engine.Core
             int standsSold = roller.Stands.Count(s => SaleNumbersOf(s).Contains(roll.Value));
             if (standsSold > 0)
             {
-                events.Add(new AbilityTriggered { PlayerId = roller.PlayerId, DefId = "tip-jars" });
+                events.Add(new AbilityTriggered { PlayerId = roller.PlayerId, DefId = BlackMarketCardIds.TipJars });
                 GainFromRoll(roller, jars * standsSold, "tip jars", events);
             }
         }
