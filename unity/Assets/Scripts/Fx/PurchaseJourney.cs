@@ -3,12 +3,9 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// A purchased card's trip from the shelf to its buyer: after an optional delay it
-    /// slides down to a showcase spot beside the buyer's bar, holds there so the table
-    /// can read it, then slides into the bar while shrinking to badge size and fading
-    /// out. 1.5 seconds after the delay.
-    /// OnLeaveShowcase fires once when the flight begins; OnDone only on the natural
-    /// end — early teardown is the owner's job (EndActive).
+    /// A purchased card's trip from the shelf to its buyer: it slides to a showcase spot
+    /// beside the buyer's bar, holds there to be read, then slides into the bar shrinking
+    /// and fading. OnDone fires only on the natural end; early teardown is the owner's job.
     /// </summary>
     public sealed class PurchaseJourney : MonoBehaviour
     {
@@ -23,8 +20,8 @@ namespace LemonadeWars.Unity
         public Vector2 Showcase;
         /// <summary>Resolved when the flight begins — the buyer's bar may have re-laid-out.</summary>
         public System.Func<Vector2> Destination;
-        /// <summary>Scale on arrival: the card ends a little shorter than a player bar.</summary>
         public float EndScale = 0.28f;
+        /// <summary>Fires once, when the hold ends and the card starts for the bar.</summary>
         public System.Action OnLeaveShowcase;
         public System.Action OnDone;
 
@@ -51,14 +48,14 @@ namespace LemonadeWars.Unity
                 _from = _rect.anchoredPosition; // set by the spawner after Awake
             }
             _elapsed += Time.deltaTime;
-            float since = _elapsed - Delay;
-            if (since < 0f)
+            float sinceDelay = _elapsed - Delay;
+            if (sinceDelay < 0f)
             {
                 return; // still on the shelf while the money comes out
             }
-            if (since < ShowcaseUntilSeconds)
+            if (sinceDelay < ShowcaseUntilSeconds)
             {
-                Slide(Mathf.Clamp01(since / SlideSeconds));
+                Slide(Mathf.Clamp01(sinceDelay / SlideSeconds));
                 return;
             }
             if (!_flying)
@@ -67,7 +64,8 @@ namespace LemonadeWars.Unity
                 _to = Destination?.Invoke() ?? Showcase;
                 OnLeaveShowcase?.Invoke();
             }
-            float flight = Mathf.Clamp01((since - ShowcaseUntilSeconds) / (TotalSeconds - ShowcaseUntilSeconds));
+            float flight = Mathf.Clamp01(
+                (sinceDelay - ShowcaseUntilSeconds) / (TotalSeconds - ShowcaseUntilSeconds));
             Fly(flight);
             if (flight >= 1f)
             {
@@ -76,18 +74,20 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private void Slide(float t)
+        private void Slide(float progress)
         {
-            float eased = 1f - (1f - t) * (1f - t); // fast lift, gentle settle
+            float eased = 1f - (1f - progress) * (1f - progress); // fast lift, gentle settle
             _rect.anchoredPosition = Vector2.Lerp(_from, Showcase, eased);
         }
 
-        private void Fly(float t)
+        private void Fly(float progress)
         {
-            float eased = t * t * (3f - 2f * t);
+            float eased = progress * progress * (3f - 2f * progress);
             _rect.anchoredPosition = Vector2.Lerp(Showcase, _to, eased);
             transform.localScale = Vector3.one * Mathf.Lerp(1f, EndScale, eased);
-            _group.alpha = t < FadeStartFraction ? 1f : 1f - (t - FadeStartFraction) / (1f - FadeStartFraction);
+            _group.alpha = progress < FadeStartFraction
+                ? 1f
+                : 1f - (progress - FadeStartFraction) / (1f - FadeStartFraction);
         }
     }
 }

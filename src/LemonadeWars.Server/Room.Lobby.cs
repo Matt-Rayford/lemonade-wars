@@ -4,9 +4,18 @@ using LemonadeWars.Engine.Core;
 
 namespace LemonadeWars.Server;
 
-// Seating, readiness, bot roster, and game start.
 public sealed partial class Room
 {
+    private const int SlowBotDelayMs = 2200;
+    private const int FastBotDelayMs = 500;
+    private const int NoBotDelayOverride = -1;
+
+    private static readonly string[] BotNames = { "Benny", "Cleo", "Dex", "Squeezy" };
+
+    /// <summary>Room-wide bot pacing: "slow" / "medium" / "fast".</summary>
+    public string BotSpeed { get; private set; } = "medium";
+    private int _botDelayOverrideMs = NoBotDelayOverride;
+
     public Seat? Join(string name, string? token, string? playerId, Connection connection,
         out string error)
     {
@@ -19,14 +28,7 @@ public sealed partial class Room
                 error = "That room has expired.";
                 return null;
             }
-            // Reconnect takes the seat back over: a token always (explicit credential);
-            // identity only when the seat is unheld or the game is running — two live
-            // clients sharing one identity in a lobby (same machine, twin instances)
-            // should get two seats, not fight over one.
-            var existing = _seats.FirstOrDefault(s =>
-                (!string.IsNullOrEmpty(token) && s.Token == token) ||
-                (playerId != null && s.PlayerId == playerId &&
-                 (_game != null || !s.Connected)));
+            var existing = FindReclaimableSeat(token, playerId);
             if (existing != null)
             {
                 existing.Client = connection;
@@ -61,10 +63,21 @@ public sealed partial class Room
         BroadcastRoom(toNotify);
         if (Started)
         {
-            _ = BroadcastGameAsync(Array.Empty<GameEvent>()); // rejoin: fresh view + moves
+            // A rejoining player needs a fresh view and move list.
+            _ = BroadcastGameAsync(Array.Empty<GameEvent>());
         }
         return seat;
     }
+
+    /// <summary>
+    /// A token always reclaims its seat. An identity reclaims one only if the seat is unheld
+    /// or the game is running: two live clients sharing an identity in a lobby get two seats.
+    /// </summary>
+    private Seat? FindReclaimableSeat(string? token, string? playerId) =>
+        _seats.FirstOrDefault(s =>
+            (!string.IsNullOrEmpty(token) && s.Token == token) ||
+            (playerId != null && s.PlayerId == playerId &&
+             (_game != null || !s.Connected)));
 
     public string AddBot(int requestingSeat, string? level = null)
     {
@@ -83,11 +96,10 @@ public sealed partial class Room
             {
                 return "The room is full.";
             }
-            string[] botNames = { "Benny", "Cleo", "Dex", "Squeezy" };
             _seats.Add(new Seat
             {
                 Index = _seats.Count,
-                Name = botNames[_seats.Count % botNames.Length] + " (bot)",
+                Name = BotNames[_seats.Count % BotNames.Length] + " (bot)",
                 IsBot = true,
                 Ready = true,
                 BotLevel = BotFactory.Normalize(level),
@@ -98,14 +110,9 @@ public sealed partial class Room
         return "";
     }
 
-    /// <summary>Room-wide bot pacing: "slow" / "medium" / "fast".</summary>
-    public string BotSpeed { get; private set; } = "medium";
-    private int _botDelayOverrideMs = -1;
-
     /// <summary>
-    /// Any seated human may change the pace, before or during the game — the player
-    /// drowning in bot actions is rarely the host. Last write wins; the broadcast
-    /// keeps every client's speed chip in sync.
+    /// Any seated human may change the pace, before or during the game: the player
+    /// drowning in bot actions is rarely the host. Last write wins.
     /// </summary>
     public string SetSpeed(int requestingSeat, string? speed)
     {
@@ -120,15 +127,15 @@ public sealed partial class Room
             {
                 case "slow":
                     BotSpeed = "slow";
-                    _botDelayOverrideMs = 2200;
+                    _botDelayOverrideMs = SlowBotDelayMs;
                     break;
                 case "fast":
                     BotSpeed = "fast";
-                    _botDelayOverrideMs = 500;
+                    _botDelayOverrideMs = FastBotDelayMs;
                     break;
                 case "medium":
                     BotSpeed = "medium";
-                    _botDelayOverrideMs = -1; // server default (BOT_DELAY_MS)
+                    _botDelayOverrideMs = NoBotDelayOverride;
                     break;
                 default:
                     return "Speed must be slow, medium, or fast.";
@@ -139,7 +146,6 @@ public sealed partial class Room
         return "";
     }
 
-    /// <summary>Host retunes a bot seat's difficulty in the lobby.</summary>
     public string SetBotLevel(int requestingSeat, int botSeat, string? level)
     {
         List<Seat> toNotify;
@@ -165,11 +171,6 @@ public sealed partial class Room
         return "";
     }
 
-    /// <summary>
-    /// Remove a specific bot seat (host only, before the game starts). Remaining seats
-    /// are re-indexed so seat numbers stay contiguous — required because seat index
-    /// becomes PlayerId at start.
-    /// </summary>
     public string RemoveBot(int requestingSeat, int botSeat)
     {
         List<Seat> toNotify;
@@ -196,9 +197,8 @@ public sealed partial class Room
     }
 
     /// <summary>
-    /// Drop a lobby seat and close the gap. Seat index IS turn order and hosthood
-    /// (seat 0), so the remaining seats renumber — a departed host hands the room
-    /// to the next seat. Lobby only: a started game never loses a seat.
+    /// Lobby only. Seat index is turn order, hosthood (seat 0) and, at start, PlayerId, so
+    /// the remaining seats renumber to stay contiguous; a departed host hands on to the next seat.
     /// </summary>
     private void RemoveSeat(Seat seat)
     {
@@ -209,7 +209,6 @@ public sealed partial class Room
         }
     }
 
-    /// <summary>Toggle a human seat's ready flag in the lobby.</summary>
     public void SetReady(int seatIndex, bool ready)
     {
         List<Seat> toNotify;
@@ -242,9 +241,9 @@ public sealed partial class Room
             {
                 return $"Need at least {_db.Config.MinPlayers} players.";
             }
-            // Everyone except the host (whose Start click implies readiness) must be ready.
-            var notReady = _seats.Where(s => !s.Ready && s.Index != requestingSeat).ToList();
-            if (notReady.Count > 0)
+            // The host's Start click implies their own readiness.
+            bool isEveryoneElseReady = _seats.All(s => s.Ready || s.Index == requestingSeat);
+            if (!isEveryoneElseReady)
             {
                 return "Not All Players Are Ready";
             }
@@ -264,6 +263,7 @@ public sealed partial class Room
         return "";
     }
 
+    /// <summary>A dropped socket is not a departure: the seat stays, offline, for the player to reclaim.</summary>
     public void Detach(Connection connection)
     {
         List<Seat> toNotify;
@@ -274,19 +274,13 @@ public sealed partial class Room
             {
                 return;
             }
-            // A dropped socket is not a departure: the seat stays, marked offline,
-            // so the player can reclaim it with their token (see Leave for exits).
             seat.Client = null;
             toNotify = _seats.ToList();
         }
         BroadcastRoom(toNotify);
     }
 
-    /// <summary>
-    /// A deliberate exit. In the lobby the seat is freed outright — a "disconnected"
-    /// ghost would hold a slot nobody is coming back to. Mid-game the seat only goes
-    /// offline, exactly like a drop, so the game can continue and the player rejoin.
-    /// </summary>
+    /// <summary>A deliberate exit frees a lobby seat outright; mid-game the seat only goes offline, like a drop.</summary>
     public void Leave(Connection connection)
     {
         List<Seat> toNotify;

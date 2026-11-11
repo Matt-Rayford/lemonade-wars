@@ -4,10 +4,8 @@ using System.Linq;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Submit actions that answer blocking <see cref="PendingDecision"/>s shared across
-    /// subsystems: forced discards, the Timeout fine, and skipping optional free plays.
-    /// Card-specific decision answers live with their cards (SubmitRetarget in
-    /// Game.LemonEffects.cs, SubmitAbilityChoice in Game.BlackMarket.cs).
+    /// Answers to the decisions no single card owns: forced discards, the Timeout fine,
+    /// skipping a free play. Card-specific answers live with their cards.
     /// </summary>
     public sealed partial class Game
     {
@@ -21,6 +19,8 @@ namespace LemonadeWars.Engine.Core
             }
             return decision;
         }
+
+        // --------------------------------------------------------- discards
 
         private void ApplySubmitDiscard(SubmitDiscard action, List<GameEvent> events)
         {
@@ -58,48 +58,29 @@ namespace LemonadeWars.Engine.Core
             Pump(events);
         }
 
+        // ----------------------------------------------------- timeout fine
+
         private void ApplySubmitTimeoutPayment(SubmitTimeoutPayment action, List<GameEvent> events)
         {
             var decision = RequireDecision(action.PlayerId, DecisionKind.TimeoutFine);
             var player = Player(action.PlayerId);
 
-            // Sell listed assets at full base price. Black Market cards go FIRST: selling a
-            // stand discards its remaining equips uncompensated, so a payment listing both
-            // an equip and its stand must cash the equip in before the stand goes.
+            // Black Market cards go FIRST: selling a stand discards its remaining equips
+            // uncompensated, so an equip listed with its stand is cashed in before it.
             foreach (int bmId in action.SellBmInstanceIds.Distinct())
             {
-                bool fromStand = player.Stands.Any(s => s.Equipped.Remove(bmId));
-                bool fromTurf = !fromStand && player.Turf.Equipped.Remove(bmId);
-                if (!fromStand && !fromTurf)
-                {
-                    throw new InvalidActionException($"No equipped Black Market card {bmId}.");
-                }
-                var def = Db.BlackMarket(State.BlackMarketInstances[bmId].DefId);
-                State.BlackMarketDiscard.Add(bmId);
-                player.Money += def.Cost;
-                events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = def.Cost, Reason = "sold card" });
+                SellEquippedCardAtCost(player, bmId, events);
             }
             foreach (int standId in action.SellStandInstanceIds.Distinct())
             {
-                var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standId)
-                    ?? throw new InvalidActionException($"No owned stand {standId}.");
-                var type = Db.StandType(stand.StandTypeId);
-                // Equipped cards still on a sold stand are discarded with it.
-                foreach (int equipped in stand.Equipped)
-                {
-                    State.BlackMarketDiscard.Add(equipped);
-                }
-                player.Stands.Remove(stand);
-                State.StandSupply[stand.StandTypeId].Add(stand.Shape); // bottom of the stack
-                player.Money += type.BaseCost;
-                events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = type.BaseCost, Reason = "sold stand" });
+                SellStandAtBaseCost(player, standId, events);
             }
 
             int owed = decision.RequiredMoney;
-            bool bankrupt = player.Money < owed &&
+            bool isBankrupt = player.Money < owed &&
                 player.Stands.Count == 0 &&
                 player.Turf.Equipped.Count == 0;
-            if (player.Money < owed && !bankrupt)
+            if (player.Money < owed && !isBankrupt)
             {
                 throw new InvalidActionException(
                     $"Fine is ${owed}; sell enough assets to cover it (have ${player.Money}).");
@@ -113,6 +94,38 @@ namespace LemonadeWars.Engine.Core
             Pump(events);
         }
 
+        private void SellEquippedCardAtCost(PlayerState player, int bmInstanceId, List<GameEvent> events)
+        {
+            bool wasOnStand = player.Stands.Any(s => s.Equipped.Remove(bmInstanceId));
+            bool wasOnTurf = !wasOnStand && player.Turf.Equipped.Remove(bmInstanceId);
+            if (!wasOnStand && !wasOnTurf)
+            {
+                throw new InvalidActionException($"No equipped Black Market card {bmInstanceId}.");
+            }
+            var def = Db.BlackMarket(State.BlackMarketInstances[bmInstanceId].DefId);
+            State.BlackMarketDiscard.Add(bmInstanceId);
+            player.Money += def.Cost;
+            events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = def.Cost, Reason = "sold card" });
+        }
+
+        private void SellStandAtBaseCost(PlayerState player, int standInstanceId, List<GameEvent> events)
+        {
+            var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standInstanceId)
+                ?? throw new InvalidActionException($"No owned stand {standInstanceId}.");
+            var standType = Db.StandType(stand.StandTypeId);
+            // Cards still equipped on a sold stand are discarded with it.
+            foreach (int equipped in stand.Equipped)
+            {
+                State.BlackMarketDiscard.Add(equipped);
+            }
+            player.Stands.Remove(stand);
+            State.StandSupply[stand.StandTypeId].Add(stand.Shape); // bottom of the stack
+            player.Money += standType.BaseCost;
+            events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = standType.BaseCost, Reason = "sold stand" });
+        }
+
+        // ------------------------------------------------------- free plays
+
         private void ApplySkipFreePlay(SkipFreePlay action, List<GameEvent> events)
         {
             var decision = State.PendingDecisions.FirstOrDefault(d =>
@@ -123,9 +136,8 @@ namespace LemonadeWars.Engine.Core
 
             if (decision.Kind == DecisionKind.ForcedPlay)
             {
-                // "Play it immediately" is mandatory — skippable only when the recovered
-                // card has no legal parameterization (e.g. That's Not Fair! with no
-                // opposing equips). The card then stays in hand.
+                // "Play it immediately" is mandatory: skippable only when the recovered card has no
+                // legal play (That's Not Fair! with no opposing equips); it then stays in hand.
                 var player = Player(action.PlayerId);
                 int cardId = decision.CardInstanceId!.Value;
                 var def = Db.Lemon(State.LemonInstances[cardId].DefId);

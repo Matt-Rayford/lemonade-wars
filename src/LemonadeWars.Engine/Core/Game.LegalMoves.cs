@@ -7,8 +7,8 @@ namespace LemonadeWars.Engine.Core
     /// <summary>
     /// Legal move enumeration: every action a player could submit right now, fully
     /// parameterized so that each returned action Applies cleanly. This is the contract
-    /// the UI (button states), AI opponents, and the fuzz tests all share.
-    /// Per-card play parameterizations live in Game.PlayParams.cs.
+    /// the UI (button states), AI opponents, and the fuzz tests all share — including
+    /// the ORDER moves are listed in, which bots break ties by.
     /// </summary>
     public sealed partial class Game
     {
@@ -46,7 +46,6 @@ namespace LemonadeWars.Engine.Core
             return acting;
         }
 
-        /// <summary>All legal actions for one player in the current state.</summary>
         public List<GameAction> LegalMovesFor(int playerId)
         {
             var moves = new List<GameAction>();
@@ -56,53 +55,30 @@ namespace LemonadeWars.Engine.Core
             {
                 return moves;
             }
-
             if (State.Stage == GameStage.ChoosingLemonLords)
             {
-                if (player.LemonLordKept.Count == 0)
-                {
-                    var dealt = player.LemonLordDealt;
-                    for (int i = 0; i < dealt.Count; i++)
-                    {
-                        for (int j = i + 1; j < dealt.Count; j++)
-                        {
-                            moves.Add(new ChooseLemonLords
-                            {
-                                PlayerId = playerId,
-                                KeepTitleIds = new List<string> { dealt[i], dealt[j] },
-                            });
-                        }
-                    }
-                }
+                AddLemonLordChoices(moves, player);
                 return moves;
             }
 
             // Blocking decisions come first — nothing else is legal while they pend.
-            // Each Apply handler answers the FIRST pending decision of its group, so only
-            // enumerate for the first decision per group to keep move shapes aligned.
             if (State.PendingDecisions.Count > 0)
             {
-                var seenGroups = new HashSet<string>();
-                foreach (var decision in State.PendingDecisions.Where(d => d.PlayerId == playerId))
-                {
-                    if (seenGroups.Add(DecisionGroup(decision.Kind)))
-                    {
-                        AddDecisionMoves(moves, player, decision);
-                    }
-                }
+                AddPendingDecisionMoves(moves, player);
                 return moves;
             }
 
-            // Open response window.
             if (State.AwaitingResponse.Contains(playerId))
             {
                 AddWindowMoves(moves, player);
                 return moves;
             }
-            if (State.AwaitingResponse.Count > 0 || State.ResponseStack.Count > 0 ||
-                State.PendingRoll != null || State.TheftQueue.Count > 0)
+            bool isInteractionPendingOnOthers =
+                State.AwaitingResponse.Count > 0 || State.ResponseStack.Count > 0 ||
+                State.PendingRoll != null || State.TheftQueue.Count > 0;
+            if (isInteractionPendingOnOthers)
             {
-                return moves; // interaction pending, but not on this player
+                return moves;
             }
 
             if (State.Stage == GameStage.InitialBuys)
@@ -118,316 +94,22 @@ namespace LemonadeWars.Engine.Core
             return moves;
         }
 
-        // -------------------------------------------------------- decisions
-
-        /// <summary>Decisions answered by the same action type share a group (FIFO within it).</summary>
-        private static string DecisionGroup(DecisionKind kind)
+        private static void AddLemonLordChoices(List<GameAction> moves, PlayerState player)
         {
-            switch (kind)
+            if (player.LemonLordKept.Count > 0)
             {
-                case DecisionKind.DiscardToHandLimit:
-                case DecisionKind.WhiniestBabyDiscard:
-                    return "discard";
-                case DecisionKind.AbilityVictim:
-                case DecisionKind.AbilityPickCard:
-                case DecisionKind.AbilityGiveBack:
-                case DecisionKind.AbilityDiscard:
-                case DecisionKind.InnovationCopy:
-                case DecisionKind.WordOfMouthStand:
-                    return "ability";
-                case DecisionKind.FreePlayOffer:
-                case DecisionKind.ForcedPlay:
-                case DecisionKind.BouncerAttack:
-                    return "freeplay";
-                default:
-                    return kind.ToString();
-            }
-        }
-
-        private void AddDecisionMoves(List<GameAction> moves, PlayerState player, PendingDecision decision)
-        {
-            switch (decision.Kind)
-            {
-                case DecisionKind.DiscardToHandLimit:
-                case DecisionKind.WhiniestBabyDiscard:
-                    foreach (var combo in CardCombos(
-                        decision.EligibleCardIds ?? player.Hand, decision.RequiredCount))
-                    {
-                        moves.Add(new SubmitDiscard { PlayerId = player.PlayerId, InstanceIds = combo });
-                    }
-                    break;
-
-                case DecisionKind.TimeoutFine:
-                    moves.Add(BuildTimeoutPayment(player, decision.RequiredMoney));
-                    break;
-
-                case DecisionKind.AttackRetarget:
-                {
-                    var item = FindStackItem(decision.StackItemId);
-                    if (item == null)
-                    {
-                        break;
-                    }
-                    var victim = Player(item.AttackTargetId!.Value);
-                    foreach (int equippedId in AllEquipped(victim))
-                    {
-                        if (item.LemonDefId == "finders-keepers")
-                        {
-                            foreach (var (standId, replaceId) in DestinationsFor(player, EquippedDef(equippedId)))
-                            {
-                                moves.Add(new SubmitRetarget
-                                {
-                                    PlayerId = player.PlayerId,
-                                    StackItemId = item.ItemId,
-                                    TargetEquippedInstanceId = equippedId,
-                                    EquipStandInstanceId = standId,
-                                    EquipReplaceInstanceId = replaceId,
-                                });
-                            }
-                        }
-                        else
-                        {
-                            moves.Add(new SubmitRetarget
-                            {
-                                PlayerId = player.PlayerId,
-                                StackItemId = item.ItemId,
-                                TargetEquippedInstanceId = equippedId,
-                            });
-                        }
-                    }
-                    break;
-                }
-
-                case DecisionKind.FreePlayOffer:
-                case DecisionKind.BouncerAttack:
-                case DecisionKind.ForcedPlay:
-                {
-                    bool attacksOnly = decision.Kind == DecisionKind.BouncerAttack;
-                    var candidates = decision.Kind == DecisionKind.ForcedPlay
-                        ? new List<int> { decision.CardInstanceId!.Value }
-                        : player.Hand.ToList();
-                    bool anyPlay = false;
-                    foreach (int cardId in candidates)
-                    {
-                        var def = Db.Lemon(State.LemonInstances[cardId].DefId);
-                        if (def.Type != LemonCardType.Plan && def.Type != LemonCardType.Attack)
-                        {
-                            continue;
-                        }
-                        if (attacksOnly && def.Type != LemonCardType.Attack)
-                        {
-                            continue;
-                        }
-                        foreach (var play in PlayParamCombos(player, cardId, def))
-                        {
-                            moves.Add(play);
-                            anyPlay = true;
-                        }
-                    }
-                    // Optional offers are always skippable; a forced play is skippable only
-                    // when the recovered card has no legal parameterization.
-                    if (decision.Kind != DecisionKind.ForcedPlay || !anyPlay)
-                    {
-                        moves.Add(new SkipFreePlay { PlayerId = player.PlayerId });
-                    }
-                    break;
-                }
-
-                case DecisionKind.AbilityVictim:
-                    foreach (var other in State.Players.Where(p => p.PlayerId != player.PlayerId))
-                    {
-                        moves.Add(new SubmitAbilityChoice
-                        {
-                            PlayerId = player.PlayerId,
-                            TargetPlayerId = other.PlayerId,
-                        });
-                    }
-                    // The steal-and-swap abilities are optional: giving a card back
-                    // can cost more than the steal is worth, so the owner may pass.
-                    moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, Decline = true });
-                    break;
-
-                case DecisionKind.AbilityPickCard:
-                    foreach (int cardId in Player(decision.ChosenPlayerId!.Value).Hand)
-                    {
-                        moves.Add(new SubmitAbilityChoice
-                        {
-                            PlayerId = player.PlayerId,
-                            CardInstanceIds = new List<int> { cardId },
-                        });
-                    }
-                    break;
-
-                case DecisionKind.AbilityGiveBack:
-                    foreach (int cardId in player.Hand.Where(id => id != decision.StolenCardId))
-                    {
-                        moves.Add(new SubmitAbilityChoice
-                        {
-                            PlayerId = player.PlayerId,
-                            CardInstanceIds = new List<int> { cardId },
-                        });
-                    }
-                    break;
-
-                case DecisionKind.AbilityDiscard:
-                    foreach (var combo in CardCombos(
-                        decision.EligibleCardIds ?? player.Hand, decision.RequiredCount))
-                    {
-                        moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, CardInstanceIds = combo });
-                    }
-                    break;
-
-                case DecisionKind.InnovationCopy:
-                    foreach (int id in player.Turf.Equipped)
-                    {
-                        var def = EquippedDef(id);
-                        if (id != decision.SourceInstanceId &&
-                            def.Timing == EffectTiming.PowerPour && def.Id != "innovation")
-                        {
-                            moves.Add(new SubmitAbilityChoice { PlayerId = player.PlayerId, EquippedInstanceId = id });
-                        }
-                    }
-                    break;
-
-                case DecisionKind.WordOfMouthStand:
-                    foreach (var stand in player.Stands)
-                    {
-                        moves.Add(new SubmitAbilityChoice
-                        {
-                            PlayerId = player.PlayerId,
-                            StandInstanceId = stand.InstanceId,
-                        });
-                    }
-                    break;
-            }
-        }
-
-        /// <summary>Canonical Timeout payment: sell cheapest assets until the fine is covered.</summary>
-        private SubmitTimeoutPayment BuildTimeoutPayment(PlayerState player, int fine)
-        {
-            var payment = new SubmitTimeoutPayment { PlayerId = player.PlayerId };
-            int cash = player.Money;
-            if (cash >= fine)
-            {
-                return payment;
-            }
-
-            var sellables = AllEquipped(player)
-                .Select(id => (Id: id, Price: EquippedDef(id).Cost, IsStand: false))
-                .Concat(player.Stands.Select(s =>
-                    (Id: s.InstanceId, Price: Db.StandType(s.StandTypeId).BaseCost, IsStand: true)))
-                .OrderBy(x => x.Price)
-                .ToList();
-            foreach (var asset in sellables)
-            {
-                if (cash >= fine)
-                {
-                    break;
-                }
-                cash += asset.Price;
-                if (asset.IsStand)
-                {
-                    payment.SellStandInstanceIds.Add(asset.Id);
-                }
-                else
-                {
-                    payment.SellBmInstanceIds.Add(asset.Id);
-                }
-            }
-            return payment; // if still short, the engine takes everything (bankrupt path)
-        }
-
-        // ---------------------------------------------------------- windows
-
-        private void AddWindowMoves(List<GameAction> moves, PlayerState player)
-        {
-            moves.Add(new PassWindow { PlayerId = player.PlayerId });
-
-            List<int> InHand(string defId) =>
-                player.Hand.Where(id => State.LemonInstances[id].DefId == defId).Take(1).ToList();
-
-            if (State.ResponseStack.Count > 0)
-            {
-                var top = State.ResponseStack[State.ResponseStack.Count - 1];
-                if (top.OwnerId == player.PlayerId)
-                {
-                    return;
-                }
-                if (IsTantrummable(top))
-                {
-                    foreach (int id in InHand(TantrumId))
-                    {
-                        moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
-                    }
-                }
-                if (IsAttackItem(top))
-                {
-                    foreach (int id in InHand(TagId))
-                    {
-                        if (State.Players.Count == 2)
-                        {
-                            moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
-                            continue;
-                        }
-                        foreach (var target in State.Players)
-                        {
-                            if (target.PlayerId != top.OwnerId && target.PlayerId != top.AttackTargetId)
-                            {
-                                moves.Add(new RespondToWindow
-                                {
-                                    PlayerId = player.PlayerId,
-                                    CardInstanceId = id,
-                                    RedirectTargetId = target.PlayerId,
-                                });
-                            }
-                        }
-                    }
-                    foreach (int id in InHand(RubberGlueId))
-                    {
-                        moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
-                    }
-                    if (top.AttackTargetId == player.PlayerId)
-                    {
-                        // The decoy defends its owner only — targets of the attack.
-                        foreach (int decoy in player.Turf.Equipped
-                            .Where(id => EquippedDef(id).Id == "inflatable-decoy").Take(1))
-                        {
-                            moves.Add(new RespondToWindow { PlayerId = player.PlayerId, EquippedInstanceId = decoy });
-                        }
-                    }
-                }
                 return;
             }
-
-            if (State.TheftQueue.Count > 0)
+            var dealt = player.LemonLordDealt;
+            for (int first = 0; first < dealt.Count; first++)
             {
-                if (State.TheftQueue[0].VictimId == player.PlayerId)
+                for (int second = first + 1; second < dealt.Count; second++)
                 {
-                    foreach (int id in InHand(ProfitShareId))
+                    moves.Add(new ChooseLemonLords
                     {
-                        moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
-                    }
-                }
-                return;
-            }
-
-            if (State.PendingRoll != null)
-            {
-                foreach (int id in InHand(OutOfStockId))
-                {
-                    moves.Add(new RespondToWindow { PlayerId = player.PlayerId, CardInstanceId = id });
-                }
-                if (player.PlayerId == State.ActivePlayer)
-                {
-                    foreach (int id in player.Turf.Equipped)
-                    {
-                        if (RollAbilityIds.Contains(EquippedDef(id).Id) &&
-                            !State.UsedTurnAbilities.Contains(id) &&
-                            RollAbilityUsable(EquippedDef(id).Id))
-                        {
-                            moves.Add(new UseTurnAbility { PlayerId = player.PlayerId, EquippedInstanceId = id });
-                        }
-                    }
+                        PlayerId = player.PlayerId,
+                        KeepTitleIds = new List<string> { dealt[first], dealt[second] },
+                    });
                 }
             }
         }
@@ -442,23 +124,7 @@ namespace LemonadeWars.Engine.Core
             }
             if (!State.InitialBuyStandDone)
             {
-                foreach (var standType in Db.StandTypes)
-                {
-                    if (State.StandSupply[standType.Id].Count == 0 ||
-                        StandPrice(player.PlayerId, standType.Id) > player.Money)
-                    {
-                        continue;
-                    }
-                    for (int pos = 0; pos <= player.Stands.Count; pos++)
-                    {
-                        moves.Add(new InitialBuyStand
-                        {
-                            PlayerId = player.PlayerId,
-                            StandTypeId = standType.Id,
-                            InsertIndex = pos,
-                        });
-                    }
-                }
+                AddInitialStandBuys(moves, player);
                 return;
             }
 
@@ -472,6 +138,30 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
+        private void AddInitialStandBuys(List<GameAction> moves, PlayerState player)
+        {
+            foreach (var standType in Db.StandTypes)
+            {
+                if (!CanBuyStand(player, standType))
+                {
+                    continue;
+                }
+                for (int insertIndex = 0; insertIndex <= player.Stands.Count; insertIndex++)
+                {
+                    moves.Add(new InitialBuyStand
+                    {
+                        PlayerId = player.PlayerId,
+                        StandTypeId = standType.Id,
+                        InsertIndex = insertIndex,
+                    });
+                }
+            }
+        }
+
+        private bool CanBuyStand(PlayerState player, StandTypeDef standType) =>
+            State.StandSupply[standType.Id].Count > 0 &&
+            StandPrice(player.PlayerId, standType.Id) <= player.Money;
+
         // ------------------------------------------------------- turn moves
 
         private void AddTurnMoves(List<GameAction> moves, PlayerState player)
@@ -484,51 +174,17 @@ namespace LemonadeWars.Engine.Core
                 moves.Add(new RefreshMarket { PlayerId = playerId });
             }
 
-            // Liquid Energy is an activated free ability outside of roll windows.
-            foreach (int id in player.Turf.Equipped)
-            {
-                if (EquippedDef(id).Id == "liquid-energy" && !State.UsedTurnAbilities.Contains(id))
-                {
-                    moves.Add(new UseTurnAbility { PlayerId = playerId, EquippedInstanceId = id });
-                }
-            }
+            AddLiquidEnergyMoves(moves, player);
 
             if (State.ActionsRemaining > 0)
             {
                 moves.Add(new DrawLemonCard { PlayerId = playerId });
-
-                foreach (var standType in Db.StandTypes)
-                {
-                    if (State.StandSupply[standType.Id].Count > 0 &&
-                        StandPrice(playerId, standType.Id) <= player.Money)
-                    {
-                        for (int pos = 0; pos <= player.Stands.Count; pos++)
-                        {
-                            moves.Add(new BuyStand
-                            {
-                                PlayerId = playerId,
-                                StandTypeId = standType.Id,
-                                InsertIndex = pos,
-                            });
-                        }
-                    }
-                }
-
-                if (!State.BraggingRightsBoughtThisTurn &&
-                    State.BraggingRightsSold < Db.Supporting.BraggingRightsPrices.Count &&
-                    Db.Supporting.BraggingRightsPrices[State.BraggingRightsSold] <= player.Money)
+                AddStandBuys(moves, player);
+                if (CanBuyBraggingRights(player))
                 {
                     moves.Add(new BuyBraggingRights { PlayerId = playerId });
                 }
-
-                foreach (int cardId in player.Hand.ToList())
-                {
-                    var def = Db.Lemon(State.LemonInstances[cardId].DefId);
-                    if (def.Type == LemonCardType.Plan || def.Type == LemonCardType.Attack)
-                    {
-                        moves.AddRange(PlayParamCombos(player, cardId, def));
-                    }
-                }
+                AddHandPlays(moves, player);
             }
 
             if (State.ActionsRemaining > 0 || State.BmOnlyActionsRemaining > 0)
@@ -537,12 +193,61 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
+        /// <summary>Liquid Energy is a free activated ability, usable outside roll windows.</summary>
+        private void AddLiquidEnergyMoves(List<GameAction> moves, PlayerState player)
+        {
+            foreach (int equippedId in player.Turf.Equipped)
+            {
+                if (EquippedDef(equippedId).Id == BlackMarketCardIds.LiquidEnergy && !State.UsedTurnAbilities.Contains(equippedId))
+                {
+                    moves.Add(new UseTurnAbility { PlayerId = player.PlayerId, EquippedInstanceId = equippedId });
+                }
+            }
+        }
+
+        private void AddStandBuys(List<GameAction> moves, PlayerState player)
+        {
+            foreach (var standType in Db.StandTypes)
+            {
+                if (!CanBuyStand(player, standType))
+                {
+                    continue;
+                }
+                for (int insertIndex = 0; insertIndex <= player.Stands.Count; insertIndex++)
+                {
+                    moves.Add(new BuyStand
+                    {
+                        PlayerId = player.PlayerId,
+                        StandTypeId = standType.Id,
+                        InsertIndex = insertIndex,
+                    });
+                }
+            }
+        }
+
+        private bool CanBuyBraggingRights(PlayerState player) =>
+            !State.BraggingRightsBoughtThisTurn &&
+            State.BraggingRightsSold < Db.Supporting.BraggingRightsPrices.Count &&
+            Db.Supporting.BraggingRightsPrices[State.BraggingRightsSold] <= player.Money;
+
+        private void AddHandPlays(List<GameAction> moves, PlayerState player)
+        {
+            foreach (int cardId in player.Hand.ToList())
+            {
+                var def = Db.Lemon(State.LemonInstances[cardId].DefId);
+                if (def.Type == LemonCardType.Plan || def.Type == LemonCardType.Attack)
+                {
+                    moves.AddRange(PlayParamCombos(player, cardId, def));
+                }
+            }
+        }
+
         private void AddBlackMarketBuys(List<GameAction> moves, PlayerState player, int? budget = null)
         {
             int spendable = budget ?? player.Money;
-            for (int i = 0; i < State.Market.Count; i++)
+            for (int marketIndex = 0; marketIndex < State.Market.Count; marketIndex++)
             {
-                var def = EquippedDef(State.Market[i]);
+                var def = EquippedDef(State.Market[marketIndex]);
                 if (BlackMarketPrice(player.PlayerId, def) > spendable)
                 {
                     continue;
@@ -552,7 +257,7 @@ namespace LemonadeWars.Engine.Core
                     moves.Add(new BuyBlackMarket
                     {
                         PlayerId = player.PlayerId,
-                        MarketIndex = i,
+                        MarketIndex = marketIndex,
                         TargetStandInstanceId = standId,
                         ReplaceInstanceId = replaceId,
                     });

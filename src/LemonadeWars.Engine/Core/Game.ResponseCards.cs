@@ -1,15 +1,31 @@
 using System.Collections.Generic;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// The five instant response cards — Tantrum, Tag You're It!, I'm Rubber You're Glue,
-    /// Out of Stock, Profit Share — each as a RespondWith* (validate and push) and a
-    /// Resolve* (effect when the stack unwinds) pair. The window/stack machinery that
-    /// routes to these lives in Game.Responses.cs.
+    /// The five instant response cards (Tantrum, Tag You're It!, I'm Rubber You're Glue, Out of
+    /// Stock, Profit Share), each a RespondWith* (validate and push) and a Resolve* (effect when
+    /// the stack unwinds) pair.
     /// </summary>
     public sealed partial class Game
     {
+        /// <summary>Response cards never cost an action.</summary>
+        private void PushResponseCard(PlayerState player, int cardInstanceId, string defId, List<GameEvent> events,
+            int? respondingToItemId = null, int? redirectTargetId = null)
+        {
+            PushStackItem(new StackItem
+            {
+                Kind = StackItemKind.LemonPlay,
+                OwnerId = player.PlayerId,
+                LemonInstanceId = cardInstanceId,
+                LemonDefId = defId,
+                RespondingToItemId = respondingToItemId,
+                RedirectTargetId = redirectTargetId,
+                FreePlay = true,
+            }, events);
+        }
+
         // ----------------------------------------------------------- tantrum
 
         private void RespondWithTantrum(PlayerState player, RespondToWindow action, List<GameEvent> events)
@@ -28,31 +44,20 @@ namespace LemonadeWars.Engine.Core
             // The tantrum is gained the moment it is thrown — even if later cancelled (rulebook p11).
             GainTantrum(player, action.CardInstanceId, events);
             player.LastTantrumPlaySeq = player.TantrumPile[player.TantrumPile.Count - 1].GainSeq;
-            // Swear Jar: throwing a tantrum against this player's card costs $2 per jar.
             ChargeSwearJars(player, Player(top.OwnerId), events);
 
-            PushStackItem(new StackItem
-            {
-                Kind = StackItemKind.LemonPlay,
-                OwnerId = player.PlayerId,
-                LemonInstanceId = action.CardInstanceId,
-                LemonDefId = TantrumId,
-                RespondingToItemId = top.ItemId,
-                FreePlay = true,
-            }, events);
+            PushResponseCard(player, action.CardInstanceId, LemonCardIds.Tantrum, events, respondingToItemId: top.ItemId);
 
-            if (top.Kind == StackItemKind.LemonPlay && top.LemonDefId == TantrumId)
+            bool answersATantrum = top.Kind == StackItemKind.LemonPlay && top.LemonDefId == LemonCardIds.Tantrum;
+            if (answersATantrum)
             {
-                CounterTantrum(State.ResponseStack[State.ResponseStack.Count - 1], top, events);
+                CounterTantrum(counter: TopStackItem(), countered: top, events);
             }
         }
 
         /// <summary>
-        /// A Tantrum thrown at a Tantrum lands at once: both are spent, and the card
-        /// the first Tantrum was aimed at is OPEN AGAIN — the whole table gets a
-        /// fresh window on it, so the player whose Tantrum was just stopped may
-        /// answer the original card anew (another Tantrum, a Tag, a Decoy). Reactions
-        /// only end when everyone passes; after that the stack resolves unasked.
+        /// A Tantrum thrown at a Tantrum lands at once: both are spent, and the card the first was
+        /// aimed at is OPEN AGAIN to the whole table. Reactions end only when everyone passes.
         /// </summary>
         private void CounterTantrum(StackItem counter, StackItem countered, List<GameEvent> events)
         {
@@ -66,6 +71,7 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
+        /// <summary>The Tantrum card itself stays in its owner's pile (gained at play time).</summary>
         private void ResolveTantrum(StackItem tantrum, List<GameEvent> events)
         {
             var target = FindStackItem(tantrum.RespondingToItemId);
@@ -75,14 +81,11 @@ namespace LemonadeWars.Engine.Core
                 events.Add(new PlayCancelled
                 {
                     OwnerId = target.OwnerId,
-                    DefId = target.Kind == StackItemKind.BlackMarketPurchase
-                        ? State.BlackMarketInstances[target.BmInstanceId!.Value].DefId
-                        : target.LemonDefId,
+                    DefId = StackItemDefId(target),
                     ByPlayerId = tantrum.OwnerId,
-                    WithDefId = TantrumId,
+                    WithDefId = LemonCardIds.Tantrum,
                 });
             }
-            // The tantrum card itself stays in its owner's pile (gained at play time).
         }
 
         // ----------------------------------------------------- tag, you're it!
@@ -98,9 +101,8 @@ namespace LemonadeWars.Engine.Core
             {
                 throw new InvalidActionException("You cannot react to your own attack.");
             }
-            // Any player may tag (designer ruling), but the new target may not be the
-            // attacker (card text) — reflecting onto the attacker is Rubber-Glue's job.
-            // In a 2-player game the attack is discarded instead.
+            // Any player may tag (designer ruling), but not onto the attacker (card text): that is
+            // Rubber-Glue's job. In a 2-player game the attack is discarded instead.
             if (State.Players.Count > 2)
             {
                 if (!(action.RedirectTargetId is int newTarget) || newTarget < 0 ||
@@ -116,51 +118,38 @@ namespace LemonadeWars.Engine.Core
             }
 
             player.Hand.Remove(action.CardInstanceId);
-            PushStackItem(new StackItem
-            {
-                Kind = StackItemKind.LemonPlay,
-                OwnerId = player.PlayerId,
-                LemonInstanceId = action.CardInstanceId,
-                LemonDefId = TagId,
-                RespondingToItemId = top.ItemId,
-                RedirectTargetId = action.RedirectTargetId,
-                FreePlay = true,
-            }, events);
+            PushResponseCard(player, action.CardInstanceId, LemonCardIds.TagYoureIt, events,
+                respondingToItemId: top.ItemId, redirectTargetId: action.RedirectTargetId);
         }
 
         private void ResolveTag(StackItem tag, List<GameEvent> events)
         {
             var target = FindStackItem(tag.RespondingToItemId);
-            if (target != null && !target.Cancelled)
+            if (target == null || target.Cancelled)
             {
-                if (State.Players.Count == 2)
-                {
-                    // 2-player: "discard it instead" (card text).
-                    target.Cancelled = true;
-                    events.Add(new PlayCancelled
-                    {
-                        OwnerId = target.OwnerId,
-                        DefId = target.LemonDefId,
-                        ByPlayerId = tag.OwnerId,
-                        WithDefId = TagId,
-                    });
-                }
-                else
-                {
-                    target.AttackTargetId = tag.RedirectTargetId;
-                    target.WindowOffered = false; // newly aimed: its new victim gets to answer
-                    // The card-specific pick (Finders Keepers / That's Not Fair) named
-                    // a card of the OLD victim — clear it now, not at resolution, or
-                    // every view keeps showing the old victim's card as the loot for
-                    // the whole response window. The attacker re-picks on resolve.
-                    ClearStaleAttackSpecifics(target);
-                    events.Add(new AttackRedirected
-                    {
-                        ByPlayerId = tag.OwnerId,
-                        NewTargetId = tag.RedirectTargetId!.Value,
-                    });
-                }
+                return;
             }
+            if (State.Players.Count == 2)
+            {
+                // 2-player: "discard it instead" (card text).
+                target.Cancelled = true;
+                events.Add(new PlayCancelled
+                {
+                    OwnerId = target.OwnerId,
+                    DefId = target.LemonDefId,
+                    ByPlayerId = tag.OwnerId,
+                    WithDefId = LemonCardIds.TagYoureIt,
+                });
+                return;
+            }
+            target.AttackTargetId = tag.RedirectTargetId;
+            target.WindowOffered = false; // newly aimed: its new victim gets to answer
+            ClearStaleAttackSpecifics(target);
+            events.Add(new AttackRedirected
+            {
+                ByPlayerId = tag.OwnerId,
+                NewTargetId = tag.RedirectTargetId!.Value,
+            });
         }
 
         // -------------------------------------------- i'm rubber, you're glue
@@ -178,15 +167,7 @@ namespace LemonadeWars.Engine.Core
             }
 
             player.Hand.Remove(action.CardInstanceId);
-            PushStackItem(new StackItem
-            {
-                Kind = StackItemKind.LemonPlay,
-                OwnerId = player.PlayerId,
-                LemonInstanceId = action.CardInstanceId,
-                LemonDefId = RubberGlueId,
-                RespondingToItemId = top.ItemId,
-                FreePlay = true,
-            }, events);
+            PushResponseCard(player, action.CardInstanceId, LemonCardIds.ImRubberYoureGlue, events, respondingToItemId: top.ItemId);
         }
 
         private void ResolveRubberGlue(StackItem rubber, List<GameEvent> events)
@@ -199,17 +180,14 @@ namespace LemonadeWars.Engine.Core
                 target.OwnerId = rubber.OwnerId;
                 target.AttackTargetId = oldAttacker;
                 target.WindowOffered = false; // newly aimed: its new victim gets to answer
-                ClearStaleAttackSpecifics(target); // same staleness as a Tag redirect
+                ClearStaleAttackSpecifics(target);
                 events.Add(new AttackReflected { ByPlayerId = rubber.OwnerId, NewTargetId = oldAttacker });
             }
         }
 
         /// <summary>
-        /// A redirect/reflection changed the attack's victim, so any card-specific
-        /// choices (the equipped card to steal/discard, and where a Finders Keepers
-        /// steal would go) refer to the WRONG player now. Clearing them keeps the
-        /// stack honest for the response-window views; resolution then routes through
-        /// RequestRetargetOrFizzle exactly as it would for an invalid pick.
+        /// A re-aimed attack's picks named the OLD victim's cards. Cleared at once, so no view shows
+        /// the old loot during the window; resolution re-asks through RequestRetargetOrFizzle.
         /// </summary>
         private static void ClearStaleAttackSpecifics(StackItem attack)
         {
@@ -228,14 +206,7 @@ namespace LemonadeWars.Engine.Core
             }
 
             player.Hand.Remove(action.CardInstanceId);
-            PushStackItem(new StackItem
-            {
-                Kind = StackItemKind.LemonPlay,
-                OwnerId = player.PlayerId,
-                LemonInstanceId = action.CardInstanceId,
-                LemonDefId = OutOfStockId,
-                FreePlay = true,
-            }, events);
+            PushResponseCard(player, action.CardInstanceId, LemonCardIds.OutOfStock, events);
         }
 
         private void ResolveOutOfStock(StackItem card, List<GameEvent> events)
@@ -261,14 +232,7 @@ namespace LemonadeWars.Engine.Core
             }
 
             player.Hand.Remove(action.CardInstanceId);
-            PushStackItem(new StackItem
-            {
-                Kind = StackItemKind.LemonPlay,
-                OwnerId = player.PlayerId,
-                LemonInstanceId = action.CardInstanceId,
-                LemonDefId = ProfitShareId,
-                FreePlay = true,
-            }, events);
+            PushResponseCard(player, action.CardInstanceId, LemonCardIds.ProfitShare, events);
         }
 
         private void ResolveProfitShare(StackItem card, List<GameEvent> events)

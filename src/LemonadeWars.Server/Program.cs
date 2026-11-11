@@ -10,8 +10,8 @@ var db = GameDataLocator.LoadDatabase();
 // DATA_DIR: room action logs (mount a Railway volume here to survive redeploys).
 string dataDir = Environment.GetEnvironmentVariable("DATA_DIR")
     ?? Path.Combine(AppContext.BaseDirectory, "rooms");
-int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int d)
-    ? d
+int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int configuredDelayMs)
+    ? configuredDelayMs
     : 1100;
 var connections = new ConnectionRegistry();
 var rooms = new RoomManager(db, dataDir, botDelayMs, connections.NotifyTurn);

@@ -5,13 +5,12 @@ using LemonadeWars.Engine.Core;
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
-    /// Static evaluation of a position from one player's seat: how good is this state
-    /// for me, relative to my rivals? Each player's worth is a dot product of
-    /// <see cref="PositionFeatures"/> and <see cref="EvaluationWeights"/>; the result
-    /// is my worth minus a soft maximum over the rivals — the log-odds of winning
-    /// under a conditional-logit model, which is exactly what the arena fits the
-    /// weights to. One scale for everything, so that plans built from different move
-    /// types compare honestly.
+    /// Static evaluation of a position from one player's seat. Each player's worth is a
+    /// dot product of <see cref="PositionFeatures"/> and <see cref="EvaluationWeights"/>;
+    /// the result is the viewer's worth minus a soft maximum over the rivals — the
+    /// log-odds of winning under a conditional-logit model, which is what the arena
+    /// fits the weights to. One scale for everything, so plans built from different
+    /// move types compare honestly.
     /// </summary>
     public sealed class PositionEvaluator
     {
@@ -24,7 +23,7 @@ namespace LemonadeWars.Engine.Ai
             _vector = Weights.ToVector();
         }
 
-        /// <summary>My worth minus the soft maximum of my rivals' worth.</summary>
+        /// <summary>Positive when the viewer is ahead of the field; a finished game is judged on its result alone.</summary>
         public double Evaluate(Game game, int viewerId)
         {
             var state = game.State;
@@ -51,7 +50,7 @@ namespace LemonadeWars.Engine.Ai
             return rivalCount == 0 ? mine : mine - SoftMax(rivals, rivalCount, Weights.RivalTemperature);
         }
 
-        /// <summary>Absolute worth of one player's position; public so tests can probe terms.</summary>
+        /// <summary>Public so tests can probe terms.</summary>
         public double PlayerScore(Game game, PlayerState player, int viewerId, double horizon)
         {
             var features = PositionFeatures.Extract(game, player, viewerId, horizon);
@@ -83,29 +82,30 @@ namespace LemonadeWars.Engine.Ai
         /// </summary>
         private static double SoftMax(double[] scores, int count, double temperature)
         {
-            double t = Math.Max(1e-6, temperature);
+            double positiveTemperature = Math.Max(1e-6, temperature);
             double best = double.MinValue;
             for (int i = 0; i < count; i++)
             {
                 best = Math.Max(best, scores[i]);
             }
+            // Shifted by the best score so the exponentials cannot overflow.
             double sum = 0;
             for (int i = 0; i < count; i++)
             {
-                sum += Math.Exp((scores[i] - best) / t);
+                sum += Math.Exp((scores[i] - best) / positiveTemperature);
             }
-            return best + t * Math.Log(sum);
+            return best + positiveTemperature * Math.Log(sum);
         }
 
-        /// <summary>Finished games are judged on the result alone, with a VP-margin gradient.</summary>
+        /// <summary>The win or loss dominates; the final VP margin is only a gradient within it.</summary>
         private static double FinalResult(Game game, int viewerId)
         {
             var state = game.State;
-            int Total(PlayerState p) => p.InGameVictoryPoints +
-                p.LemonLordKept.Count(id => game.MeetsLemonLord(p, id));
-            int mine = Total(state.Players[viewerId]);
-            int bestOther = state.Players.Where(p => p.PlayerId != viewerId)
-                .Select(Total).DefaultIfEmpty(0).Max();
+            int FinalScore(PlayerState player) => player.InGameVictoryPoints +
+                player.LemonLordKept.Count(id => game.MeetsLemonLord(player, id));
+            int mine = FinalScore(state.Players[viewerId]);
+            int bestOther = state.Players.Where(player => player.PlayerId != viewerId)
+                .Select(FinalScore).DefaultIfEmpty(0).Max();
             double outcome = state.Winners.Contains(viewerId) ? 10_000.0 / state.Winners.Count : -10_000;
             return outcome + (mine - bestOther) * 500;
         }

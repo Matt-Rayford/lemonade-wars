@@ -19,8 +19,8 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void LemonTypeSplitMatchesNameplates()
         {
-            int Copies(LemonCardType t) =>
-                _db.LemonCards.Where(c => c.Type == t).Sum(c => c.Count);
+            int Copies(LemonCardType type) =>
+                _db.LemonCards.Where(c => c.Type == type).Sum(c => c.Count);
             Assert.Equal(22, Copies(LemonCardType.Plan));
             Assert.Equal(22, Copies(LemonCardType.Attack));
             Assert.Equal(25, Copies(LemonCardType.Instant));
@@ -90,8 +90,8 @@ namespace LemonadeWars.Engine.Tests
         [InlineData("card-shark", 6)]       // Gain Card cards
         public void LemonLordIconCountsMatchDeckContents(string titleId, int expectedQualifying)
         {
-            // The Title CSV's designer metadata said how many qualifying cards exist;
-            // re-verify against the actual deck so a rebalance can't silently break a title.
+            // The expected counts come from the designer's Title CSV; checking them against
+            // the deck keeps a rebalance from silently breaking a title.
             var title = _db.Title(titleId);
             Assert.NotNull(title.CountedIcon);
 

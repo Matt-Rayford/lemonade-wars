@@ -3,10 +3,7 @@ using Newtonsoft.Json.Linq;
 
 namespace LemonadeWars.Protocol
 {
-    /// <summary>
-    /// Wire messages. Client -> server: create_room, join_room, add_bot, start_game, action.
-    /// Server -> client: room, update, error. Everything is a JSON object with a "type" field.
-    /// </summary>
+    /// <summary>Every wire message is a JSON object whose "type" field holds one of these.</summary>
     public static class MessageType
     {
         // client -> server
@@ -21,7 +18,7 @@ namespace LemonadeWars.Protocol
         public const string StartGame = "start_game";
         public const string Action = "action";
         public const string ListGames = "list_games";
-        /// <summary>Deliberate exit — frees a lobby seat; a dropped socket keeps it for a token rejoin.</summary>
+        /// <summary>A deliberate exit frees a lobby seat; a dropped socket keeps it for a rejoin.</summary>
         public const string LeaveRoom = "leave_room";
 
         // server -> client
@@ -38,33 +35,33 @@ namespace LemonadeWars.Protocol
         public int Seat { get; set; }
         public string Name { get; set; } = "";
         public bool IsBot { get; set; }
-        /// <summary>easy / medium / hard for bot seats; empty for humans.</summary>
+        /// <summary>A BotFactory level for bot seats; empty for humans.</summary>
         public string BotLevel { get; set; } = "";
         public bool Connected { get; set; }
         public bool Ready { get; set; }
     }
 
-    /// <summary>Room composition; sent on every lobby change and on (re)join.</summary>
+    /// <summary>Sent on every lobby change and on (re)join.</summary>
     public sealed class RoomMessage
     {
         public string Type { get; set; } = MessageType.Room;
         public string Code { get; set; } = "";
         public int YourSeat { get; set; }
-        /// <summary>Reconnect token — present only in messages to the seat it belongs to.</summary>
+        /// <summary>Reconnect token: the recipient's own, never another seat's.</summary>
         public string Token { get; set; } = "";
         public bool Started { get; set; }
-        /// <summary>Bot pacing for this room: "slow" / "medium" / "fast".</summary>
+        /// <summary>Bot pacing: "slow" / "medium" / "fast".</summary>
         public string Speed { get; set; } = "medium";
         public List<SeatInfo> Seats { get; set; } = new List<SeatInfo>();
     }
 
-    /// <summary>Per-seat game state push: what happened, what you see, what you may do.</summary>
     public sealed class UpdateMessage
     {
         public string Type { get; set; } = MessageType.Update;
         public List<JObject> Events { get; set; } = new List<JObject>();
         /// <summary>The seat's PlayerView, serialized with WireCodec settings.</summary>
         public JObject View { get; set; }
+        /// <summary>Empty unless the game is waiting on this seat.</summary>
         public List<MoveOption> Moves { get; set; } = new List<MoveOption>();
     }
 
@@ -80,7 +77,7 @@ namespace LemonadeWars.Protocol
         public string Message { get; set; } = "";
     }
 
-    /// <summary>One of the caller's games, for the My Games list.</summary>
+    /// <summary>One My Games entry, from the recipient's point of view.</summary>
     public sealed class GameSummary
     {
         public string Code { get; set; } = "";
@@ -88,13 +85,13 @@ namespace LemonadeWars.Protocol
         public int YourSeat { get; set; }
         public bool Started { get; set; }
         public bool Finished { get; set; }
-        /// <summary>The game is waiting on YOUR input (turn or response window).</summary>
+        /// <summary>The game is waiting on the recipient, on their turn or in a response window.</summary>
         public bool YourTurn { get; set; }
-        /// <summary>Whose turn it is right now (empty pre-start / post-finish).</summary>
+        /// <summary>Empty before the start and after the finish.</summary>
         public string TurnPlayerName { get; set; } = "";
     }
 
-    /// <summary>Reply to hello: your durable identity and everything you're playing.</summary>
+    /// <summary>Reply to hello.</summary>
     public sealed class WelcomeMessage
     {
         public string Type { get; set; } = MessageType.Welcome;
@@ -103,17 +100,14 @@ namespace LemonadeWars.Protocol
         public List<GameSummary> GamesList { get; set; } = new List<GameSummary>();
     }
 
-    /// <summary>Reply to list_games: a fresh My Games snapshot.</summary>
+    /// <summary>Reply to list_games.</summary>
     public sealed class GamesMessage
     {
         public string Type { get; set; } = MessageType.Games;
         public List<GameSummary> GamesList { get; set; } = new List<GameSummary>();
     }
 
-    /// <summary>
-    /// A game you're NOT currently watching needs your input. Sent once per turn edge
-    /// to every other live connection of that player.
-    /// </summary>
+    /// <summary>A game the player is not watching needs their input; sent once per turn edge.</summary>
     public sealed class TurnAlertMessage
     {
         public string Type { get; set; } = MessageType.TurnAlert;

@@ -26,9 +26,8 @@ public class PersistenceTests
 
         string code;
         string token;
-        JToken moneyBefore;
 
-        // ---- First server lifetime: start a game vs bots, make a few moves, then "die".
+        // ---- First server lifetime: a game against bots, three human moves, then the process dies.
         using (var first = new WebApplicationFactory<Program>())
         {
             var host = await Probe.ConnectAsync(first);
@@ -44,20 +43,16 @@ public class PersistenceTests
             }
             await host.SendAsync(new { type = "start_game" });
 
-            // Submit three human moves, then walk away mid-game.
             int submitted = 0;
-            JObject lastUpdate = null!;
             while (submitted < 3)
             {
                 var update = await host.NextOfTypeAsync("update");
-                lastUpdate = update;
                 if (update["moves"] is JArray moves && moves.Count > 0)
                 {
                     await host.SendAsync(new { type = "action", action = moves[0]!["action"] });
                     submitted++;
                 }
             }
-            moneyBefore = lastUpdate["view"]!["players"]!;
             await host.DisposeAsync();
         }
 
@@ -75,13 +70,13 @@ public class PersistenceTests
             var update = await reconnected.NextOfTypeAsync("update");
             var players = (JArray)update["view"]!["players"]!;
             Assert.Equal(4, players.Count);
-            // The replayed state is not a fresh game: setup draft money spend must be visible.
+            // A replayed game is past its first stage; a fresh one would still be choosing lords.
             Assert.NotEqual("choosingLemonLords", (string)update["view"]!["stage"]!);
             await reconnected.DisposeAsync();
         }
     }
 
-    /// <summary>Minimal socket probe (mirrors ServerTests.TestClient).</summary>
+    /// <summary>A pared-down <see cref="TestClient"/> for servers this test starts and stops itself.</summary>
     private sealed class Probe : IAsyncDisposable
     {
         private readonly WebSocket _socket;
@@ -153,10 +148,8 @@ public class PersistenceTests
             _cts.Cancel();
             try
             {
-                // Send our close frame without waiting for the server's: the receive loop
-                // being cancelled above races CloseAsync for that frame, and when the loop
-                // swallows it CloseAsync waits forever (the suite hung on this once bot
-                // turns got slow enough for an update to land right before disposal).
+                // Only our close frame is sent: the cancelled receive loop can swallow the
+                // server's, and CloseAsync would then wait for it forever.
                 using var closeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "", closeTimeout.Token);
             }

@@ -3,29 +3,34 @@ using LemonadeWars.Engine.Core;
 
 namespace LemonadeWars.BotArena;
 
-/// <summary>Replays one stalled tournament game and prints its final action cycle.</summary>
+/// <summary>
+/// Replays one stalled four-player tournament game (a pimc hero against greedy bots,
+/// seeded exactly as <see cref="Matchup"/> seeds it) and prints its final action cycle.
+/// </summary>
 internal static class ProbeMode
 {
+    private const int Players = 4;
+    private const int MaxSteps = 6000;
+    private const int FirstPrintedStep = 5000;
+
     public static void Run(ulong seed, int heroSeat, int budgetMs)
     {
         var db = ArenaTools.LoadDatabase();
-        var names = Enumerable.Range(0, 4).Select(s => s == heroSeat ? "Hero" : $"Base{s}").ToArray();
-        var game = Game.Create(db, names, seed);
+        var game = Game.Create(db, Matchup.SeatNames(Players, heroSeat), seed);
         var bots = new Dictionary<int, IBot>();
-        ulong index = seed - 100_000UL;
-        for (int seat = 0; seat < 4; seat++)
+        ulong gameIndex = seed - Matchup.FirstGameSeed;
+        for (int seat = 0; seat < Players; seat++)
         {
-            ulong botSeed = 555UL * (index + 1) + (ulong)seat;
             bots[seat] = seat == heroSeat
-                ? new SearchBot(botSeed, budgetMs)
+                ? new SearchBot(Matchup.BotSeed(gameIndex, seat), budgetMs)
                 : (IBot)new GreedyBot();
         }
-        for (int step = 0; step < 6000; step++)
+        for (int step = 0; step < MaxSteps; step++)
         {
             var acting = game.ActingPlayers();
             int actor = acting[0];
             var action = bots[actor].Choose(game, actor);
-            if (step >= 5000)
+            if (step >= FirstPrintedStep)
             {
                 Console.WriteLine($"{step}: P{actor} {MoveDescriber.Describe(game, action)} " +
                     $"| VP {string.Join("/", game.State.Players.Select(p => p.InGameVictoryPoints))}" +

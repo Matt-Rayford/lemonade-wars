@@ -4,9 +4,9 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // Player pick: a blocking "choose a victim" overlay — the card floats mid-screen
-    // with an arrow trailing the cursor to the player bars. Click-mode only, used by
-    // follow-up decisions that aren't armed from a hand card.
+    // Player pick: a blocking "choose a victim" overlay for follow-up decisions that are
+    // not armed from a hand card. The card floats mid-screen with an arrow trailing the
+    // cursor to the player bars; a click on a lit bar picks.
     public sealed partial class TableView
     {
         private RectTransform _pickRoot;
@@ -44,13 +44,7 @@ namespace LemonadeWars.Unity
             _pickArrowHost = (RectTransform)arrowGo.transform;
             UiKit.Anchor(_pickArrowHost, Vector2.zero, Vector2.one);
 
-            // Optional abilities offer a way out, right under the card.
-            var pass = UiKit.CreateButton(_pickRoot, "Pass", 18, () =>
-            {
-                var onPass = _pickOnPass;
-                EndPlayerPick();
-                onPass?.Invoke();
-            }, dark: true);
+            var pass = UiKit.CreateButton(_pickRoot, "Pass", 18, PassPlayerPick, dark: true);
             _pickPassButton = pass.gameObject;
             var passRect = (RectTransform)pass.transform;
             passRect.anchorMin = passRect.anchorMax = new Vector2(0.5f, 0.55f);
@@ -73,7 +67,6 @@ namespace LemonadeWars.Unity
             _pickCard.GetComponent<RawImage>().texture = cardArt;
             _pickCard.gameObject.SetActive(cardArt != null);
             UiKit.Clear(_pickArrowHost);
-            _pickRoot.SetAsLastSibling();
             _pickRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
             _pickRoot.gameObject.SetActive(true);
             _preview.SetDragging(true); // no magnify pop-ups while aiming
@@ -101,23 +94,14 @@ namespace LemonadeWars.Unity
             _preview.SetDragging(false);
         }
 
-        /// <summary>Called every frame by the app; drives the bar glow + the arrow.</summary>
+        /// <summary>Call every frame: drives the bar glow and the arrow.</summary>
         public void TickPlayerPick(Vector2 screenPosition)
         {
             if (!PlayerPickActive)
             {
                 return;
             }
-            int hover = -1;
-            foreach (var (playerId, row, _) in _playerRows)
-            {
-                if (row != null && _pickValid.Contains(playerId) &&
-                    RectTransformUtility.RectangleContainsScreenPoint(row, screenPosition))
-                {
-                    hover = playerId;
-                    break;
-                }
-            }
+            int hover = ValidPlayerRowUnder(screenPosition, _pickValid);
             if (hover != _pickHover)
             {
                 _pickHover = hover;
@@ -131,7 +115,6 @@ namespace LemonadeWars.Unity
                 }
             }
 
-            // Arrow: from the middle of the floating card, trailing the cursor.
             Vector2 from = _pickRoot.InverseTransformPoint(_pickCard.TransformPoint(Vector3.zero));
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 _pickRoot, screenPosition, null, out var to);
@@ -157,6 +140,13 @@ namespace LemonadeWars.Unity
             var onPick = _pickOnPick;
             EndPlayerPick();
             onPick?.Invoke(victim);
+        }
+
+        private void PassPlayerPick()
+        {
+            var onPass = _pickOnPass;
+            EndPlayerPick();
+            onPass?.Invoke();
         }
     }
 }

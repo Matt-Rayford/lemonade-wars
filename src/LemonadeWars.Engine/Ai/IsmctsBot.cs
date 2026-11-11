@@ -8,14 +8,11 @@ using Newtonsoft.Json;
 namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
-    /// Single-observer Information Set MCTS (Cowling, Powley &amp; Whitehouse 2012) —
-    /// the step up from flat determinized Monte-Carlo: ONE search tree grown from the
-    /// searcher's perspective across many sampled worlds. Each iteration determinizes
-    /// the hidden information afresh, descends the tree using only actions legal in
-    /// that world (UCB1 adjusted by availability counts, the subset-armed-bandit
-    /// correction), expands one untried action, and evaluates with a greedy rollout.
-    /// Nodes carry a reward per PLAYER and selection maximizes the acting player's own
-    /// reward (max^n-style), so simulated opponents play to win rather than to spite.
+    /// Single-observer Information Set MCTS (Cowling, Powley &amp; Whitehouse 2012): ONE
+    /// tree grown from the searcher's seat across many sampled worlds, descending by UCB1
+    /// with availability counts over the actions legal in each world. Nodes carry a reward
+    /// per PLAYER and selection maximizes the actor's own, so simulated opponents play to
+    /// win rather than to spite.
     /// </summary>
     public sealed class IsmctsBot : IBot, IHeavyBot
     {
@@ -34,7 +31,10 @@ namespace LemonadeWars.Engine.Ai
         private const int RolloutActionCap = 1200;
         private const int MaxNodeBreadth = 16;
         private const int MinIterations = 2;
+        /// <summary>Evaluator points that count as a decisive position in the logistic squash.</summary>
         private const double EvaluatorScale = 250;
+        /// <summary>Per-action discount on a win, so stalling never scores as well as winning.</summary>
+        private const double ImpatienceDecay = 0.999;
 
         private readonly DeterministicRng _rng;
         private readonly GreedyBot _policy = new GreedyBot();
@@ -43,16 +43,9 @@ namespace LemonadeWars.Engine.Ai
         private readonly int _rolloutDepth;
         private readonly PositionEvaluator? _evaluator;
 
-        /// <param name="rolloutDepth">
-        /// Actions per rollout before cutting to the static evaluation. Full-game
-        /// rollouts (the default) give the cleanest signal but only a few hundred
-        /// iterations fit a budget; truncating buys the tree an order of magnitude
-        /// more iterations at the cost of leaning on the heuristic eval.
-        /// </param>
-        /// <param name="evaluator">
-        /// When set, truncated games are rewarded by this evaluator (squashed to [0,1])
-        /// instead of the built-in standing formula.
-        /// </param>
+        /// <param name="rolloutDepth">Actions per rollout before cutting to the static evaluation:
+        /// truncating trades the clean full-game signal for a much bigger tree.</param>
+        /// <param name="evaluator">Rewards truncated games (squashed to [0,1]) instead of the standing formula.</param>
         public IsmctsBot(ulong seed, int budgetMs = 300, int maxIterations = int.MaxValue,
             int rolloutDepth = int.MaxValue, PositionEvaluator? evaluator = null)
         {
@@ -76,14 +69,21 @@ namespace LemonadeWars.Engine.Ai
                 return moves[0];
             }
 
-            // Root actions from the REAL state, so the returned move is always valid
-            // on it (worlds resample hidden info but never the searcher's own options).
+            // Root actions come from the REAL state, so the returned move is always
+            // valid on it (worlds resample hidden info, never the searcher's options).
             var rootActions = new Dictionary<string, GameAction>();
             foreach (var move in moves)
             {
                 rootActions[KeyOf(move)] = move;
             }
 
+            var root = GrowTree(game, playerId);
+            var mostVisited = MostVisitedChild(root, rootActions);
+            return mostVisited != null ? rootActions[mostVisited.Key] : _policy.Choose(game, playerId);
+        }
+
+        private Node GrowTree(Game game, int playerId)
+        {
             int players = game.State.Players.Count;
             var root = new Node { Reward = new double[players] };
             var stopwatch = Stopwatch.StartNew();
@@ -103,20 +103,28 @@ namespace LemonadeWars.Engine.Ai
                     // One broken world must not sink the turn; the next sample differs.
                 }
             }
+            return root;
+        }
 
+        /// <summary>The robust choice: visit counts are steadier than mean rewards.</summary>
+        private static Node? MostVisitedChild(Node root, Dictionary<string, GameAction> rootActions)
+        {
             Node? best = null;
             foreach (var child in root.Children)
             {
                 if (rootActions.ContainsKey(child.Key) &&
                     (best == null || child.Visits > best.Visits))
                 {
-                    best = child; // robust child: most visited
+                    best = child;
                 }
             }
-            return best != null ? rootActions[best.Key] : _policy.Choose(game, playerId);
+            return best;
         }
 
-        /// <summary>One ISMCTS iteration in one determinized world.</summary>
+        /// <summary>
+        /// One iteration in one determinized world: descend by UCB while every legal
+        /// action has been tried, expand the first untried one and roll it out.
+        /// </summary>
         private void Iterate(Node root, Game world, int players)
         {
             var path = new List<Node> { root };
@@ -131,40 +139,8 @@ namespace LemonadeWars.Engine.Ai
                     break;
                 }
                 int actor = acting[0];
-                var legal = Shortlist(world, actor);
-
-                // Match this world's legal actions to the node's children.
-                var legalChildren = new List<Node>();
-                var legalActions = new List<GameAction>();
-                GameAction? untried = null;
-                foreach (var move in legal)
-                {
-                    string key = KeyOf(move);
-                    Node? child = null;
-                    foreach (var candidate in node.Children)
-                    {
-                        if (candidate.Key == key)
-                        {
-                            child = candidate;
-                            break;
-                        }
-                    }
-                    if (child == null)
-                    {
-                        if (untried == null)
-                        {
-                            untried = move;
-                        }
-                    }
-                    else
-                    {
-                        legalChildren.Add(child);
-                        legalActions.Add(move);
-                    }
-                }
-
-                // Every action considered in this selection was "available" once.
-                foreach (var child in legalChildren)
+                var tried = TriedActions(node, Shortlist(world, actor), out var untried);
+                foreach (var (child, _) in tried)
                 {
                     child.Availability++;
                 }
@@ -185,24 +161,7 @@ namespace LemonadeWars.Engine.Ai
                     return;
                 }
 
-                // All tried: UCB over this world's children on the ACTOR's own reward.
-                Node? chosen = null;
-                GameAction? chosenAction = null;
-                double bestScore = double.MinValue;
-                for (int i = 0; i < legalChildren.Count; i++)
-                {
-                    var child = legalChildren[i];
-                    double exploit = child.Visits > 0 ? child.Reward[actor] / child.Visits : 0.0;
-                    double explore = Math.Sqrt(
-                        Math.Log(Math.Max(2, child.Availability)) / Math.Max(1, child.Visits));
-                    double score = exploit + Exploration * explore;
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        chosen = child;
-                        chosenAction = legalActions[i];
-                    }
-                }
+                var (chosen, chosenAction) = SelectByUcb(tried, actor);
                 if (chosen == null)
                 {
                     break; // this world offers no action the tree knows — evaluate here
@@ -214,6 +173,62 @@ namespace LemonadeWars.Engine.Ai
             }
 
             Backpropagate(path, Rewards(world, players, steps));
+        }
+
+        /// <summary>In legal-move order; <paramref name="firstUntried"/> is the first legal action with no child yet.</summary>
+        private static List<(Node Child, GameAction Action)> TriedActions(
+            Node node, List<GameAction> legal, out GameAction? firstUntried)
+        {
+            var tried = new List<(Node, GameAction)>();
+            firstUntried = null;
+            foreach (var move in legal)
+            {
+                var child = ChildWithKey(node, KeyOf(move));
+                if (child != null)
+                {
+                    tried.Add((child, move));
+                }
+                else if (firstUntried == null)
+                {
+                    firstUntried = move;
+                }
+            }
+            return tried;
+        }
+
+        private static Node? ChildWithKey(Node node, string key)
+        {
+            foreach (var child in node.Children)
+            {
+                if (child.Key == key)
+                {
+                    return child;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>UCB1 on the ACTOR's own reward, exploration scaled by availability rather than parent visits.</summary>
+        private static (Node? Child, GameAction? Action) SelectByUcb(
+            List<(Node Child, GameAction Action)> tried, int actor)
+        {
+            Node? chosen = null;
+            GameAction? chosenAction = null;
+            double bestScore = double.MinValue;
+            foreach (var (child, action) in tried)
+            {
+                double exploit = child.Visits > 0 ? child.Reward[actor] / child.Visits : 0.0;
+                double explore = Math.Sqrt(
+                    Math.Log(Math.Max(2, child.Availability)) / Math.Max(1, child.Visits));
+                double score = exploit + Exploration * explore;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    chosen = child;
+                    chosenAction = action;
+                }
+            }
+            return (chosen, chosenAction);
         }
 
         private double[] Rollout(Game world, int players, int stepsSoFar)
@@ -235,69 +250,71 @@ namespace LemonadeWars.Engine.Ai
             return Rewards(world, players, steps);
         }
 
-        /// <summary>
-        /// Finished games: per-player win share, impatience-discounted. Truncated
-        /// games: the standing evaluation carries the whole reward — full score
-        /// (in-game VP + met Lemon Lords), money, and board income as a proxy for
-        /// the future, squashed to [0,1] against the strongest rival.
-        /// </summary>
         private double[] Rewards(Game world, int players, int steps)
         {
             if (_evaluator == null || world.State.Stage == GameStage.Finished)
             {
-                return TerminalRewards(world, players, steps);
+                return StandingRewards(world, players, steps);
             }
             var rewards = new double[players];
-            for (int p = 0; p < players; p++)
+            for (int seat = 0; seat < players; seat++)
             {
-                // Logistic squash: ±EvaluatorScale points is a decisive position.
-                rewards[p] = 1.0 / (1.0 + Math.Exp(-_evaluator.Evaluate(world, p) / EvaluatorScale));
+                rewards[seat] = 1.0 / (1.0 + Math.Exp(-_evaluator.Evaluate(world, seat) / EvaluatorScale));
             }
             return rewards;
         }
 
-        private static double[] TerminalRewards(Game world, int players, int steps)
+        /// <summary>
+        /// Finished games: win share, impatience-discounted, plus a sliver of standing.
+        /// Truncated games: standing alone, squashed to [0,1] against the strongest rival.
+        /// </summary>
+        private static double[] StandingRewards(Game world, int players, int steps)
         {
             var state = world.State;
-            bool finished = state.Stage == GameStage.Finished;
-            double decay = Math.Pow(0.999, steps);
+            bool isFinished = state.Stage == GameStage.Finished;
+            double decay = Math.Pow(ImpatienceDecay, steps);
             var scores = new double[players];
-            for (int p = 0; p < players; p++)
+            for (int seat = 0; seat < players; seat++)
             {
-                var player = state.Players[p];
-                double income = 0;
-                foreach (var stand in player.Stands)
-                {
-                    income += world.StandEarnings(player, stand);
-                }
-                scores[p] = (player.InGameVictoryPoints +
-                    player.LemonLordKept.Count(id => world.MeetsLemonLord(player, id))) * 10
-                    + player.Money * 0.5
-                    + income * 1.2;
+                scores[seat] = StandingScore(world, state.Players[seat]);
             }
             var rewards = new double[players];
-            for (int p = 0; p < players; p++)
+            for (int seat = 0; seat < players; seat++)
             {
                 double bestOther = double.MinValue;
                 for (int other = 0; other < players; other++)
                 {
-                    if (other != p && scores[other] > bestOther)
+                    if (other != seat && scores[other] > bestOther)
                     {
                         bestOther = scores[other];
                     }
                 }
-                double standing = Math.Max(0.0, Math.Min(1.0, 0.5 + (scores[p] - bestOther) * 0.02));
-                if (finished)
+                double standing = Math.Max(0.0, Math.Min(1.0, 0.5 + (scores[seat] - bestOther) * 0.02));
+                if (isFinished)
                 {
-                    double win = state.Winners.Contains(p) ? 1.0 / state.Winners.Count : 0.0;
-                    rewards[p] = win * decay + standing * 0.05;
+                    double win = state.Winners.Contains(seat) ? 1.0 / state.Winners.Count : 0.0;
+                    rewards[seat] = win * decay + standing * 0.05;
                 }
                 else
                 {
-                    rewards[p] = standing; // heuristic proxy for win probability
+                    rewards[seat] = standing;
                 }
             }
             return rewards;
+        }
+
+        /// <summary>Full score (in-game VP + met Lemon Lords), money, and board income as a proxy for the future.</summary>
+        private static double StandingScore(Game world, PlayerState player)
+        {
+            double income = 0;
+            foreach (var stand in player.Stands)
+            {
+                income += world.StandEarnings(player, stand);
+            }
+            return (player.InGameVictoryPoints +
+                player.LemonLordKept.Count(id => world.MeetsLemonLord(player, id))) * 10
+                + player.Money * 0.5
+                + income * 1.2;
         }
 
         private static void Backpropagate(List<Node> path, double[] rewards)
@@ -305,14 +322,17 @@ namespace LemonadeWars.Engine.Ai
             foreach (var node in path)
             {
                 node.Visits++;
-                for (int p = 0; p < rewards.Length; p++)
+                for (int seat = 0; seat < rewards.Length; seat++)
                 {
-                    node.Reward[p] += rewards[p];
+                    node.Reward[seat] += rewards[seat];
                 }
             }
         }
 
-        /// <summary>Greedy-anchored bounded breadth, mirroring the flat search's pruning.</summary>
+        /// <summary>
+        /// Bounded breadth: the greedy pick first, then the legal list sampled at an even
+        /// stride (it arrives grouped by type, so striding covers every family).
+        /// </summary>
         private List<GameAction> Shortlist(Game world, int actor)
         {
             var moves = world.LegalMovesFor(actor);

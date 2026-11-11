@@ -4,7 +4,7 @@ namespace LemonadeWars.Engine.Core
 {
     /// <summary>
     /// A player decision submitted to the engine. Actions are the ONLY way state changes
-    /// after setup — the same pipeline will serve local UI, AI opponents, and network play.
+    /// after setup: local UI, bots and network play all go through this one pipeline.
     /// </summary>
     public abstract class GameAction
     {
@@ -30,7 +30,7 @@ namespace LemonadeWars.Engine.Core
         public int? InsertIndex { get; set; }
     }
 
-    /// <summary>Optional Black Market purchase during the initial draft, or pass by ending.</summary>
+    /// <summary>End a draft pick, with or without its optional Black Market purchase.</summary>
     public sealed class InitialBuyEnd : GameAction
     {
     }
@@ -53,7 +53,6 @@ namespace LemonadeWars.Engine.Core
     /// <summary>Action: purchase a face-up Black Market card and equip it immediately.</summary>
     public sealed class BuyBlackMarket : GameAction
     {
-        /// <summary>Index into the face-up market row.</summary>
         public int MarketIndex { get; set; }
         /// <summary>Target Stand instance id for Stand upgrades; null for Turf upgrades.</summary>
         public int? TargetStandInstanceId { get; set; }
@@ -79,9 +78,8 @@ namespace LemonadeWars.Engine.Core
     // -------------------------------------------------------- lemon plays
 
     /// <summary>
-    /// Play a plan or attack from hand (1 action; instants respond through
-    /// <see cref="RespondToWindow"/> instead). Card-specific parameters ride along and are
-    /// validated per card. Also used to satisfy FreePlayOffer/ForcedPlay decisions.
+    /// Play a plan or attack from hand for 1 action (instants go through <see cref="RespondToWindow"/>),
+    /// or answer a FreePlayOffer/ForcedPlay decision. Parameters are validated per card.
     /// </summary>
     public sealed class PlayLemonCard : GameAction
     {
@@ -120,9 +118,8 @@ namespace LemonadeWars.Engine.Core
     // ---------------------------------------------------- window responses
 
     /// <summary>
-    /// Play an instant into the open window: Tantrum / Tag, You're It! / I'm Rubber, You're
-    /// Glue against the stack top, Out of Stock against a pending roll, Profit Share against
-    /// a resolved theft. Free — never costs an action.
+    /// Play an instant into the open window: Tantrum, Tag or Rubber-Glue against the stack top, Out
+    /// of Stock against a pending roll, Profit Share against a resolved theft. Never costs an action.
     /// </summary>
     public sealed class RespondToWindow : GameAction
     {
@@ -134,7 +131,6 @@ namespace LemonadeWars.Engine.Core
         public int? EquippedInstanceId { get; set; }
     }
 
-    /// <summary>Decline to respond to the current window.</summary>
     public sealed class PassWindow : GameAction
     {
     }
@@ -170,9 +166,8 @@ namespace LemonadeWars.Engine.Core
     // ------------------------------------------- black market abilities
 
     /// <summary>
-    /// Activate an equipped "On Your Turn" ability: Downsell/Sugared Up (modify the pending
-    /// die), Take Two (reroll it), or Liquid Energy (an extra table-wide sale roll).
-    /// Free — does not consume an action; each "(once)" card works once per turn.
+    /// Activate an equipped "On Your Turn" ability: Downsell/Sugared Up (modify the pending die),
+    /// Take Two (reroll it), Liquid Energy (an extra table-wide sale roll). Free, once per turn each.
     /// </summary>
     public sealed class UseTurnAbility : GameAction
     {

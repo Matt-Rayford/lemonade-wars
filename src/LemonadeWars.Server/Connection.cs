@@ -6,9 +6,8 @@ using Newtonsoft.Json;
 namespace LemonadeWars.Server;
 
 /// <summary>
-/// One client socket plus THE send lock for it. Rooms, session replies, and turn
-/// alerts can all write to the same socket from different tasks; concurrent
-/// WebSocket sends throw, so every write anywhere goes through this single gate.
+/// One client socket plus THE send lock for it: rooms, session replies and turn alerts
+/// write from different tasks, and concurrent WebSocket sends throw.
 /// </summary>
 public sealed class Connection
 {

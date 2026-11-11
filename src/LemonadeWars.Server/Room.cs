@@ -8,9 +8,6 @@ namespace LemonadeWars.Server;
 /// <summary>
 /// One table: seats, an optional running Game, and serialized action processing.
 /// All game/seat mutations happen under <see cref="_sync"/>; sends happen outside it.
-/// Subsystems: <c>Room.Lobby</c> (seating and start), <c>Room.Play</c> (actions, bot
-/// pump, broadcasts), <c>Room.Persistence</c> (action log), <c>Room.Lifecycle</c>
-/// (summaries and retirement).
 /// </summary>
 public sealed partial class Room
 {

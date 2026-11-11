@@ -3,10 +3,8 @@ using UnityEngine.EventSystems;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>
-    /// Raw drag relay (hand cards): forwards pointer positions and nothing else — no
-    /// ghost, no glow. The owner decides what a drag means.
-    /// </summary>
+    /// <summary>For hand cards: forwards pointer positions and nothing else (no ghost, no glow).
+    /// The owner decides what a drag means.</summary>
     public sealed class DragRelay : MonoBehaviour,
         IBeginDragHandler, IDragHandler, IEndDragHandler
     {

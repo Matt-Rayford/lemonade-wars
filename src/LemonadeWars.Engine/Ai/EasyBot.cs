@@ -6,10 +6,8 @@ namespace LemonadeWars.Engine.Ai
 {
     /// <summary>
     /// Easy difficulty: the greedy heuristic made consistently SOFT rather than mostly
-    /// perfect — like a distracted eight-year-old entrepreneur. Three handicaps:
-    /// it picks among the greedy top two instead of the single best, it sometimes lets
-    /// response windows slide, and a share of decisions are made at random. It never
-    /// throws a random Tantrum: passing is the harmless blunder.
+    /// perfect. It picks among the greedy top two, sometimes lets response windows
+    /// slide, and makes a share of decisions at random.
     /// </summary>
     public sealed class EasyBot : IBot
     {
@@ -31,12 +29,12 @@ namespace LemonadeWars.Engine.Ai
         public GameAction Choose(Game game, int playerId)
         {
             var moves = game.LegalMovesFor(playerId);
-            if (moves.Any(m => m is PassWindow || m is RespondToWindow))
+            bool isResponseWindow = moves.Any(move => move is PassWindow || move is RespondToWindow);
+            if (isResponseWindow)
             {
-                // A randomly thrown Tantrum against a play that never touched the bot
-                // reads as malice, not as an easy opponent — so windows blunder only
-                // by passing, never by reacting at random.
-                var pass = moves.FirstOrDefault(m => m is PassWindow);
+                // Windows blunder only by passing: a random Tantrum on a play that never
+                // touched the bot reads as malice, not as an easy opponent.
+                var pass = moves.FirstOrDefault(move => move is PassWindow);
                 if (pass != null && _rng.Next(100) < PassWindowPercent)
                 {
                     return pass;

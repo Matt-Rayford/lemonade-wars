@@ -8,51 +8,39 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The game table, rendered purely from a PlayerView (+ static CardDatabase for names
-    /// and costs) — identical for local and networked sessions. Interactive elements get
-    /// glow affordances and click/drag through to the app's handlers.
-    /// One partial per subsystem (TableView.Hand.cs, TableView.Market.cs, ...); this
-    /// file holds the cross-subsystem state, the zone layout, and Render orchestration.
+    /// The game table, rendered purely from a PlayerView (plus the static CardDatabase for
+    /// names and costs), so local and networked sessions look identical. One partial per
+    /// subsystem; this file holds the shared state, the zone layout and Render.
     /// </summary>
     public sealed partial class TableView
     {
-        /// <summary>
-        /// The board band's horizontal span (canvas fractions). Pushed right of centre
-        /// so the staged-card column beside the player bars has room to breathe; the
-        /// action log takes whatever is left on the right.
-        /// </summary>
-        public const float BoardLeft = 0.313f; // VP cell (after the row inset) flush with the hand's first card
+        /// <summary>The board band's span in canvas fractions. Its left edge leaves room for the staged-card
+        /// column beside the player bars and puts the VP cell flush with the hand's first card.</summary>
+        public const float BoardLeft = 0.313f;
         public const float BoardRight = 1f;
         public const float BoardBottom = 0.21f;
         public const float BoardTop = 0.695f;
         /// <summary>The action log's column, top-right over the board band's headroom.</summary>
         public const float LogLeft = 0.83f;
-        /// <summary>
-        /// The band's clip edge sits this far left of the first cell: the Victory
-        /// Points outline is not nibbled at rest, and the scroll fade starts outside it.
-        /// </summary>
+        /// <summary>The band's clip edge sits this far left of the first cell, so the Victory Points outline is not nibbled at rest.</summary>
         public const float BoardLeadPx = 10f;
 
-        // Callbacks shared by more than one subsystem (single-subsystem ones live in
-        // their partial).
-        public System.Func<bool> CanDrawLemon;      // hand draw slot + lemon pile chip
+        // Hooks used by more than one subsystem; single-subsystem hooks live in their partial.
+        public System.Func<bool> CanDrawLemon;
         public System.Action OnDrawCard;
-        /// <summary>Fired when the player switches whose board is displayed.</summary>
         public System.Action OnBoardViewChanged;
-        /// <summary>Whose board the table currently shows; -1 = your own.</summary>
+        /// <summary>Whose board the table shows; -1 is your own.</summary>
         public int ViewedBoardPlayer = -1;
-        // Consulted both when a hand gesture arms an aim and when a render re-binds one.
-        public System.Func<int, ISet<int>> AttackTargetsFor; // hand id -> victims (null = not an attack)
-        /// <summary>hand card id -> market indices it may take (null = not a market card).</summary>
+        /// <summary>Hand card id to the players it may attack; null when the card is not an attack.</summary>
+        public System.Func<int, ISet<int>> AttackTargetsFor;
+        /// <summary>Hand card id to the market indices it may take; null when it is not a market card.</summary>
         public System.Func<int, ISet<int>> MarketTargetsFor;
 
-        /// <summary>Drop zones glow lemonade-yellow while a card is being dragged.</summary>
         private static readonly Color DropGlowHot = new Color(1f, 0.93f, 0.45f, 1f);
         private static readonly Color DropGlowWide = new Color(1f, 0.82f, 0.10f, 1f);
 
-        // Target/anchor registries: repopulated by the zone partials during Render,
-        // hit-tested and re-bound by the aiming and drag subsystems (see
-        // ReacquireAttackTargeting).
+        // Repopulated by the zone partials on every Render; the aiming and drag subsystems
+        // hit-test and re-bind against them.
         private readonly List<(int? Id, RectTransform Cell, Texture2D Art)> _dropCells =
             new List<(int?, RectTransform, Texture2D)>();
         private readonly List<(int Index, RectTransform Cell, GameObject Outer, GameObject Inner)>
@@ -72,7 +60,7 @@ namespace LemonadeWars.Unity
         private RectTransform _canvasRoot;
         private readonly CardArt _art;
         private readonly CardPreview _preview;
-        private CardDatabase _db; // set each Render; card names come from data, not ids
+        private CardDatabase _db; // set on each Render
 
         public RectTransform Root { get; private set; }
         public RectTransform ActionBar { get; private set; }
@@ -97,17 +85,34 @@ namespace LemonadeWars.Unity
 
         public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
 
-        private void Build(RectTransform root)
+        /// <summary>Zone order is draw order: each zone covers the ones built before it.</summary>
+        private void Build(RectTransform canvasRoot)
         {
-            Root = UiKit.CreatePanel(root, "Table", new Color(0, 0, 0, 0));
+            BuildTableRoot(canvasRoot);
+            BuildPlayersColumn();
+            BuildShelfBand();
+            BuildBoardBand();
+            // After the board: its drop-catching panel runs to the screen's right edge and
+            // would otherwise sit on top of the log and swallow every click on its header.
+            BuildActionLog();
+            BuildActionBarStrip();
+            // After every table zone, so raised cards overlay the table.
+            BuildBottomPeekZones();
+            BuildEquipTargeting();
+            BuildDiscardViewer();
+            BuildAttackTargeting();
+        }
+
+        private void BuildTableRoot(RectTransform canvasRoot)
+        {
+            Root = UiKit.CreatePanel(canvasRoot, "Table", new Color(0, 0, 0, 0));
             UiKit.Anchor(Root, Vector2.zero, Vector2.one);
             Root.GetComponent<Image>().raycastTarget = false;
-
-            // Repeating badge pattern behind the whole table, shelf included: one
-            // surface, with the cards themselves marking where the store is.
             UiKit.CreateWallpaper(Root, Vector2.one);
+        }
 
-            // Left: player panels in turn order (you at the bottom), below the shelf.
+        private void BuildPlayersColumn()
+        {
             var playersGo = new GameObject("Players", typeof(RectTransform), typeof(VerticalLayoutGroup));
             playersGo.transform.SetParent(Root, false);
             UiKit.Anchor((RectTransform)playersGo.transform,
@@ -121,30 +126,27 @@ namespace LemonadeWars.Unity
             playersLayout.childControlHeight = true;
             playersLayout.childControlWidth = true;
             _playersColumn = (RectTransform)playersGo.transform;
+        }
 
-            // Top: one full-width shelf — Black Market row, stand supply, Bragging
-            // Rights, and the Black Market discard pile.
-            // Full-bleed: the shelf runs edge to edge and meets the top of the screen,
-            // so it reads as one band instead of a floating panel. Whose turn it is
-            // and who is awaited show on the player bars, so no bar sits above it.
-            var market = UiKit.CreatePanel(Root, "Market", new Color(0, 0, 0, 0));
-            UiKit.Anchor(market, new Vector2(0f, 0.75f), new Vector2(1f, 1f),
+        /// <summary>One full-bleed band for the discard piles, Black Market row, stand supply and Bragging Rights.</summary>
+        private void BuildShelfBand()
+        {
+            var shelf = UiKit.CreatePanel(Root, "Market", new Color(0, 0, 0, 0));
+            UiKit.Anchor(shelf, new Vector2(0f, 0.75f), new Vector2(1f, 1f),
                 new Vector2(0, 4), new Vector2(0, 0));
-            _marketRow = UiKit.CreateCardRow(market, "MarketRow");
+            _marketRow = UiKit.CreateCardRow(shelf, "MarketRow");
+        }
 
-            // Center: your board (turf + stands). Also a drop zone for supply stands.
-            // Transparent — cards float on the table; the Image still catches drops.
-            // Its top stays below the shelf rule: the bare strip between them is
-            // breathing room (and hosts the turn-action chips, top-right).
+        private void BuildBoardBand()
+        {
+            // Transparent, but its Image still catches supply-stand drops.
             var board = UiKit.CreatePanel(Root, "Board", new Color(0, 0, 0, 0));
             UiKit.Anchor(board, new Vector2(BoardLeft, BoardBottom), new Vector2(BoardRight, BoardTop),
                 new Vector2(3 - BoardLeadPx, 2), new Vector2(-3, -2));
             _boardPanel = board;
             board.gameObject.AddComponent<BoardDropZone>().SupplyDropped = HandleSupplyDrop;
-            // The row is content-sized behind a mask: a 6th stand overflows to the
-            // right and edge-scrolls (like the hand) instead of squishing the columns.
-            // The soft edge only switches on while there IS overflow (see
-            // TickBoardScroll) so a board that fits stays crisp.
+            // The row is content-sized behind a mask: a sixth stand overflows to the right
+            // and edge-scrolls (see TickBoardScroll) instead of squishing the columns.
             _boardMask = board.gameObject.AddComponent<RectMask2D>();
             _boardRow = UiKit.CreateCardRow(board, "BoardRow");
             _boardRow.anchorMin = new Vector2(0f, 0f);
@@ -154,32 +156,24 @@ namespace LemonadeWars.Unity
             _boardRow.offsetMax = new Vector2(6f + BoardLeadPx, -6f);
             _boardRow.gameObject.AddComponent<ContentSizeFitter>().horizontalFit =
                 ContentSizeFitter.FitMode.PreferredSize;
-            // Cards sit at the BOTTOM of the band: the headroom above holds a full
-            // 5-deep tucked-upgrade stack (5 x 40px peeks) without touching the shelf.
+            // Bottom-aligned: the headroom above holds a five-deep tucked stack clear of the shelf.
             _boardRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.LowerLeft;
             _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
                 new Color(1f, 0.92f, 0.55f), body: true);
             _boardOwnerLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
                 new Vector2(0, 0.90f), new Vector2(1, 1));
+        }
 
-            // Right column, mirroring the player panels: the action log. Collapsed
-            // it's one slim "latest thing that happened" chip; expanded it's the
-            // recent history — fast bot turns can be replayed at a glance. Built
-            // AFTER the board: the board band runs to the screen's right edge now,
-            // and its drop-catching panel would otherwise sit on top of the log and
-            // swallow every click on its header.
-            BuildActionLog();
-
-            // Persistent actions: a floating button strip above the hand's peek band.
+        private void BuildActionBarStrip()
+        {
             var actions = UiKit.CreatePanel(Root, "Actions", new Color(0, 0, 0, 0));
             actions.GetComponent<Image>().raycastTarget = false;
             UiKit.Anchor(actions, new Vector2(BoardLeft, 0.17f), new Vector2(BoardRight, 0.22f),
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);
-            // Breathing room above and below: the band sits flush between the stand
-            // captions and the hand's peek, and a button filling it touched both.
+            // Inset top and bottom so a button touches neither the stand captions nor the hand.
             UiKit.Anchor((RectTransform)bar.transform, Vector2.zero, Vector2.one,
                 new Vector2(8, 9), new Vector2(-8, -9));
             var barLayout = bar.GetComponent<HorizontalLayoutGroup>();
@@ -190,51 +184,36 @@ namespace LemonadeWars.Unity
             barLayout.childControlWidth = true;
             barLayout.childControlHeight = true;
             ActionBar = (RectTransform)bar.transform;
+        }
 
-            // Bottom edge: the hand. Cards peek up from below the screen and rise on
-            // hover, Dune: Imperium style. Built LAST so raised cards overlay the table.
-            // A soft-edged mask clips the fan to its band, fading cards out at the
-            // sides instead of letting them spill into the neighboring zones.
-            _handHost = UiKit.CreatePanel(Root, "Hand", new Color(0, 0, 0, 0));
-            _handHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(_handHost, new Vector2(0.245f, 0f), new Vector2(0.755f, 0f));
-            _handHost.pivot = new Vector2(0.5f, 0f);
-            _handHost.sizeDelta = new Vector2(_handHost.sizeDelta.x, 300f);
-            _handHost.anchoredPosition = Vector2.zero;
+        private void BuildBottomPeekZones()
+        {
+            _handHost = CreateBottomPeekZone("Hand", 0.245f, 0.755f);
+            // Soft edges: cards fade out at the sides instead of spilling into the neighbouring zones.
             var handMask = _handHost.gameObject.AddComponent<RectMask2D>();
             handMask.softness = new Vector2Int(70, 0);
 
-            // Bottom-right: your two secret Lemon Lords, same peek-and-rise treatment,
-            // floating over the dark side zone.
-            _lordHost = UiKit.CreatePanel(Root, "LemonLords", new Color(0, 0, 0, 0));
-            _lordHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(_lordHost, new Vector2(0.79f, 0f), new Vector2(1f, 0f));
-            _lordHost.pivot = new Vector2(0.5f, 0f);
-            _lordHost.sizeDelta = new Vector2(_lordHost.sizeDelta.x, 300f);
-            _lordHost.anchoredPosition = Vector2.zero;
+            _lordHost = CreateBottomPeekZone("LemonLords", 0.79f, 1f);
+            _dibsHost = CreateBottomPeekZone("FirstDibs", 0f, 0.21f);
+        }
 
-            // Bottom-left: the First Dibs titles, peeking where the log used to live.
-            _dibsHost = UiKit.CreatePanel(Root, "FirstDibs", new Color(0, 0, 0, 0));
-            _dibsHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(_dibsHost, new Vector2(0f, 0f), new Vector2(0.21f, 0f));
-            _dibsHost.pivot = new Vector2(0.5f, 0f);
-            _dibsHost.sizeDelta = new Vector2(_dibsHost.sizeDelta.x, 300f);
-            _dibsHost.anchoredPosition = Vector2.zero;
-
-            BuildEquipTargeting();
-            BuildDiscardViewer();
-            BuildAttackTargeting();
+        /// <summary>A click-through zone on the screen's bottom edge, for cards that peek up from below it.</summary>
+        private RectTransform CreateBottomPeekZone(string name, float leftFraction, float rightFraction)
+        {
+            var zone = UiKit.CreatePanel(Root, name, new Color(0, 0, 0, 0));
+            zone.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(zone, new Vector2(leftFraction, 0f), new Vector2(rightFraction, 0f));
+            zone.pivot = new Vector2(0.5f, 0f);
+            zone.sizeDelta = new Vector2(zone.sizeDelta.x, 300f);
+            zone.anchoredPosition = Vector2.zero;
+            return zone;
         }
 
         public void Render(PlayerView view, CardDatabase db, MoveGroups groups)
         {
             _db = db;
-            // An in-progress aim SURVIVES the rebuild. Renders fire on every revision
-            // bump (bot pacing ticks, other players' passes, keepalives), so tearing
-            // targeting down here cancelled the player's arrow a second or two after
-            // they drew it. The aiming state is plain data; only the visuals it points
-            // at are rebuilt below, and ReacquireAttackTargeting re-binds them (or ends
-            // the aim if it has actually gone stale).
+            // An aim in progress survives the rebuild: renders fire on every revision bump, so
+            // only the visuals the aim points at are rebuilt, then re-bound at the end.
             bool wasAiming = _attackCardId >= 0;
             _pickHover = -1;
             RenderMarket(view, db, groups);
@@ -246,8 +225,7 @@ namespace LemonadeWars.Unity
             RenderPlayers(view);
             if (wasAiming)
             {
-                // Last: every list it re-binds against (_marketCells, _equipCells,
-                // _handFrames, _playerRows) has just been repopulated above.
+                // Last: every list it re-binds against has just been repopulated above.
                 ReacquireAttackTargeting(view);
             }
         }
@@ -257,11 +235,7 @@ namespace LemonadeWars.Unity
             _attackCardId >= 0 || _targetingPick != null || _discardOverlay.gameObject.activeSelf ||
             StickyDragActive || RummagePickActive;
 
-        /// <summary>
-        /// Esc: dismiss whichever aiming/browsing overlay is up — same outcome as
-        /// clicking off it. Attack aim first, then equip targeting, then the discard
-        /// browser (only one is ever open at a time).
-        /// </summary>
+        /// <summary>Esc: dismiss whichever overlay is up, with the same outcome as clicking off it. Only one is ever open.</summary>
         public void CancelOverlays()
         {
             if (_attackCardId >= 0)
@@ -295,10 +269,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Silently drop the pick overlays a CHANGED modal context is about to
-        /// replace. Unlike <see cref="CancelOverlays"/> this never invokes cancel
-        /// callbacks — those reopen the flow being replaced. Attack aiming is left
-        /// alone: it is hand-armed, not modal-owned.
+        /// Drops the pick overlays a changed modal context is about to replace, without their cancel
+        /// callbacks (those reopen the flow being replaced). Attack aiming is hand-armed, so it stays.
         /// </summary>
         public void DismissModalOverlays()
         {

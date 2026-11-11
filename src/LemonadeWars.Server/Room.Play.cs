@@ -6,27 +6,26 @@ using Newtonsoft.Json.Linq;
 
 namespace LemonadeWars.Server;
 
-// In-game action handling, bot-turn pacing, and per-seat broadcasts.
 public sealed partial class Room
 {
     private const int MaxBotSteps = 20000;
     /// <summary>
-    /// How long clients spend showing a die (tumble + settle + hold + the coin
-    /// flights behind it). Bots hold for this after any roll event, so the next
-    /// turn never starts while humans are still watching the sale resolve — the
-    /// server cannot see the animation, so it budgets for it. Skipped when the bot
-    /// delay is 0 (tests, instant rooms).
+    /// How long clients spend showing a die (tumble, settle, hold). The server cannot see
+    /// the animation, so bots hold this long after any roll before the next turn starts.
     /// </summary>
     private const int RollTheatreMs = 2800;
-    /// <summary>Per earner: the client's earnings pile (0.25s in, 0.6s hold, 0.5s to the bar, 0.5s breath).</summary>
+    /// <summary>Per earner: the client's bill pile (0.25s in, 0.6s hold, 0.5s to the bar, 0.5s breath).</summary>
     private const int EarningsTheatreMs = 1850;
 
-    /// <summary>Seats already alerted for their current wait — one nudge per turn edge.</summary>
+    /// <summary>Seats already alerted for their current wait: one nudge per turn edge.</summary>
     private readonly HashSet<int> _alertedSeats = new();
     private bool _botPumpActive;
     private DateTime _rollTheatreUntil = DateTime.MinValue;
 
-    /// <summary>Kick the bot pump (used after rehydration when a bot is up).</summary>
+    /// <summary>0 means instant bots (tests), which also skips the roll theatre hold.</summary>
+    private int BotDelayMs => _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
+
+    /// <summary>For rehydrated rooms, where a bot may have been mid-turn when the server died.</summary>
     public void PumpBots() => _ = EnsureBotPumpAsync();
 
     public async Task HandleActionAsync(int seatIndex, JObject actionJson)
@@ -41,7 +40,7 @@ public sealed partial class Room
             await SendErrorAsync(seatIndex, $"Bad action: {e.Message}");
             return;
         }
-        // Seats can only ever act as themselves.
+        // Whatever the client claimed, a seat can only act as itself.
         action.PlayerId = seatIndex;
 
         var events = new List<GameEvent>();
@@ -74,61 +73,33 @@ public sealed partial class Room
     }
 
     /// <summary>
-    /// Paced bot turns: one action per BOT_DELAY_MS with a broadcast after each, so humans
-    /// watch bot turns unfold instead of the whole thing flashing past. At most one pump
-    /// runs per room; human actions interleave safely through the room lock.
+    /// Paced bot turns: one action per bot delay with a broadcast after each, so humans watch
+    /// bot turns unfold. At most one pump runs per room; human actions interleave through the lock.
     /// </summary>
     private async Task EnsureBotPumpAsync()
     {
-        lock (_sync)
+        if (!TryClaimBotPump())
         {
-            if (_botPumpActive || _game == null)
-            {
-                return;
-            }
-            _botPumpActive = true;
+            return;
         }
 
         try
         {
             for (int steps = 0; steps < MaxBotSteps; steps++)
             {
-                TimeSpan theatreLeft;
-                lock (_sync)
-                {
-                    theatreLeft = _rollTheatreUntil - DateTime.UtcNow;
-                }
+                TimeSpan theatreLeft = RollTheatreRemaining();
                 if (theatreLeft > TimeSpan.Zero)
                 {
                     await Task.Delay(theatreLeft);
                 }
 
-                var events = new List<GameEvent>();
-                lock (_sync)
+                var events = TakeNextBotAction();
+                if (events == null)
                 {
-                    if (_game == null || _game.State.Stage == GameStage.Finished)
-                    {
-                        return;
-                    }
-                    var acting = _game.ActingPlayers();
-                    // Humans answer first: while any human seat is being awaited
-                    // (response window, discard, ...), bots hold their responses so
-                    // the pause is unmistakable at the table.
-                    if (acting.Any(a => !_bots.ContainsKey(a)))
-                    {
-                        return;
-                    }
-                    int actor = acting.FirstOrDefault(a => _bots.ContainsKey(a), -1);
-                    if (actor < 0)
-                    {
-                        return;
-                    }
-                    var action = _bots[actor].Choose(_game, actor);
-                    events.AddRange(_game.Apply(action));
-                    PersistAction(action);
+                    return;
                 }
                 await BroadcastGameAsync(events);
-                int delayMs = _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
+                int delayMs = BotDelayMs;
                 if (delayMs > 0)
                 {
                     await Task.Delay(delayMs);
@@ -144,65 +115,70 @@ public sealed partial class Room
         }
     }
 
+    private bool TryClaimBotPump()
+    {
+        lock (_sync)
+        {
+            if (_botPumpActive || _game == null)
+            {
+                return false;
+            }
+            _botPumpActive = true;
+            return true;
+        }
+    }
+
+    private TimeSpan RollTheatreRemaining()
+    {
+        lock (_sync)
+        {
+            return _rollTheatreUntil - DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>Null when no bot should act now: the game is over, or a human is being awaited.</summary>
+    private List<GameEvent>? TakeNextBotAction()
+    {
+        lock (_sync)
+        {
+            if (_game == null || _game.State.Stage == GameStage.Finished)
+            {
+                return null;
+            }
+            var acting = _game.ActingPlayers();
+            // Humans answer first: bots hold back while any human is awaited, so the pause is unmistakable.
+            if (acting.Any(a => !_bots.ContainsKey(a)))
+            {
+                return null;
+            }
+            int actor = acting.FirstOrDefault(a => _bots.ContainsKey(a), -1);
+            if (actor < 0)
+            {
+                return null;
+            }
+            var action = _bots[actor].Choose(_game, actor);
+            var events = new List<GameEvent>(_game.Apply(action));
+            PersistAction(action);
+            return events;
+        }
+    }
+
     private async Task BroadcastGameAsync(IReadOnlyList<GameEvent> events)
     {
-        List<(Seat Seat, UpdateMessage Message)> outbox = new();
-        List<(string PlayerId, string Code)>? alerts = null;
+        List<(Seat Seat, UpdateMessage Message)> outbox;
+        List<(string PlayerId, string Code)> alerts;
         lock (_sync)
         {
             if (_game == null)
             {
                 return;
             }
-            int delayMs = _botDelayOverrideMs >= 0 ? _botDelayOverrideMs : _botDelayMs;
-            if (delayMs > 0 && events.Any(e => e is SaleRolled || e is DieRerolled || e is RollModified))
-            {
-                // The die, then one bill pile per earner (slide, hold, slide into the
-                // bar, breath) — the client plays them one at a time, so bots wait for all.
-                int earners = events.Where(e => e is StandSold || (e is MoneyChanged m && m.Amount > 0))
-                    .Select(e => e is StandSold sold ? sold.PlayerId : ((MoneyChanged)e).PlayerId)
-                    .Distinct().Count();
-                _rollTheatreUntil = DateTime.UtcNow.AddMilliseconds(RollTheatreMs + earners * EarningsTheatreMs);
-            }
+            HoldBotsForRollTheatre(events);
             var acting = _game.ActingPlayers();
-
-            // Turn alerts, rising-edge: a seat that is newly awaited AND away from
-            // the table gets one nudge on its player's other connections. Sitting at
-            // the table (or ceasing to be awaited) re-arms the alert for next time.
-            foreach (var seat in _seats.Where(s => !s.IsBot))
-            {
-                if (!acting.Contains(seat.Index) || seat.Connected)
-                {
-                    _alertedSeats.Remove(seat.Index);
-                }
-                else if (seat.PlayerId != null && _alertedSeats.Add(seat.Index))
-                {
-                    (alerts ??= new List<(string, string)>()).Add((seat.PlayerId, Code));
-                }
-            }
-
-            foreach (var seat in _seats.Where(s => !s.IsBot))
-            {
-                var update = new UpdateMessage
-                {
-                    Events = events.Select(e => WireCodec.EncodeEventFor(e, seat.Index)).ToList(),
-                    View = JObject.FromObject(_game.ViewFor(seat.Index),
-                        JsonSerializer.Create(WireCodec.Settings)),
-                };
-                if (acting.Contains(seat.Index))
-                {
-                    update.Moves = _game.LegalMovesFor(seat.Index)
-                        .Select(m => new MoveOption
-                        {
-                            Label = MoveDescriber.Describe(_game, m),
-                            Action = WireCodec.EncodeAction(m),
-                        })
-                        .ToList();
-                }
-                outbox.Add((seat, update));
-            }
+            alerts = CollectTurnAlerts(acting);
+            outbox = BuildSeatUpdates(_game, events, acting);
         }
-        if (alerts != null && _turnNotifier != null)
+        if (_turnNotifier != null)
         {
             foreach (var (playerId, code) in alerts)
             {
@@ -210,6 +186,69 @@ public sealed partial class Room
             }
         }
         await Task.WhenAll(outbox.Select(o => o.Seat.SendAsync(o.Message)));
+    }
+
+    // ---- BroadcastGameAsync steps, all run with _sync held
+
+    private void HoldBotsForRollTheatre(IReadOnlyList<GameEvent> events)
+    {
+        if (BotDelayMs <= 0 || !events.Any(e => e is SaleRolled || e is DieRerolled || e is RollModified))
+        {
+            return;
+        }
+        // The client plays the die, then one bill pile per earner, one at a time.
+        int earners = events.Where(e => e is StandSold || (e is MoneyChanged m && m.Amount > 0))
+            .Select(e => e is StandSold sold ? sold.PlayerId : ((MoneyChanged)e).PlayerId)
+            .Distinct().Count();
+        _rollTheatreUntil = DateTime.UtcNow.AddMilliseconds(RollTheatreMs + earners * EarningsTheatreMs);
+    }
+
+    /// <summary>
+    /// Rising-edge: a human seat that is newly awaited AND away from the table gets one nudge.
+    /// Sitting at the table, or ceasing to be awaited, re-arms the alert.
+    /// </summary>
+    private List<(string PlayerId, string Code)> CollectTurnAlerts(IReadOnlyList<int> acting)
+    {
+        var alerts = new List<(string, string)>();
+        foreach (var seat in _seats.Where(s => !s.IsBot))
+        {
+            if (!acting.Contains(seat.Index) || seat.Connected)
+            {
+                _alertedSeats.Remove(seat.Index);
+            }
+            else if (seat.PlayerId != null && _alertedSeats.Add(seat.Index))
+            {
+                alerts.Add((seat.PlayerId, Code));
+            }
+        }
+        return alerts;
+    }
+
+    private List<(Seat Seat, UpdateMessage Message)> BuildSeatUpdates(Game game,
+        IReadOnlyList<GameEvent> events, IReadOnlyList<int> acting)
+    {
+        var outbox = new List<(Seat, UpdateMessage)>();
+        foreach (var seat in _seats.Where(s => !s.IsBot))
+        {
+            var update = new UpdateMessage
+            {
+                Events = events.Select(e => WireCodec.EncodeEventFor(e, seat.Index)).ToList(),
+                View = JObject.FromObject(game.ViewFor(seat.Index),
+                    JsonSerializer.Create(WireCodec.Settings)),
+            };
+            if (acting.Contains(seat.Index))
+            {
+                update.Moves = game.LegalMovesFor(seat.Index)
+                    .Select(m => new MoveOption
+                    {
+                        Label = MoveDescriber.Describe(game, m),
+                        Action = WireCodec.EncodeAction(m),
+                    })
+                    .ToList();
+            }
+            outbox.Add((seat, update));
+        }
+        return outbox;
     }
 
     private void BroadcastRoom(List<Seat> seats)

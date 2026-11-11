@@ -28,14 +28,13 @@ namespace LemonadeWars.Unity
             var token = _manifest["lemon"]?[defId];
             if (token == null)
             {
-                // Timeouts live in the supporting section but flow through the Lemon
-                // discard, so the viewer asks for them here.
+                // Timeouts live in the supporting section but flow through the Lemon discard.
                 token = _manifest["supporting"]?[defId];
             }
             return Load(token is JArray variants ? (string)variants.First : (string)token);
         }
 
-        /// <summary>A paper bill, landscape, for $1 / $2 / $5 / $10; null for any other value.</summary>
+        /// <summary>Landscape bill art for $1 / $2 / $5 / $10; null for any other value.</summary>
         public Texture2D Bill(int value)
         {
             string name = value == 1 ? "1-Dollar"
@@ -55,12 +54,11 @@ namespace LemonadeWars.Unity
         public Texture2D Turf(int powerPourNumber) =>
             Load((string)_manifest["turf"]?[powerPourNumber.ToString()]);
 
-        /// <summary>Stand art for a specific printed shape (each type has 3 shape variants).</summary>
         public Texture2D Stand(string standTypeId, Shape shape) =>
             Load((string)(_manifest["stands"]?[standTypeId]?[shape.ToString().ToLowerInvariant()]
                 as JArray)?[0]);
 
-        /// <summary>Any stand art of the type (used when no specific copy is in question).</summary>
+        /// <summary>For when no specific copy of the stand is in question.</summary>
         public Texture2D Stand(string standTypeId) => Stand(standTypeId, Shape.Square);
 
         public Texture2D BraggingRights(int index)
@@ -94,9 +92,6 @@ namespace LemonadeWars.Unity
             }
 
             string fullPath = Path.Combine(_imagesRoot, relativePath);
-            // Sharp mips (tools/make_mips.py): the art is far larger than most places
-            // it is drawn, and both mipless minification and Unity's box-filtered
-            // auto-mips turn the card text to mush.
             var texture = UiKit.LoadTextureSharp(fullPath);
             if (texture != null)
             {

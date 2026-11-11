@@ -5,10 +5,9 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Draggable table object (market card or supply stand): lifts with a glow on hover,
-    /// spawns a ghost that follows the pointer while dragging. Drop resolution happens in
-    /// <see cref="DropTarget"/> / <see cref="BoardDropZone"/>. A double-click is the
-    /// no-drag shortcut: the owner decides where the purchase lands.
+    /// Draggable table object (market card or supply stand): lifts with a glow on hover and
+    /// spawns a ghost that follows the pointer. Drops resolve in <see cref="DropTarget"/> /
+    /// <see cref="BoardDropZone"/>; a double-click is the no-drag shortcut.
     /// </summary>
     public sealed class DragSource : MonoBehaviour,
         IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler,
@@ -70,18 +69,7 @@ namespace LemonadeWars.Unity
                 return;
             }
             Dragging = true;
-
-            var image = UiKit.CreateCardImage(CanvasRoot, Texture, GhostWidthPx, GhostHeightPx);
-            image.raycastTarget = false; // drops must reach the targets underneath
-            image.color = new Color(1f, 1f, 1f, GhostAlpha);
-            _ghost = (RectTransform)image.transform.parent;
-            _ghost.name = "DragGhost";
-            _ghost.GetComponent<Image>().raycastTarget = false;
-            _ghost.anchorMin = _ghost.anchorMax = new Vector2(0.5f, 0.5f);
-            _ghost.pivot = new Vector2(0.5f, 0.5f);
-            _ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
-            _ghost.position = eventData.position;
-
+            CreateGhost(eventData.position);
             DragStarted?.Invoke();
         }
 
@@ -97,32 +85,45 @@ namespace LemonadeWars.Unity
         {
             // OnDrop on the target (if any) fires before OnEndDrag.
             Dragging = false;
-            if (_ghost != null)
-            {
-                Destroy(_ghost.gameObject);
-                _ghost = null;
-            }
+            DestroyGhost();
             SetHover(false);
             DragEnded?.Invoke();
         }
 
         private void OnDisable()
         {
-            // A shelf re-render (bot purchase, flight delivery) can destroy this source
-            // mid-drag, and UGUI never delivers OnEndDrag to a destroyed object — the
-            // ghost is parented to the canvas root, so without this it floats forever.
-            // No SetHover here: the lift target is being torn down with us.
+            // A shelf re-render can destroy this source mid-drag, and UGUI never sends OnEndDrag to a destroyed
+            // object: the canvas-parented ghost would float forever. No SetHover: the lift target is going too.
             if (!Dragging)
             {
                 return;
             }
             Dragging = false;
+            DestroyGhost();
+            DragEnded?.Invoke();
+        }
+
+        private void CreateGhost(Vector2 pointerPosition)
+        {
+            var image = UiKit.CreateCardImage(CanvasRoot, Texture, GhostWidthPx, GhostHeightPx);
+            image.raycastTarget = false; // drops must reach the targets underneath
+            image.color = new Color(1f, 1f, 1f, GhostAlpha);
+            _ghost = (RectTransform)image.transform.parent;
+            _ghost.name = "DragGhost";
+            _ghost.GetComponent<Image>().raycastTarget = false;
+            _ghost.anchorMin = _ghost.anchorMax = new Vector2(0.5f, 0.5f);
+            _ghost.pivot = new Vector2(0.5f, 0.5f);
+            _ghost.sizeDelta = new Vector2(GhostWidthPx, GhostHeightPx);
+            _ghost.position = pointerPosition;
+        }
+
+        private void DestroyGhost()
+        {
             if (_ghost != null)
             {
                 Destroy(_ghost.gameObject);
                 _ghost = null;
             }
-            DragEnded?.Invoke();
         }
 
         private void SetHover(bool on)

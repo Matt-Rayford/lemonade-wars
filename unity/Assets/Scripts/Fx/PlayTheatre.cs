@@ -1,18 +1,15 @@
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Another player's play, staged on the table. An attack slides from their bar to
-    /// the showcase spot, a curved arrow points it at the victim whose bar glows red,
-    /// and it hangs there while any response window plays out; a take (Finders
-    /// Keepers, Reduce and Reuse, Reverse Engineer) stages its loot beside the card
-    /// under a grabbing hand; reactions thrown at it slap down on top (see the
-    /// Responses partial). On resolution the card slides into the victim's bar — or
-    /// back into the player's own, for a take — shrinking and fading; cancelled, it
-    /// fades where it floats. Only the arrival beat, a slap and the departure count
-    /// as blocking theatre — the wait for reactions must not, or the viewer's own
+    /// Another player's play, staged on the table: the card slides from their bar to the
+    /// showcase spot and hangs there while any response window plays out. An attack
+    /// points a curved arrow at its victim, whose bar glows red; a take stages its loot
+    /// beside the card; reactions slap down on top (the Responses partial). Resolved, the
+    /// card slides into the victim's bar (its own player's, for a take); cancelled, it
+    /// fades where it floats. Only the arrival beat, a slap and the departure are
+    /// BLOCKING theatre: the wait for reactions must not be, or the viewer's own
     /// reaction modal could never open.
     /// </summary>
     public sealed partial class PlayTheatre
@@ -28,22 +25,7 @@ namespace LemonadeWars.Unity
         private const float CardHeight = 216f;
         /// <summary>Height on arrival at the victim's bar: a little under the 82px bar.</summary>
         private const float EndHeight = 60f;
-        private const float ArrowRefreshThresholdSq = 4f;
-        private const float ArrowEdgeGapPx = 10f;
-        /// <summary>The arrowhead stops this far outside the victim's avatar rim, aimed at its centre.</summary>
-        private const float ArrowTipGapPx = 3f;
-        /// <summary>The arrow's last handle sits beside and below (or above) the chip: it climbs into it from the card's side.</summary>
-        private const float ArrowApproachFraction = 0.55f;
-        private const float BadgeDiameterPx = 41f;
-        /// <summary>The badge's centre sits this far inside the card's top-left corner: overlapping the edge, not hiding it.</summary>
-        private const float BadgeInsetPx = 10f;
         private const float LootGapPx = 18f;
-        private const float GrabIconSizePx = 75f;
-        /// <summary>The hand's centre above the loot's top edge: high enough that only the thumb tip overlaps the card.</summary>
-        private const float GrabIconLiftPx = 10f;
-        /// <summary>How far the arrow's handles reach, as a share of its span: a tall sweep under (or over) the bars, not a loop.</summary>
-        private const float ArrowBulge = 0.8f;
-        private static readonly Color ArrowColor = new Color(0.95f, 0.27f, 0.21f);
 
         private readonly RectTransform _layer;
         private readonly RectTransform _arrowHost;
@@ -80,18 +62,12 @@ namespace LemonadeWars.Unity
         private float _departEndScale;
         private bool _departFades;
         private bool _wasBusy;
-        private Vector2 _drawnTargetEnd;
-        private bool _targetArrowDrawn;
-        private int _glowingTarget = -1;
 
         /// <summary>Fires on every busy → idle edge; the app re-renders so held modals open.</summary>
         public System.Action OnIdle;
 
         /// <param name="victimGlow">Turns the red attack glow on a player's bar on or off.</param>
-        /// <param name="preview">The table's magnifier, so the staged card reads on hover / Alt like any other.</param>
         /// <param name="grabIcon">The hand that hovers over stolen loot; null = loot shows bare.</param>
-        /// <param name="nameOf">A player's display name, for the avatar pinned to the card they played.</param>
-        /// <param name="avatarWorld">A player's avatar chip (centre and rim): where an attack's arrow lands.</param>
         public PlayTheatre(RectTransform canvasRoot, System.Func<int, Vector3?> barWorld,
             System.Func<int, (Vector3 Center, Vector3 Rim)?> avatarWorld, System.Func<int, Vector3?> showcaseWorld,
             System.Action<int, bool> victimGlow, CardPreview preview, Texture2D grabIcon,
@@ -122,7 +98,7 @@ namespace LemonadeWars.Unity
         /// <summary>True during the arrival beat and the departure; never while waiting on reactions.</summary>
         public bool IsBusy =>
             _phase == Phase.Arriving || _phase == Phase.Departing || _phase == Phase.Fading ||
-            (_phase == Phase.Holding && Time.time < _holdUntil) || Slapping;
+            (_phase == Phase.Holding && Time.time < _holdUntil) || IsSlapping;
 
         /// <summary>The staged play is this owner's card of this def (owner changes on a reflection).</summary>
         public bool Matches(int ownerId, string defId) => IsActive && ownerId == _attackerId && defId == _defId;
@@ -146,7 +122,7 @@ namespace LemonadeWars.Unity
             _from = Local(fromWorld ?? attackerBar.Value);
             _showcase = Local(showcase.Value); // level with the attacker's own bar, like a purchase
             _chip = BuildChip(art);
-            _group = _chip.GetComponent<CanvasGroup>(); // the builder also serves the response pile
+            _group = _chip.GetComponent<CanvasGroup>();
             PinPlayerBadge(_chip, attackerId);
             _chip.anchoredPosition = _from;
             if (lootArt != null)
@@ -175,8 +151,8 @@ namespace LemonadeWars.Unity
             _targetId = targetId;
             _targetArrowDrawn = false;
             PinPlayerBadge(_chip, attackerId); // a reflection makes the card someone else's
-            // The engine drops the card-specific pick on a redirect; the attacker
-            // re-picks on resolve, so the staged loot is no longer the truth.
+            // The engine drops the card-specific pick on a redirect (the attacker re-picks
+            // on resolve), so the staged loot is no longer the truth.
             DestroyLoot();
             if (reflected)
             {
@@ -187,38 +163,12 @@ namespace LemonadeWars.Unity
             GlowVictim();
         }
 
-        /// <summary>
-        /// "As if you played it": a reflected attack slides across the table to the
-        /// reflector's side, its reaction pile fading behind it, so the card wearing
-        /// their badge is seen to BECOME theirs rather than just change hats.
-        /// </summary>
-        private void CrossToNewOwner()
-        {
-            var newShowcase = _showcaseWorld(_attackerId);
-            if (newShowcase == null)
-            {
-                RedrawArrows(force: true);
-                GlowVictim();
-                return;
-            }
-            FadeResponses();
-            UiKit.Clear(_arrowHost);
-            GlowVictim(off: true);
-            _from = _chip.anchoredPosition;
-            _showcase = Local(newShowcase.Value);
-            _arriveSeconds = ReflectCrossSeconds;
-            _holdUntil = Time.time + ReflectCrossSeconds + MinHoldSeconds;
-            EnterPhase(Phase.Arriving);
-        }
-
         /// <summary>The attack landed: slide into the victim once the minimum hold is over.</summary>
         public void Resolve() => _resolveWhenReady = IsActive;
 
         /// <summary>
-        /// Resolve, but slide to a spot read at departure (a bought card's tucked place
-        /// on the stand it joined) at the given scale, without the shrink-and-fade; the
-        /// bar is the fallback when the spot is off the viewed board. The callback
-        /// fires once on every exit path, so whatever waits on the arrival never waits forever.
+        /// Resolve by sliding to a spot read at departure (a bought card's place on its stand) at the given scale, with
+        /// no shrink-and-fade; the bar is the fallback. The callback fires exactly once, on every exit path.
         /// </summary>
         public void ResolveTo(System.Func<Vector3?> destinationWorld, float endScale, System.Action onArrive)
         {
@@ -275,100 +225,144 @@ namespace LemonadeWars.Unity
             _wasBusy = busy;
         }
 
+        /// <summary>
+        /// "As if you played it": a reflected attack slides across the table to the reflector's side,
+        /// its reaction pile fading behind it, so the card is seen to BECOME theirs.
+        /// </summary>
+        private void CrossToNewOwner()
+        {
+            var newShowcase = _showcaseWorld(_attackerId);
+            if (newShowcase == null)
+            {
+                RedrawArrows(force: true);
+                GlowVictim();
+                return;
+            }
+            FadeResponses();
+            UiKit.Clear(_arrowHost);
+            GlowVictim(off: true);
+            _from = _chip.anchoredPosition;
+            _showcase = Local(newShowcase.Value);
+            _arriveSeconds = ReflectCrossSeconds;
+            _holdUntil = Time.time + ReflectCrossSeconds + MinHoldSeconds;
+            EnterPhase(Phase.Arriving);
+        }
+
         private void Advance()
         {
-            float t = (Time.time - _phaseStart);
+            float elapsedSeconds = Time.time - _phaseStart;
             switch (_phase)
             {
                 case Phase.Arriving:
-                {
-                    float eased = Ease(Mathf.Clamp01(t / _arriveSeconds));
-                    _chip.anchoredPosition = Vector2.Lerp(_from, _showcase, eased);
-                    if (_loot != null)
-                    {
-                        _loot.anchoredPosition = Vector2.Lerp(_from, _lootShowcase, eased);
-                    }
-                    RedrawArrows(force: false);
-                    if (t >= _arriveSeconds)
-                    {
-                        EnterPhase(Phase.Holding);
-                    }
+                    AdvanceArrival(elapsedSeconds);
                     break;
-                }
                 case Phase.Holding:
-                    RedrawArrows(force: false);
-                    GlowVictim(); // bars are rebuilt on every render; keep the glow with the victim
-                    if (Time.time >= _holdUntil)
-                    {
-                        if (_cancelWhenReady)
-                        {
-                            FadeResponses();
-                            EnterPhase(Phase.Fading);
-                        }
-                        else if (_resolveWhenReady && FadeResponses())
-                        {
-                            _holdUntil = Time.time + SlapMotion.FadeSeconds; // the pile clears first
-                        }
-                        else if (_resolveWhenReady)
-                        {
-                            // An attack lands on its victim; a take goes home with its player;
-                            // a bought card slides to its place on the stand when that is in view.
-                            var owner = _barWorld(_attackerId);
-                            var target = _targetId >= 0 ? _barWorld(_targetId) : owner;
-                            var spot = _resolveDestination?.Invoke();
-                            _departFades = spot == null;
-                            _departEndScale = spot == null ? EndHeight / CardHeight : _resolveEndScale;
-                            _to = spot != null ? Local(spot.Value)
-                                : target == null ? _showcase : Local(target.Value);
-                            // The loot is the player's now: it slides into their bar.
-                            _lootTo = owner == null ? _lootShowcase : Local(owner.Value);
-                            UiKit.Clear(_arrowHost);
-                            GlowVictim(off: true);
-                            _group.blocksRaycasts = false; // no magnifier on a card that is leaving
-                            if (_lootGroup != null)
-                            {
-                                _lootGroup.blocksRaycasts = false;
-                            }
-                            _preview.Hide();
-                            EnterPhase(Phase.Departing);
-                        }
-                    }
+                    AdvanceHold();
                     break;
                 case Phase.Departing:
-                {
-                    float f = Mathf.Clamp01(t / DepartSeconds);
-                    float eased = Ease(f);
-                    _chip.anchoredPosition = Vector2.Lerp(_showcase, _to, eased);
-                    _chip.localScale = Vector3.one * Mathf.Lerp(1f, _departEndScale, eased);
-                    _group.alpha = !_departFades ? 1f : f < 0.5f ? 1f : 1f - (f - 0.5f) * 2f;
-                    if (_loot != null)
-                    {
-                        _loot.anchoredPosition = Vector2.Lerp(_lootShowcase, _lootTo, eased);
-                        _loot.localScale = _chip.localScale;
-                        _lootGroup.alpha = _group.alpha;
-                    }
-                    if (f >= 1f)
-                    {
-                        Clear();
-                    }
+                    AdvanceDeparture(elapsedSeconds);
                     break;
-                }
                 case Phase.Fading:
-                {
-                    float f = Mathf.Clamp01(t / FadeSeconds);
-                    _group.alpha = 1f - f;
-                    if (_lootGroup != null)
-                    {
-                        _lootGroup.alpha = 1f - f;
-                    }
-                    UiKit.Clear(_arrowHost);
-                    GlowVictim(off: true);
-                    if (f >= 1f)
-                    {
-                        Clear();
-                    }
+                    AdvanceFade(elapsedSeconds);
                     break;
+            }
+        }
+
+        private void AdvanceArrival(float elapsedSeconds)
+        {
+            float eased = Ease(Mathf.Clamp01(elapsedSeconds / _arriveSeconds));
+            _chip.anchoredPosition = Vector2.Lerp(_from, _showcase, eased);
+            if (_loot != null)
+            {
+                _loot.anchoredPosition = Vector2.Lerp(_from, _lootShowcase, eased);
+            }
+            RedrawArrows(force: false);
+            if (elapsedSeconds >= _arriveSeconds)
+            {
+                EnterPhase(Phase.Holding);
+            }
+        }
+
+        private void AdvanceHold()
+        {
+            RedrawArrows(force: false);
+            GlowVictim(); // bars are rebuilt on every render; keep the glow with the victim
+            if (Time.time >= _holdUntil)
+            {
+                if (_cancelWhenReady)
+                {
+                    FadeResponses();
+                    EnterPhase(Phase.Fading);
                 }
+                else if (_resolveWhenReady && FadeResponses())
+                {
+                    _holdUntil = Time.time + SlapMotion.FadeSeconds; // the pile clears first
+                }
+                else if (_resolveWhenReady)
+                {
+                    BeginDeparture();
+                }
+            }
+        }
+
+        /// <summary>
+        /// An attack lands on its victim; a take goes home with its player; a bought card
+        /// slides to its place on the stand when that is in view.
+        /// </summary>
+        private void BeginDeparture()
+        {
+            var owner = _barWorld(_attackerId);
+            var target = _targetId >= 0 ? _barWorld(_targetId) : owner;
+            var spot = _resolveDestination?.Invoke();
+            _departFades = spot == null;
+            _departEndScale = spot == null ? EndHeight / CardHeight : _resolveEndScale;
+            _to = spot != null ? Local(spot.Value)
+                : target == null ? _showcase : Local(target.Value);
+            // The loot is the player's now: it slides into their bar.
+            _lootTo = owner == null ? _lootShowcase : Local(owner.Value);
+            UiKit.Clear(_arrowHost);
+            GlowVictim(off: true);
+            _group.blocksRaycasts = false; // no magnifier on a card that is leaving
+            if (_lootGroup != null)
+            {
+                _lootGroup.blocksRaycasts = false;
+            }
+            _preview.Hide();
+            EnterPhase(Phase.Departing);
+        }
+
+        private void AdvanceDeparture(float elapsedSeconds)
+        {
+            float progress = Mathf.Clamp01(elapsedSeconds / DepartSeconds);
+            float eased = Ease(progress);
+            _chip.anchoredPosition = Vector2.Lerp(_showcase, _to, eased);
+            _chip.localScale = Vector3.one * Mathf.Lerp(1f, _departEndScale, eased);
+            _group.alpha = !_departFades ? 1f : progress < 0.5f ? 1f : 1f - (progress - 0.5f) * 2f;
+            if (_loot != null)
+            {
+                _loot.anchoredPosition = Vector2.Lerp(_lootShowcase, _lootTo, eased);
+                _loot.localScale = _chip.localScale;
+                _lootGroup.alpha = _group.alpha;
+            }
+            if (progress >= 1f)
+            {
+                Clear();
+            }
+        }
+
+        private void AdvanceFade(float elapsedSeconds)
+        {
+            float progress = Mathf.Clamp01(elapsedSeconds / FadeSeconds);
+            _group.alpha = 1f - progress;
+            if (_lootGroup != null)
+            {
+                _lootGroup.alpha = 1f - progress;
+            }
+            UiKit.Clear(_arrowHost);
+            GlowVictim(off: true);
+            if (progress >= 1f)
+            {
+                Clear();
             }
         }
 
@@ -376,158 +370,6 @@ namespace LemonadeWars.Unity
         {
             _phase = phase;
             _phaseStart = Time.time;
-        }
-
-        /// <summary>
-        /// The arrow re-draws only when its endpoint moved (bars re-lay out as the
-        /// game goes), never every frame — each dash is a GameObject. It leaves the
-        /// card through the edge facing the victim and bows outward, away from the
-        /// player column, so it reads as pointing around to them rather than through.
-        /// </summary>
-        private void RedrawArrows(bool force)
-        {
-            var avatar = _targetId >= 0 ? _avatarWorld(_targetId) : null;
-            if (avatar == null)
-            {
-                return; // a take points at nobody
-            }
-            Vector2 chipCenter = Local(avatar.Value.Center);
-            float chipRadius = (Local(avatar.Value.Rim) - chipCenter).magnitude;
-            bool arrowDue = _phase == Phase.Holding;
-            if (!force && arrowDue == _targetArrowDrawn &&
-                (chipCenter - _drawnTargetEnd).sqrMagnitude < ArrowRefreshThresholdSq)
-            {
-                return;
-            }
-            _drawnTargetEnd = chipCenter;
-            _targetArrowDrawn = arrowDue;
-            UiKit.Clear(_arrowHost);
-            if (!arrowDue)
-            {
-                return;
-            }
-            // Leave straight up (or down) out of the card's edge facing the victim, sweep
-            // tall under (or over) the bars, then climb into their avatar chip from the
-            // card's side, aimed at its middle: the arrow never crosses the art.
-            Vector2 card = _chip.anchoredPosition;
-            float up = chipCenter.y >= card.y ? 1f : -1f;
-            float side = card.x >= chipCenter.x ? 1f : -1f;
-            Vector2 exit = card + new Vector2(0, up * (CardHeight / 2f + ArrowEdgeGapPx));
-            float reach = (chipCenter - exit).magnitude * ArrowBulge;
-            Vector2 leave = exit + new Vector2(0, up * reach);
-            // The last handle sits on the card's side of the chip AND on the same side
-            // the sweep went (below when it dipped, above when it rose): one bend, a U.
-            Vector2 approach = chipCenter + new Vector2(side, up).normalized * (reach * ArrowApproachFraction);
-            Vector2 tip = chipCenter + (approach - chipCenter).normalized * (chipRadius + ArrowTipGapPx);
-            UiKit.DrawCurvedArrow(_arrowHost, exit, leave, approach, tip, ArrowColor);
-        }
-
-        /// <summary>Red attack glow on the victim's bar while the card is staged; off on every exit path.</summary>
-        private void GlowVictim(bool off = false)
-        {
-            int wanted = off ? -1 : _targetId;
-            if (_glowingTarget >= 0 && _glowingTarget != wanted)
-            {
-                _victimGlow(_glowingTarget, false);
-            }
-            if (wanted >= 0)
-            {
-                _victimGlow(wanted, true);
-            }
-            _glowingTarget = wanted;
-        }
-
-        private RectTransform BuildChip(Texture2D art)
-        {
-            var image = UiKit.CreateCardImage(_layer, art, CardWidth, CardHeight);
-            var chip = (RectTransform)image.transform.parent;
-            foreach (var graphic in chip.GetComponentsInChildren<Graphic>())
-            {
-                graphic.raycastTarget = false;
-            }
-            // The art itself catches the pointer, so the card can be read at full size
-            // while it is staged — attacks carry text people need to see.
-            image.raycastTarget = true;
-            _preview.Attach(image.gameObject, art);
-            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
-            chip.pivot = new Vector2(0.5f, 0.5f);
-            chip.sizeDelta = new Vector2(CardWidth, CardHeight);
-            var group = chip.gameObject.AddComponent<CanvasGroup>();
-            group.blocksRaycasts = true;
-            return chip;
-        }
-
-        /// <summary>
-        /// The stolen card, readable on hover like the attack, with the grabbing hand
-        /// drawn over its top edge — mostly above the card, thumb tip reaching onto it.
-        /// </summary>
-        private RectTransform BuildLoot(Texture2D lootArt)
-        {
-            RectTransform hand = null;
-            if (_grabIcon != null)
-            {
-                var handGo = new GameObject("GrabbingHand", typeof(RectTransform), typeof(RawImage));
-                handGo.transform.SetParent(_layer, false);
-                hand = (RectTransform)handGo.transform;
-                hand.anchorMin = hand.anchorMax = new Vector2(0.5f, 0.5f);
-                hand.pivot = new Vector2(0.5f, 0.5f);
-                hand.sizeDelta = new Vector2(GrabIconSizePx, GrabIconSizePx);
-                var handImage = handGo.GetComponent<RawImage>();
-                handImage.texture = _grabIcon;
-                handImage.raycastTarget = false;
-            }
-            var image = UiKit.CreateCardImage(_layer, lootArt, CardWidth, CardHeight);
-            var chip = (RectTransform)image.transform.parent;
-            foreach (var graphic in chip.GetComponentsInChildren<Graphic>())
-            {
-                graphic.raycastTarget = false;
-            }
-            image.raycastTarget = true;
-            _preview.Attach(image.gameObject, lootArt);
-            chip.anchorMin = chip.anchorMax = new Vector2(0.5f, 0.5f);
-            chip.pivot = new Vector2(0.5f, 0.5f);
-            chip.sizeDelta = new Vector2(CardWidth, CardHeight);
-            _lootGroup = chip.gameObject.AddComponent<CanvasGroup>();
-            _lootGroup.blocksRaycasts = true;
-            if (hand != null)
-            {
-                // Child of the chip so it moves, scales and fades with it; last in the
-                // hierarchy so it draws over the card.
-                hand.SetParent(chip, false);
-                hand.SetAsLastSibling();
-                hand.anchoredPosition = new Vector2(0, CardHeight / 2f + GrabIconLiftPx);
-            }
-            return chip;
-        }
-
-        /// <summary>
-        /// The player's avatar on the card's top-right corner, so a staged card says who
-        /// played it at a glance.
-        /// </summary>
-        private void PinPlayerBadge(RectTransform chip, int playerId, bool remember = true)
-        {
-            if (remember && _badge != null)
-            {
-                Object.Destroy(_badge.gameObject); // the staged card changed hands
-            }
-            var badge = TableView.CreatePlayerBadge(chip, _nameOf(playerId), BadgeDiameterPx);
-            badge.anchorMin = badge.anchorMax = new Vector2(0f, 1f);
-            badge.pivot = new Vector2(0.5f, 0.5f);
-            badge.anchoredPosition = new Vector2(BadgeInsetPx, -BadgeInsetPx);
-            if (remember)
-            {
-                _badge = badge;
-            }
-        }
-
-        private void DestroyLoot()
-        {
-            if (_loot != null)
-            {
-                Object.Destroy(_loot.gameObject);
-            }
-            _loot = null;
-            _lootGroup = null;
         }
 
         private Vector2 Local(Vector3 world) => _layer.InverseTransformPoint(world);

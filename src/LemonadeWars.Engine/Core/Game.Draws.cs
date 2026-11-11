@@ -5,13 +5,22 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// The draw queue and the Timeout episode a draw can trigger. Draws are queued rather
-    /// than immediate so a drawn Timeout can pause the whole pipeline mid-batch, run its
-    /// discard/fine decisions, and resume owing the drawer a replacement card.
+    /// Draws are queued, not immediate, so a drawn Timeout can pause the pipeline mid-batch,
+    /// run its discard/fine decisions, and resume owing the drawer a replacement card.
     /// </summary>
     public sealed partial class Game
     {
+        private const int TimeoutFinePerTantrum = 3;
+
         // ----------------------------------------------------- draw queue
+
+        private void ApplyDrawLemonCard(DrawLemonCard action, List<GameEvent> events)
+        {
+            RequireTurnAction(action);
+            SpendAction();
+            QueueDraws(action.PlayerId, 1, reason: DrawReason.Action);
+            Pump(events);
+        }
 
         private void QueueDraws(int playerId, int count, bool countsForRoll = false,
             bool trackDrawnIds = false, DrawReason reason = DrawReason.Effect,
@@ -39,34 +48,26 @@ namespace LemonadeWars.Engine.Core
                 {
                     entry.Count--;
                     int handBefore = player.Hand.Count;
-                    bool drewCard = DrawOneCard(player, entry.Reason, events);
-                    if (player.Hand.Count > handBefore)
+                    bool pausedByTimeout = !DrawOneCard(player, entry.Reason, events);
+                    bool cardArrived = player.Hand.Count > handBefore;
+                    if (cardArrived)
                     {
-                        int drawnId = player.Hand[player.Hand.Count - 1];
-                        entry.DrawnIds.Add(drawnId);
-                        if (entry.TrackDrawnIds)
-                        {
-                            State.TrackedDrawnCards.Add(drawnId);
-                        }
+                        RecordDrawnCard(entry, player);
                     }
-                    if (drewCard && entry.CountsForRoll)
+                    if (pausedByTimeout)
                     {
-                        StatsFor(player.PlayerId).CardsKept++;
-                    }
-                    if (!drewCard)
-                    {
-                        // Timeout interrupted: the drawer is owed a replacement, on
-                        // this SAME entry — so tracking (the Whiniest Baby's keep
-                        // pool), roll-counting, and queue position all carry over.
-                        // The baby always ends up choosing between real cards.
-                        // Unless nothing but Timeouts is left to draw: then the
-                        // replacement can never arrive, and owing it would draw the
-                        // same Timeout again forever (the deck is dry, in effect).
+                        // The replacement is owed on this SAME entry, keeping its tracking, roll-counting
+                        // and queue position. Not when only Timeouts remain: one would be drawn forever.
                         if (AnyRealLemonCardToDraw())
                         {
                             entry.Count++;
                         }
                         return;
+                    }
+                    // A dry deck delivers nothing, and nothing is not a card kept (Double Scoop).
+                    if (entry.CountsForRoll && cardArrived)
+                    {
+                        StatsFor(player.PlayerId).CardsKept++;
                     }
                 }
                 State.PendingDraws.Remove(entry);
@@ -74,10 +75,19 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
+        private void RecordDrawnCard(PendingDraw entry, PlayerState player)
+        {
+            int drawnId = player.Hand[player.Hand.Count - 1];
+            entry.DrawnIds.Add(drawnId);
+            if (entry.TrackDrawnIds)
+            {
+                State.TrackedDrawnCards.Add(drawnId);
+            }
+        }
+
         /// <summary>
-        /// "+N cards, then discard 1 of them": the discard is restricted to the cards
-        /// this batch actually delivered (a Timeout may have thinned them already), and
-        /// skipped when the deck ran dry and nothing arrived.
+        /// "+N cards, then discard 1 of them": only cards this batch actually delivered may go
+        /// (a Timeout may have thinned them), and nothing is asked when none arrived.
         /// </summary>
         private void RaiseDiscardOfDrawn(PendingDraw entry, PlayerState player, List<GameEvent> events)
         {
@@ -105,7 +115,7 @@ namespace LemonadeWars.Engine.Core
             State.LemonDeck.Concat(State.LemonDiscard)
                 .Any(id => Db.Lemon(State.LemonInstances[id].DefId).Type != LemonCardType.Timeout);
 
-        /// <summary>Draw one card for the player. Returns false when a Timeout paused the game.</summary>
+        /// <summary>Returns false when a Timeout was drawn and paused the game; true otherwise, dry deck included.</summary>
         private bool DrawOneCard(PlayerState player, DrawReason reason, List<GameEvent> events)
         {
             if (State.LemonDeck.Count == 0)
@@ -142,15 +152,19 @@ namespace LemonadeWars.Engine.Core
 
         // --------------------------------------------------------- timeout
 
-        /// <summary>A Timeout was drawn: open discard/fine decisions, stash the card (rulebook p12).</summary>
+        /// <summary>A Timeout was drawn: everyone discards to the hand limit and the Baby is fined (rulebook p12).</summary>
         private void BeginTimeout(PlayerState drawer, int timeoutInstanceId, List<GameEvent> events)
         {
             events.Add(new TimeoutDrawn { PlayerId = drawer.PlayerId });
             State.TimeoutDrawerId = drawer.PlayerId;
             State.LemonDiscard.Add(timeoutInstanceId);
-            // The replacement draw is owed on the interrupted entry itself (see
-            // ProcessPendingDraws), so its tracking and position carry over.
 
+            RaiseHandLimitDiscards(events);
+            RaiseTimeoutFine(events);
+        }
+
+        private void RaiseHandLimitDiscards(List<GameEvent> events)
+        {
             foreach (var player in State.Players)
             {
                 int excess = player.Hand.Count - Db.Config.TimeoutHandLimit;
@@ -169,25 +183,27 @@ namespace LemonadeWars.Engine.Core
                     });
                 }
             }
+        }
 
-            if (State.WhiniestBabyHolder is int babyId)
+        private void RaiseTimeoutFine(List<GameEvent> events)
+        {
+            if (!(State.WhiniestBabyHolder is int babyId))
             {
-                var baby = Player(babyId);
-                int fine = 3 * baby.TantrumPile.Count;
-                if (fine > 0)
+                return;
+            }
+            int fine = TimeoutFinePerTantrum * Player(babyId).TantrumPile.Count;
+            if (fine > 0)
+            {
+                State.PendingDecisions.Add(new PendingDecision
                 {
-                    State.PendingDecisions.Add(new PendingDecision
-                    {
-                        PlayerId = babyId,
-                        Kind = DecisionKind.TimeoutFine,
-                        RequiredMoney = fine,
-                    });
-                    events.Add(new DecisionRequired { PlayerId = babyId, Kind = DecisionKind.TimeoutFine });
-                }
+                    PlayerId = babyId,
+                    Kind = DecisionKind.TimeoutFine,
+                    RequiredMoney = fine,
+                });
+                events.Add(new DecisionRequired { PlayerId = babyId, Kind = DecisionKind.TimeoutFine });
             }
         }
 
-        /// <summary>All Timeout decisions settled: discard the baby's tantrums and pass the card on.</summary>
         private void FinishTimeout(List<GameEvent> events)
         {
             State.TimeoutDrawerId = null;

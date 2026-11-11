@@ -13,9 +13,8 @@ namespace LemonadeWars.Engine.Ai
     public static class ThreatAssessment
     {
         /// <summary>
-        /// Share of the Lemon deck that answers an attack (Tantrum, Tag, Rubber-Glue):
-        /// 20 of 71 cards. A victim holding n cards has roughly 0.72^n odds of being
-        /// defenseless.
+        /// 20 of the 71 Lemon cards answer an attack (Tantrum, Tag, Rubber-Glue); this is the share
+        /// that does not, so a victim holding n cards is defenseless with odds of roughly 0.72^n.
         /// </summary>
         private const double NonReactionCardShare = 0.72;
 
@@ -28,7 +27,6 @@ namespace LemonadeWars.Engine.Ai
             + ExpectedIncomePerRoll(game, player) * 2.5
             + player.Money * 0.4;
 
-        /// <summary>Dollars one sale roll pays this player on average, over all six faces.</summary>
         public static double ExpectedIncomePerRoll(Game game, PlayerState player)
         {
             double income = 0;
@@ -43,7 +41,7 @@ namespace LemonadeWars.Engine.Ai
             return income;
         }
 
-        /// <summary>The opponent with the strongest public standing.</summary>
+        /// <summary>Among the viewer's opponents; ties go to the lower seat.</summary>
         public static PlayerState Leader(Game game, int viewerId) =>
             game.State.Players
                 .Where(p => p.PlayerId != viewerId)
@@ -52,9 +50,8 @@ namespace LemonadeWars.Engine.Ai
                 .First();
 
         /// <summary>
-        /// How much hurting this opponent helps the viewer, in [0,1]: 1 for the leading
-        /// opponent, 0 for the one furthest behind, linear in between. With a single
-        /// opponent it is always 1.
+        /// How much hurting this opponent helps the viewer, in [0,1]: 1 for the leading opponent,
+        /// 0 for the one furthest behind, linear in between. Always 1 with a single opponent.
         /// </summary>
         public static double ThreatOf(Game game, int viewerId, PlayerState victim)
         {
@@ -72,22 +69,15 @@ namespace LemonadeWars.Engine.Ai
             return (PublicStanding(game, victim) - worst) / (best - worst);
         }
 
-        /// <summary>One more VP ends the game for this player.</summary>
         public static bool IsAboutToTriggerEnd(Game game, PlayerState player) =>
             player.InGameVictoryPoints >= game.Db.Config.VictoryPointsToTriggerEnd - 1;
 
-        /// <summary>
-        /// The game is in its last lap: the final round is underway, or someone sits
-        /// one VP from triggering it. Cash stops mattering unless it buys a VP now.
-        /// </summary>
+        /// <summary>From here on cash stops mattering unless it buys a VP now.</summary>
         public static bool IsNearGameEnd(Game game) =>
             game.State.Stage == GameStage.FinalRound ||
             game.State.Players.Any(p => IsAboutToTriggerEnd(game, p));
 
-        /// <summary>
-        /// Odds the victim cannot answer an attack from hand. Hand contents are hidden,
-        /// so this is a deck-composition estimate from hand size alone.
-        /// </summary>
+        /// <summary>Hand contents are hidden, so this is a deck-composition estimate from hand size alone.</summary>
         public static double UnansweredChance(PlayerState victim) =>
             Math.Pow(NonReactionCardShare, victim.Hand.Count);
     }

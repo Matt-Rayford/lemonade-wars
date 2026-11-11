@@ -9,8 +9,7 @@ namespace LemonadeWars.BotArena;
 /// <summary>
 /// Audits a persisted room log (see Room.Persistence.cs): rebuilds the game action by
 /// action and, before each logged bot move, asks a fresh bot what it would do from the
-/// same state. Prints a DIFF when the two disagree and flags suspicious plays by anyone,
-/// so "dumb bot moves" from real games can be found without re-playing them by hand.
+/// same state. Prints a DIFF when the two disagree and flags suspicious plays by anyone.
 /// </summary>
 internal static class ReplayMode
 {
@@ -56,8 +55,8 @@ internal static class ReplayMode
                 Audit(game, logged, turn, bots, totals, flagsOnly);
                 game.Apply(logged);
             }
-            // Describing a logged action can also fail once the engine has drifted from
-            // the game as played (a card instance or seat the rebuilt state never had).
+            // Once the engine has drifted from the game as played, even describing a logged
+            // action can fail (a card instance or seat the rebuilt state never had).
             catch (Exception ex) when (ex is InvalidActionException
                                        or KeyNotFoundException
                                        or ArgumentOutOfRangeException)
@@ -79,12 +78,13 @@ internal static class ReplayMode
     {
         var header = JObject.Parse(firstLine)["header"] as JObject
             ?? throw new InvalidDataException("line 1 is not a room header");
-        var names = header["names"]!.Select(n => (string)n!).ToArray();
-        var bots = header["bots"]!.Select(b => (bool)b!).ToArray();
+        var names = header["names"]!.Select(name => (string)name!).ToArray();
+        var bots = header["bots"]!.Select(isBot => (bool)isBot!).ToArray();
         // Pre-difficulty logs have no botLevels: those bots were medium (see Room.LoadFromFile).
-        var levels = (header["botLevels"] as JArray)?.Select(l => (string?)l).ToArray();
+        var loggedLevels = (header["botLevels"] as JArray)?.Select(level => (string?)level).ToArray();
         var botLevels = Enumerable.Range(0, names.Length)
-            .Select(i => BotFactory.Normalize(levels != null && i < levels.Length ? levels[i] : null))
+            .Select(seat => BotFactory.Normalize(
+                loggedLevels != null && seat < loggedLevels.Length ? loggedLevels[seat] : null))
             .ToArray();
         return new Header(ulong.Parse((string)header["seed"]!), names, bots, botLevels);
     }
@@ -151,17 +151,17 @@ internal static class ReplayMode
 
     private static IEnumerable<string> Flags(Game game, GameAction action)
     {
-        var s = game.State;
+        var state = game.State;
         int actor = action.PlayerId;
         switch (action)
         {
             case PlayLemonCard play when play.TargetPlayerId is int victim && victim != actor:
-                if (ThreatAssessment.ThreatOf(game, actor, s.Players[victim]) < LeaderThreatThreshold)
+                if (ThreatAssessment.ThreatOf(game, actor, state.Players[victim]) < LeaderThreatThreshold)
                 {
                     yield return AttackedNonLeader;
                 }
                 break;
-            case RespondToWindow respond when s.ResponseStack.Count > 0:
+            case RespondToWindow respond when state.ResponseStack.Count > 0:
                 if (IsSelfCancel(game, respond))
                 {
                     yield return SelfCancel;
@@ -171,25 +171,22 @@ internal static class ReplayMode
     }
 
     /// <summary>
-    /// Two shapes of shooting yourself in the foot: cancelling your own pending play,
-    /// or spending a tantrum on an unrelated top item while your own earlier play still
-    /// waits beneath it. The second burns the card that could have answered the next
-    /// counter against your own play; countering a reaction (tantrum/tag/rubber-glue)
-    /// is excluded because that is exactly how you rescue your own play.
+    /// Cancelling your own pending play, or burning a tantrum on an unrelated top item while your
+    /// own play waits beneath it. Countering a reaction rescues that play, so it is exempt.
     /// </summary>
     private static bool IsSelfCancel(Game game, RespondToWindow respond)
     {
-        var s = game.State;
+        var state = game.State;
         int actor = respond.PlayerId;
-        var top = s.ResponseStack[s.ResponseStack.Count - 1];
+        var top = state.ResponseStack[state.ResponseStack.Count - 1];
         if (top.OwnerId == actor)
         {
             return true;
         }
-        bool isTantrum = s.LemonInstances.TryGetValue(respond.CardInstanceId, out var card) &&
+        bool isTantrum = state.LemonInstances.TryGetValue(respond.CardInstanceId, out var card) &&
                          card.DefId == "tantrum";
-        bool topIsReaction = ReactionDefIds.Contains(top.LemonDefId);
-        return isTantrum && !topIsReaction && s.ResponseStack.Any(it => it.OwnerId == actor);
+        bool isTopAReaction = ReactionDefIds.Contains(top.LemonDefId);
+        return isTantrum && !isTopAReaction && state.ResponseStack.Any(item => item.OwnerId == actor);
     }
 
     private static string Standings(Game game, int turn) =>

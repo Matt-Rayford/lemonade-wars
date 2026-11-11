@@ -12,15 +12,13 @@ namespace LemonadeWars.Engine.Ai
         /// <summary>How many opening moves are followed to the end of the turn.</summary>
         public int RootBeam = 4;
         /// <summary>
-        /// Judge each line at the start of the planner's NEXT turn — after its sale roll
-        /// and a turn by every rival — instead of at the end of this one, so the race
-        /// and the rivals' answers are priced in. Several times the cost.
+        /// Judge each line at the start of the planner's NEXT turn (after its sale roll and a turn by
+        /// every rival), so the race and the rivals' answers are priced in. Several times the cost.
         /// </summary>
         public bool RoundLookahead;
         /// <summary>
-        /// Rivals answer response windows from their sampled hands instead of passing,
-        /// so cancel risk is read off the worlds rather than estimated from hand size.
-        /// Only sensible with enough worlds to average over.
+        /// Rivals answer windows from their sampled hands instead of passing, so cancel risk is read
+        /// off the worlds, not estimated from hand size. Needs enough worlds to average over.
         /// </summary>
         public bool SampledReactions;
         /// <summary>Die outcomes averaged per lookahead leaf; 1 uses the world's own roll.</summary>

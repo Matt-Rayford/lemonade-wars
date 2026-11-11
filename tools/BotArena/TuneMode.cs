@@ -11,7 +11,7 @@ namespace LemonadeWars.BotArena;
 /// nudged up and down in turn, a planner carrying the nudge plays a table of planners
 /// carrying the incumbent weights (plus one greedy seat, so tuning cannot drift into
 /// a style that only beats itself), and a nudge that lifts the win share clearly above
-/// the fair share is adopted. Prints every trial and dumps the final weights as JSON.
+/// the fair share is adopted.
 /// </summary>
 internal static class TuneMode
 {
@@ -83,9 +83,8 @@ internal static class TuneMode
     }
 
     /// <summary>
-    /// Hero win share with the candidate weights. Seat 1 of the table (never the hero's
-    /// seat in the same game, since the hero rotates) is greedy when the table has
-    /// room; every other seat carries the incumbent weights.
+    /// Hero win share with the candidate weights. At three or more players the last seat is
+    /// greedy (unless the hero sits there); every other seat carries the incumbent weights.
     /// </summary>
     private static double Trial(CardDatabase db, EvaluationWeights candidate, EvaluationWeights incumbent,
         int games, int players, int budgetMs)

@@ -1,18 +1,38 @@
 using System.Collections.Generic;
+using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Hand-written deep copy of <see cref="GameState"/>, about ten times faster than
-    /// the JSON round-trip, which matters because search bots clone hundreds of times
-    /// per decision. A field missed here is a silent bug, so the engine tests compare
-    /// this copy against the JSON copy across whole fuzzed games.
+    /// Hand-written deep copy, about ten times faster than a JSON round-trip (search bots clone
+    /// hundreds of times per decision). A missed field is a silent bug, so the engine tests
+    /// compare this copy against the JSON copy across whole fuzzed games.
     /// </summary>
     public static class GameStateCloner
     {
         public static GameState Clone(GameState source)
         {
-            var copy = new GameState
+            var copy = CloneScalarFields(source);
+            foreach (var player in source.Players)
+            {
+                copy.Players.Add(ClonePlayer(player));
+            }
+            CopyCardZones(source, copy);
+            CopyInstanceTables(source, copy);
+            copy.InitialBuyQueue.AddRange(source.InitialBuyQueue);
+            CopyInteractionState(source, copy);
+            copy.UsedTurnAbilities.AddRange(source.UsedTurnAbilities);
+            copy.TradeWindsQueue.AddRange(source.TradeWindsQueue);
+            foreach (var stats in source.RollStats)
+            {
+                copy.RollStats[stats.Key] = CloneRollStats(stats.Value);
+            }
+            copy.Winners.AddRange(source.Winners);
+            return copy;
+        }
+
+        private static GameState CloneScalarFields(GameState source) =>
+            new GameState
             {
                 Stage = source.Stage,
                 Phase = source.Phase,
@@ -43,10 +63,9 @@ namespace LemonadeWars.Engine.Core
                 EndTriggeredBy = source.EndTriggeredBy,
                 RngState = source.RngState,
             };
-            foreach (var player in source.Players)
-            {
-                copy.Players.Add(ClonePlayer(player));
-            }
+
+        private static void CopyCardZones(GameState source, GameState copy)
+        {
             copy.LemonDeck.AddRange(source.LemonDeck);
             copy.LemonDiscard.AddRange(source.LemonDiscard);
             copy.BlackMarketDeck.AddRange(source.BlackMarketDeck);
@@ -55,8 +74,12 @@ namespace LemonadeWars.Engine.Core
             copy.FirstDibsRow.AddRange(source.FirstDibsRow);
             foreach (var pile in source.StandSupply)
             {
-                copy.StandSupply[pile.Key] = new List<Data.Shape>(pile.Value);
+                copy.StandSupply[pile.Key] = new List<Shape>(pile.Value);
             }
+        }
+
+        private static void CopyInstanceTables(GameState source, GameState copy)
+        {
             foreach (var entry in source.LemonInstances)
             {
                 copy.LemonInstances[entry.Key] = new LemonCardInstance
@@ -74,7 +97,10 @@ namespace LemonadeWars.Engine.Core
                     Shape = entry.Value.Shape,
                 };
             }
-            copy.InitialBuyQueue.AddRange(source.InitialBuyQueue);
+        }
+
+        private static void CopyInteractionState(GameState source, GameState copy)
+        {
             foreach (var item in source.ResponseStack)
             {
                 copy.ResponseStack.Add(CloneStackItem(item));
@@ -82,12 +108,7 @@ namespace LemonadeWars.Engine.Core
             copy.AwaitingResponse.AddRange(source.AwaitingResponse);
             foreach (var theft in source.TheftQueue)
             {
-                copy.TheftQueue.Add(new PendingTheftResponse
-                {
-                    VictimId = theft.VictimId,
-                    AttackerId = theft.AttackerId,
-                    AmountStolen = theft.AmountStolen,
-                });
+                copy.TheftQueue.Add(CloneTheftResponse(theft));
             }
             foreach (var decision in source.PendingDecisions)
             {
@@ -95,34 +116,9 @@ namespace LemonadeWars.Engine.Core
             }
             foreach (var draw in source.PendingDraws)
             {
-                var drawCopy = new PendingDraw
-                {
-                    PlayerId = draw.PlayerId,
-                    Count = draw.Count,
-                    CountsForRoll = draw.CountsForRoll,
-                    TrackDrawnIds = draw.TrackDrawnIds,
-                    Reason = draw.Reason,
-                    DiscardAfterCount = draw.DiscardAfterCount,
-                    DiscardAfterSourceInstanceId = draw.DiscardAfterSourceInstanceId,
-                };
-                drawCopy.DrawnIds.AddRange(draw.DrawnIds);
-                copy.PendingDraws.Add(drawCopy);
+                copy.PendingDraws.Add(ClonePendingDraw(draw));
             }
             copy.TrackedDrawnCards.AddRange(source.TrackedDrawnCards);
-            copy.UsedTurnAbilities.AddRange(source.UsedTurnAbilities);
-            copy.TradeWindsQueue.AddRange(source.TradeWindsQueue);
-            foreach (var stats in source.RollStats)
-            {
-                copy.RollStats[stats.Key] = new RollStats
-                {
-                    Earned = stats.Value.Earned,
-                    MoneyStolen = stats.Value.MoneyStolen,
-                    CardsStolen = stats.Value.CardsStolen,
-                    CardsKept = stats.Value.CardsKept,
-                };
-            }
-            copy.Winners.AddRange(source.Winners);
-            return copy;
         }
 
         private static PlayerState ClonePlayer(PlayerState source)
@@ -145,14 +141,7 @@ namespace LemonadeWars.Engine.Core
             copy.Hand.AddRange(source.Hand);
             foreach (var stand in source.Stands)
             {
-                var standCopy = new StandInstance
-                {
-                    InstanceId = stand.InstanceId,
-                    StandTypeId = stand.StandTypeId,
-                    Shape = stand.Shape,
-                };
-                standCopy.Equipped.AddRange(stand.Equipped);
-                copy.Stands.Add(standCopy);
+                copy.Stands.Add(CloneStand(stand));
             }
             foreach (var tantrum in source.TantrumPile)
             {
@@ -165,6 +154,18 @@ namespace LemonadeWars.Engine.Core
             copy.LemonLordDealt.AddRange(source.LemonLordDealt);
             copy.LemonLordKept.AddRange(source.LemonLordKept);
             copy.FirstDibsClaimed.AddRange(source.FirstDibsClaimed);
+            return copy;
+        }
+
+        private static StandInstance CloneStand(StandInstance source)
+        {
+            var copy = new StandInstance
+            {
+                InstanceId = source.InstanceId,
+                StandTypeId = source.StandTypeId,
+                Shape = source.Shape,
+            };
+            copy.Equipped.AddRange(source.Equipped);
             return copy;
         }
 
@@ -199,6 +200,14 @@ namespace LemonadeWars.Engine.Core
                 VacatedMarketIndex = source.VacatedMarketIndex,
             };
 
+        private static PendingTheftResponse CloneTheftResponse(PendingTheftResponse source) =>
+            new PendingTheftResponse
+            {
+                VictimId = source.VictimId,
+                AttackerId = source.AttackerId,
+                AmountStolen = source.AmountStolen,
+            };
+
         private static PendingDecision CloneDecision(PendingDecision source) =>
             new PendingDecision
             {
@@ -216,6 +225,31 @@ namespace LemonadeWars.Engine.Core
                 EligibleCardIds = source.EligibleCardIds == null
                     ? null
                     : new List<int>(source.EligibleCardIds),
+            };
+
+        private static PendingDraw ClonePendingDraw(PendingDraw source)
+        {
+            var copy = new PendingDraw
+            {
+                PlayerId = source.PlayerId,
+                Count = source.Count,
+                CountsForRoll = source.CountsForRoll,
+                TrackDrawnIds = source.TrackDrawnIds,
+                Reason = source.Reason,
+                DiscardAfterCount = source.DiscardAfterCount,
+                DiscardAfterSourceInstanceId = source.DiscardAfterSourceInstanceId,
+            };
+            copy.DrawnIds.AddRange(source.DrawnIds);
+            return copy;
+        }
+
+        private static RollStats CloneRollStats(RollStats source) =>
+            new RollStats
+            {
+                Earned = source.Earned,
+                MoneyStolen = source.MoneyStolen,
+                CardsStolen = source.CardsStolen,
+                CardsKept = source.CardsKept,
             };
 
         private static PendingRoll? ClonePendingRoll(PendingRoll? source) =>

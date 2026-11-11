@@ -42,11 +42,10 @@ namespace LemonadeWars.Unity
             _follower = rootGo.GetComponent<PreviewFollower>();
             _follower.CanvasRect = (RectTransform)canvasGo.transform;
 
-            // Shader-rounded corners, same treatment as table cards.
-            var go = new GameObject("PreviewImage", typeof(RectTransform), typeof(RawImage));
-            go.transform.SetParent(_root, false);
-            UiKit.Anchor((RectTransform)go.transform, Vector2.zero, Vector2.one);
-            _image = go.GetComponent<RawImage>();
+            var imageGo = new GameObject("PreviewImage", typeof(RectTransform), typeof(RawImage));
+            imageGo.transform.SetParent(_root, false);
+            UiKit.Anchor((RectTransform)imageGo.transform, Vector2.zero, Vector2.one);
+            _image = imageGo.GetComponent<RawImage>();
             _image.raycastTarget = false;
             _image.material = UiKit.RoundedImageMaterial(Width, Height);
             _root.gameObject.SetActive(false);
@@ -69,7 +68,6 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        /// <summary>No previews while a drag is in flight (and hide any current one).</summary>
         public void SetDragging(bool dragging)
         {
             _driver.Suppressed = dragging;
@@ -79,9 +77,7 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>
-        /// Wire a card image to preview on hover: dwell to show, Alt/Cmd for instant.
-        /// </summary>
+        /// <summary>Hovering <paramref name="cardGo"/> previews the card: after a dwell, or at once with Alt/Cmd.</summary>
         public void Attach(GameObject cardGo, Texture2D texture)
         {
             UiKit.AddHover(cardGo, () => _driver.BeginHover(cardGo, texture), Hide);

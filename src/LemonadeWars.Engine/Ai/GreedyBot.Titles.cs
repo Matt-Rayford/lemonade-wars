@@ -5,44 +5,38 @@ using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Ai
 {
-    // Title awareness: the pulls that First Dibs titles and the bot's secret Lemon
-    // Lords exert on stand, shape, and Black Market choices.
     public sealed partial class GreedyBot
     {
         /// <summary>
-        /// Pull toward the stand type an unclaimed First Dibs title rewards (penny-pincher:
-        /// 5 bargain, local-legend: 4 classic, connoisseur: 3 gourmet + 1 other). Grows with
+        /// Pull toward the stand type an unclaimed First Dibs title rewards. Grows with
         /// each matching stand owned, so a bot that starts a collection commits to it.
         /// </summary>
         private static double StandTitleBonus(Game game, PlayerState me, string standTypeId)
         {
-            var row = game.State.FirstDibsRow;
-            int Owned(string type) => me.Stands.Count(st => st.StandTypeId == type);
-            double dibs = DibsStandMarginal(game, standTypeId, Owned(standTypeId) + 1);
+            double dibs = DibsStandMarginal(game, standTypeId, OwnedStands(me, standTypeId) + 1);
             if (dibs > 0)
             {
                 return dibs;
             }
             // Three gourmets down, all-gourmet board: the title's "1 other Stand".
-            if (row.Contains("connoisseur") && standTypeId != "gourmet" &&
-                Owned("gourmet") >= 3 && me.Stands.Count == Owned("gourmet"))
+            if (game.State.FirstDibsRow.Contains(FirstDibsIds.Connoisseur) && standTypeId != StandTypeIds.Gourmet &&
+                OwnedStands(me, StandTypeIds.Gourmet) >= 3 && me.Stands.Count == OwnedStands(me, StandTypeIds.Gourmet))
             {
                 return 12;
             }
-            // Kept lords with stand-flavored conditions pull the stand mix too.
             double lordBonus = 0;
             foreach (string lordId in UnmetLords(game, me))
             {
-                if (lordId == "bare-bones")
+                if (lordId == LemonLordIds.BareBones)
                 {
                     lordBonus += 4; // more stands = easier to keep 3 of them empty
                 }
-                else if (lordId == "budget-beast" && standTypeId == "bargain")
+                else if (lordId == LemonLordIds.BudgetBeast && standTypeId == StandTypeIds.Bargain)
                 {
                     lordBonus += 4;
                 }
-                else if (lordId == "elite-squeezer" && standTypeId == "gourmet" &&
-                         !me.Stands.Any(st => st.StandTypeId == "gourmet"))
+                else if (lordId == LemonLordIds.EliteSqueezer && standTypeId == StandTypeIds.Gourmet &&
+                         !me.Stands.Any(stand => stand.StandTypeId == StandTypeIds.Gourmet))
                 {
                     lordBonus += 5;
                 }
@@ -56,35 +50,70 @@ namespace LemonadeWars.Engine.Ai
             return lordBonus;
         }
 
-        // -------------------------------------------- Lemon Lord awareness
+        private static int OwnedStands(PlayerState me, string standTypeId) =>
+            me.Stands.Count(stand => stand.StandTypeId == standTypeId);
+
+        /// <summary>How many stands of a type an unclaimed First Dibs title wants (0 = none on offer).</summary>
+        private static int DibsStandGoal(Game game, string standTypeId)
+        {
+            var row = game.State.FirstDibsRow;
+            if (standTypeId == StandTypeIds.Bargain && row.Contains(FirstDibsIds.PennyPincher)) return 5;
+            if (standTypeId == StandTypeIds.Classic && row.Contains(FirstDibsIds.LocalLegend)) return 4;
+            if (standTypeId == StandTypeIds.Gourmet && row.Contains(FirstDibsIds.Connoisseur)) return 3;
+            return 0;
+        }
+
+        /// <summary>
+        /// Worth of the <paramref name="nth"/> stand of a type toward an unclaimed First Dibs title:
+        /// growing, so a started collection gets finished; zero once the title's count is covered.
+        /// </summary>
+        private static double DibsStandMarginal(Game game, string standTypeId, int nth)
+        {
+            int goal = DibsStandGoal(game, standTypeId);
+            return goal == 0 || nth < 1 || nth > goal ? 0 : 6 + (nth - 1) * 4;
+        }
+
+        private static double RebrandDibsDelta(Game game, PlayerState me, string fromType, string toType)
+        {
+            // Connoisseur wants 3 Gourmet AND 1 other: on an all-gourmet board the spare
+            // gourmet is exactly the stand that should be converted.
+            if (game.State.FirstDibsRow.Contains(FirstDibsIds.Connoisseur) && fromType == StandTypeIds.Gourmet &&
+                toType != StandTypeIds.Gourmet && OwnedStands(me, StandTypeIds.Gourmet) >= 4 &&
+                me.Stands.Count == OwnedStands(me, StandTypeIds.Gourmet))
+            {
+                return 12;
+            }
+            return DibsStandMarginal(game, toType, OwnedStands(me, toType) + 1)
+                - DibsStandMarginal(game, fromType, OwnedStands(me, fromType));
+        }
+
+        // ---- Lemon Lord awareness
 
         private static IEnumerable<string> UnmetLords(Game game, PlayerState me) =>
             me.LemonLordKept.Where(id => !game.MeetsLemonLord(me, id));
 
-        /// <summary>Does equipping this card advance the counted condition of a lord?</summary>
         private static bool LordWantsEquip(string lordId, BlackMarketCardDef def)
         {
             switch (lordId)
             {
-                case "pour-master": return def.Name == "Spiked Lemonade";
-                case "pushover": return def.Name == "Pushy Salesman";
-                case "cash-queen": return def.Cost >= 6;
-                case "card-shark": return def.Icons.Contains("draw");
-                case "flow-master": return def.Timing == EffectTiming.PowerPour;
-                case "no-bullies-allowed": return def.Category == "Defense";
-                case "profit-pusher": return def.Icons.Contains("dollar");
-                case "roll-wrangler": return def.Category == "Roll Modification";
-                case "sales-engine": return def.Timing == EffectTiming.OnSale;
-                case "swindling-sammy": return def.Icons.Contains("steal-card");
-                case "thieving-tommy": return def.Icons.Contains("steal-dollar");
+                case LemonLordIds.PourMaster: return def.Name == "Spiked Lemonade";
+                case LemonLordIds.Pushover: return def.Name == "Pushy Salesman";
+                case LemonLordIds.CashQueen: return def.Cost >= 6;
+                case LemonLordIds.CardShark: return def.Icons.Contains("draw");
+                case LemonLordIds.FlowMaster: return def.Timing == EffectTiming.PowerPour;
+                case LemonLordIds.NoBulliesAllowed: return def.Category == "Defense";
+                case LemonLordIds.ProfitPusher: return def.Icons.Contains("dollar");
+                case LemonLordIds.RollWrangler: return def.Category == "Roll Modification";
+                case LemonLordIds.SalesEngine: return def.Timing == EffectTiming.OnSale;
+                case LemonLordIds.SwindlingSammy: return def.Icons.Contains("steal-card");
+                case LemonLordIds.ThievingTommy: return def.Icons.Contains("steal-dollar");
                 default: return false;
             }
         }
 
         /// <summary>
-        /// A kept lord is a full VP at game end: acquiring an equip that advances one
-        /// (buy, steal, Connections take) earns a strong pull, destination-aware for
-        /// the stand-specific lords, with a brake for Bare Bones boards.
+        /// A kept lord is a full VP at game end, so an equip that advances one earns a strong pull:
+        /// destination-aware for the stand-specific lords, with a brake for Bare Bones boards.
         /// </summary>
         private static double LordEquipBonus(Game game, PlayerState me, BlackMarketCardDef def,
             int? destinationStandId)
@@ -98,24 +127,24 @@ namespace LemonadeWars.Engine.Ai
                 }
                 switch (lordId)
                 {
-                    case "elite-squeezer":
-                        if (destinationStandId is int gourmetDest && me.Stands.Any(st =>
-                                st.InstanceId == gourmetDest && st.StandTypeId == "gourmet"))
+                    case LemonLordIds.EliteSqueezer:
+                        if (destinationStandId is int gourmetStandId && me.Stands.Any(stand =>
+                                stand.InstanceId == gourmetStandId && stand.StandTypeId == StandTypeIds.Gourmet))
                         {
                             bonus += 6; // 4 equips on one gourmet stand
                         }
                         break;
-                    case "budget-beast":
-                        if ((def.Id == "diluted-lemonade" || def.Id == "pink-lemonade") &&
-                            destinationStandId is int bargainDest && me.Stands.Any(st =>
-                                st.InstanceId == bargainDest && st.StandTypeId == "bargain"))
+                    case LemonLordIds.BudgetBeast:
+                        if ((def.Id == BlackMarketCardIds.DilutedLemonade || def.Id == BlackMarketCardIds.PinkLemonade) &&
+                            destinationStandId is int bargainStandId && me.Stands.Any(stand =>
+                                stand.InstanceId == bargainStandId && stand.StandTypeId == StandTypeIds.Bargain))
                         {
                             bonus += 8; // a bargain stand earning $3+
                         }
                         break;
-                    case "bare-bones":
+                    case LemonLordIds.BareBones:
                         if (def.Target == EquipTarget.Stand &&
-                            me.Stands.Count(st => st.Equipped.Count == 0) <= 3)
+                            me.Stands.Count(stand => stand.Equipped.Count == 0) <= 3)
                         {
                             bonus -= 7; // equipping would spend a needed empty stand
                         }
@@ -138,13 +167,13 @@ namespace LemonadeWars.Engine.Ai
             var row = game.State.FirstDibsRow;
             int owned = ShapeCount(game, me, wanted);
             double bonus = 0;
-            string title = wanted == Shape.Square ? "block-builder"
-                : wanted == Shape.Diamond ? "diamond-dealer" : "full-circle";
+            string title = wanted == Shape.Square ? FirstDibsIds.BlockBuilder
+                : wanted == Shape.Diamond ? FirstDibsIds.DiamondDealer : FirstDibsIds.FullCircle;
             if (row.Contains(title) && owned >= 2 && owned < 6)
             {
                 bonus += 1.5 + owned;
             }
-            if (row.Contains("balanced-set") && owned < 2)
+            if (row.Contains(FirstDibsIds.BalancedSet) && owned < 2)
             {
                 bonus += 3;
             }
@@ -153,7 +182,7 @@ namespace LemonadeWars.Engine.Ai
 
         private static int ShapeCount(Game game, PlayerState me, Shape shape)
         {
-            int count = me.Stands.Count(st => st.Shape == shape);
+            int count = me.Stands.Count(stand => stand.Shape == shape);
             foreach (int id in me.Turf.Equipped)
             {
                 if (game.State.BlackMarketInstances[id].Shape == shape)
@@ -179,11 +208,11 @@ namespace LemonadeWars.Engine.Ai
         {
             switch (titleId)
             {
-                case "friendly-fran": return 9;  // passive: just avoid tantrums
-                case "hoarder": return 8;        // drawing is always available
-                case "bare-bones": return 7;
-                case "expert-whiner": return 3;  // conflicts with friendly play
-                case "elite-squeezer": return 4;
+                case LemonLordIds.FriendlyFran: return 9;  // passive: just avoid tantrums
+                case LemonLordIds.Hoarder: return 8;        // drawing is always available
+                case LemonLordIds.BareBones: return 7;
+                case LemonLordIds.ExpertWhiner: return 3;  // conflicts with friendly play
+                case LemonLordIds.EliteSqueezer: return 4;
                 default: return 5;
             }
         }

@@ -20,74 +20,38 @@ namespace LemonadeWars.Unity
         private readonly RectTransform _root;
         private RectTransform _cardZone;
         private TMP_Text _header;
-        private readonly RectTransform _cardStrip;
-        private readonly RectTransform _optionList;
+        private RectTransform _cardStrip;
+        private RectTransform _optionList;
 
         public bool IsOpen { get; private set; }
 
         public ReactionPanel(RectTransform canvasRoot, CardPreview preview)
         {
             _preview = preview;
-            // Transparent full-screen root that does NOT swallow input: only its two
-            // zones (market band + log column) are raycast surfaces.
+            // The full-screen root must NOT swallow input: only its two zones
+            // (market band + log column) are raycast surfaces.
             _root = UiKit.CreatePanel(canvasRoot, "Reaction", new Color(0, 0, 0, 0));
             _root.GetComponent<Image>().raycastTarget = false;
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
 
-            // ---- top: the market band, greyed out and hosting the attack ----
-            // The band is only claimed when there ARE cards to show; a roll response
-            // leaves it to the die, which lingers there while you decide.
-            _cardZone = UiKit.CreatePanel(_root, "ReactionCards", new Color(0.04f, 0.05f, 0.08f, 0.93f));
-            UiKit.Anchor(_cardZone, new Vector2(0f, 0.75f), new Vector2(1f, 1f)); // the shelf's band
-
-            var stripGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            stripGo.transform.SetParent(_cardZone, false);
-            UiKit.Anchor((RectTransform)stripGo.transform, new Vector2(0.1f, 0.06f), new Vector2(0.9f, 0.94f));
-            var stripLayout = stripGo.GetComponent<HorizontalLayoutGroup>();
-            stripLayout.spacing = 14;
-            stripLayout.childAlignment = TextAnchor.MiddleCenter;
-            stripLayout.childForceExpandWidth = false;
-            stripLayout.childForceExpandHeight = false;
-            stripLayout.childControlWidth = true;
-            stripLayout.childControlHeight = true;
-            _cardStrip = (RectTransform)stripGo.transform;
-
-            // ---- right: reactions where the action log lives ----
-            var optionZone = UiKit.CreatePanel(_root, "ReactionOptions", new Color(0.05f, 0.07f, 0.11f, 0.96f));
-            UiKit.Anchor(optionZone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
-                new Vector2(4, 0), new Vector2(-10, -4));
-
-            _header = UiKit.CreateText(optionZone, "YOUR RESPONSE", 16, TextAnchor.MiddleCenter,
-                UiKit.ButtonColor);
-            _header.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_header.transform, new Vector2(0f, 0.92f), new Vector2(1f, 1f));
-
-            var listHost = UiKit.CreatePanel(optionZone, "Options", new Color(0, 0, 0, 0));
-            listHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(listHost, new Vector2(0f, 0.09f), new Vector2(1f, 0.915f),
-                new Vector2(6, 0), new Vector2(-6, 0));
-            _optionList = UiKit.CreateScrollList(listHost);
-            _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
-
-            var hint = UiKit.CreateText(optionZone, "or click a reaction card in your hand",
-                13, TextAnchor.MiddleCenter, new Color(0.62f, 0.65f, 0.70f), body: true);
-            hint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)hint.transform, new Vector2(0f, 0f), new Vector2(1f, 0.085f));
+            BuildCardZone();
+            BuildOptionZone();
 
             _root.gameObject.SetActive(false);
         }
 
         public void Show(IReadOnlyList<Texture2D> cards,
-            IReadOnlyList<Prompt.Option> options, string header = "YOUR RESPONSE")
+            IReadOnlyList<Prompt.Option> options, string header)
         {
             IsOpen = true;
             _header.text = header;
 
             UiKit.Clear(_cardStrip);
+            // The band is claimed only when there are cards to show: a roll response
+            // leaves it to the die, which lingers there while you decide.
             _cardZone.gameObject.SetActive(cards != null && cards.Count > 0);
             if (cards != null)
             {
-                // Sized to sit inside the band under the title.
                 foreach (var texture in cards)
                 {
                     if (texture != null)
@@ -114,7 +78,48 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        /// <summary>Same language as the prompt's options: dark row, yellow on hover.</summary>
+        private void BuildCardZone()
+        {
+            _cardZone = UiKit.CreatePanel(_root, "ReactionCards", new Color(0.04f, 0.05f, 0.08f, 0.93f));
+            UiKit.Anchor(_cardZone, new Vector2(0f, 0.75f), new Vector2(1f, 1f)); // the shelf's band
+
+            var stripGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            stripGo.transform.SetParent(_cardZone, false);
+            UiKit.Anchor((RectTransform)stripGo.transform, new Vector2(0.1f, 0.06f), new Vector2(0.9f, 0.94f));
+            var stripLayout = stripGo.GetComponent<HorizontalLayoutGroup>();
+            stripLayout.spacing = 14;
+            stripLayout.childAlignment = TextAnchor.MiddleCenter;
+            stripLayout.childForceExpandWidth = false;
+            stripLayout.childForceExpandHeight = false;
+            stripLayout.childControlWidth = true;
+            stripLayout.childControlHeight = true;
+            _cardStrip = (RectTransform)stripGo.transform;
+        }
+
+        private void BuildOptionZone()
+        {
+            var optionZone = UiKit.CreatePanel(_root, "ReactionOptions", new Color(0.05f, 0.07f, 0.11f, 0.96f));
+            UiKit.Anchor(optionZone, new Vector2(0.79f, 0.24f), new Vector2(1f, 0.695f),
+                new Vector2(4, 0), new Vector2(-10, -4));
+
+            _header = UiKit.CreateText(optionZone, "", 16, TextAnchor.MiddleCenter,
+                UiKit.ButtonColor);
+            _header.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_header.transform, new Vector2(0f, 0.92f), new Vector2(1f, 1f));
+
+            var listHost = UiKit.CreatePanel(optionZone, "Options", new Color(0, 0, 0, 0));
+            listHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(listHost, new Vector2(0f, 0.09f), new Vector2(1f, 0.915f),
+                new Vector2(6, 0), new Vector2(-6, 0));
+            _optionList = UiKit.CreateScrollList(listHost);
+            _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
+
+            var hint = UiKit.CreateText(optionZone, "or click a reaction card in your hand",
+                13, TextAnchor.MiddleCenter, new Color(0.62f, 0.65f, 0.70f), body: true);
+            hint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)hint.transform, new Vector2(0f, 0f), new Vector2(1f, 0.085f));
+        }
+
         private void AddOptionButton(Prompt.Option option)
         {
             var go = new GameObject("Option", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
@@ -134,17 +139,7 @@ namespace LemonadeWars.Unity
 
             if (option.Card != null)
             {
-                var thumbGo = new GameObject("CardThumb", typeof(RectTransform), typeof(RawImage));
-                thumbGo.transform.SetParent(go.transform, false);
-                var thumbRect = (RectTransform)thumbGo.transform;
-                thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
-                thumbRect.pivot = new Vector2(1f, 0.5f);
-                thumbRect.sizeDelta = new Vector2(26f, 36f);
-                thumbRect.anchoredPosition = new Vector2(-6f, 0);
-                var thumbImage = thumbGo.GetComponent<RawImage>();
-                thumbImage.texture = option.Card;
-                thumbImage.raycastTarget = false;
-                _preview?.Attach(go, option.Card);
+                AddCardThumbnail(go, option.Card);
             }
 
             var onPick = option.OnPick;
@@ -164,6 +159,21 @@ namespace LemonadeWars.Unity
                 Hide();
                 onPick?.Invoke();
             });
+        }
+
+        private void AddCardThumbnail(GameObject optionButton, Texture2D card)
+        {
+            var thumbGo = new GameObject("CardThumb", typeof(RectTransform), typeof(RawImage));
+            thumbGo.transform.SetParent(optionButton.transform, false);
+            var thumbRect = (RectTransform)thumbGo.transform;
+            thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
+            thumbRect.pivot = new Vector2(1f, 0.5f);
+            thumbRect.sizeDelta = new Vector2(26f, 36f);
+            thumbRect.anchoredPosition = new Vector2(-6f, 0);
+            var thumbImage = thumbGo.GetComponent<RawImage>();
+            thumbImage.texture = card;
+            thumbImage.raycastTarget = false;
+            _preview?.Attach(optionButton, card);
         }
     }
 }

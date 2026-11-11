@@ -5,207 +5,231 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Per-card play parameterizations and the board-query/combination helpers behind
-    /// them. Shared by move enumeration (Game.LegalMoves.cs), forced-play validation,
-    /// and attack retargeting. Combinatorial choices (multi-card discards, Rummage Sale
-    /// subsets) are capped at a bounded sample; the cap trades exhaustive coverage for
-    /// move-list size and is noted inline wherever it applies.
+    /// Per-card play parameterizations, shared by move enumeration, forced-play validation and
+    /// attack retargeting. The order plays are yielded in is a contract: bots break ties by it
+    /// and the client lists options in it. Combinatorial choices (multi-card discards, Rummage
+    /// Sale subsets) are capped at a bounded sample.
     /// </summary>
     public sealed partial class Game
     {
-        /// <summary>Every valid parameterization for playing a plan/attack from hand.</summary>
+        private const int RummageSaleMaxCards = 3;
+        private const int RummageSaleMoveCap = 40;
+
+        private const int ExhaustiveComboLimit = 30;
+        private const int SampledComboLimit = 10;
+
         private IEnumerable<PlayLemonCard> PlayParamCombos(PlayerState player, int cardId, LemonCardDef def)
         {
-            PlayLemonCard Base() => new PlayLemonCard { PlayerId = player.PlayerId, CardInstanceId = cardId };
-            var opponents = State.Players.Where(p => p.PlayerId != player.PlayerId).ToList();
-
             switch (def.Id)
             {
-                case "automation":
-                case "market-forecasting":
-                case "night-shifts":
-                    yield return Base();
-                    break;
+                case LemonCardIds.Automation:
+                case LemonCardIds.MarketForecasting:
+                case LemonCardIds.NightShifts:
+                    return new[] { NewPlay(player, cardId) };
 
-                case "apologize":
-                    // Tantrum copies are interchangeable — one move, engine picks.
-                    if (player.TantrumPile.Count > 0)
-                    {
-                        yield return Base();
-                    }
-                    break;
+                case LemonCardIds.Apologize: return ApologizePlays(player, cardId);
+                case LemonCardIds.BlameChanger: return BlameChangerPlays(player, cardId);
+                case LemonCardIds.Connections: return ConnectionsPlays(player, cardId);
+                case LemonCardIds.DoorbusterSale: return DoorbusterSalePlays(player, cardId);
+                case LemonCardIds.FindersKeepers: return FindersKeepersPlays(player, cardId);
 
-                case "blame-changer":
-                    if (player.TantrumPile.Count > 0)
-                    {
-                        foreach (var other in opponents)
-                        {
-                            var play = Base();
-                            play.TargetPlayerId = other.PlayerId;
-                            yield return play;
-                        }
-                    }
-                    break;
+                case LemonCardIds.HoaViolation:
+                case LemonCardIds.SharingIsCaring:
+                case LemonCardIds.SmearCampaign:
+                case LemonCardIds.Taxes:
+                case LemonCardIds.TrashPandas:
+                    return PlaysTargetingEach(OpponentsOf(player), player, cardId);
 
-                case "connections":
-                    for (int i = 0; i < State.Market.Count; i++)
-                    {
-                        foreach (var (standId, replaceId) in DestinationsFor(player, EquippedDef(State.Market[i])))
-                        {
-                            var play = Base();
-                            play.MarketIndex = i;
-                            play.EquipStandInstanceId = standId;
-                            play.EquipReplaceInstanceId = replaceId;
-                            yield return play;
-                        }
-                    }
-                    break;
+                case LemonCardIds.Rebrand: return RebrandPlays(player, cardId);
+                case LemonCardIds.ReduceAndReuse: return ReduceAndReusePlays(player, cardId);
+                case LemonCardIds.ReverseEngineer: return ReverseEngineerPlays(player, cardId);
+                case LemonCardIds.RummageSale: return RummageSalePlays(player, cardId);
 
-                case "doorbuster-sale":
-                    foreach (var stand in player.Stands)
-                    {
-                        var play = Base();
-                        play.TargetStandInstanceId = stand.InstanceId;
-                        yield return play;
-                    }
-                    break;
+                case LemonCardIds.StealTheCashbox:
+                    return PlaysTargetingEach(
+                        OpponentsOf(player).Where(victim => victim.Turf.TrapInstanceId == null), player, cardId);
 
-                case "finders-keepers":
-                    foreach (var victim in opponents)
-                    {
-                        foreach (int equippedId in AllEquipped(victim))
-                        {
-                            foreach (var (standId, replaceId) in DestinationsFor(player, EquippedDef(equippedId)))
-                            {
-                                var play = Base();
-                                play.TargetPlayerId = victim.PlayerId;
-                                play.TargetEquippedInstanceId = equippedId;
-                                play.EquipStandInstanceId = standId;
-                                play.EquipReplaceInstanceId = replaceId;
-                                yield return play;
-                            }
-                        }
-                    }
-                    break;
+                case LemonCardIds.ThatsNotFair: return ThatsNotFairPlays(player, cardId);
 
-                case "hoa-violation":
-                case "sharing-is-caring":
-                case "smear-campaign":
-                case "taxes":
-                case "trash-pandas":
-                    foreach (var other in opponents)
-                    {
-                        var play = Base();
-                        play.TargetPlayerId = other.PlayerId;
-                        yield return play;
-                    }
-                    break;
+                default:
+                    return Enumerable.Empty<PlayLemonCard>();
+            }
+        }
 
-                case "rebrand":
-                    foreach (var stand in player.Stands)
-                    {
-                        foreach (var newType in Db.StandTypes)
-                        {
-                            if (newType.Id == stand.StandTypeId || State.StandSupply[newType.Id].Count == 0)
-                            {
-                                continue;
-                            }
-                            int overflow = System.Math.Max(0, stand.Equipped.Count - newType.UpgradeSlots);
-                            foreach (var combo in CardCombos(stand.Equipped, overflow))
-                            {
-                                var play = Base();
-                                play.TargetStandInstanceId = stand.InstanceId;
-                                play.NewStandTypeId = newType.Id;
-                                play.SelectedInstanceIds = combo;
-                                yield return play;
-                            }
-                        }
-                    }
-                    break;
+        // ---------------------------------------------------- per-card plays
 
-                case "reduce-and-reuse":
+        private static PlayLemonCard NewPlay(PlayerState player, int cardId) =>
+            new PlayLemonCard { PlayerId = player.PlayerId, CardInstanceId = cardId };
+
+        private IEnumerable<PlayerState> OpponentsOf(PlayerState player) =>
+            State.Players.Where(p => p.PlayerId != player.PlayerId);
+
+        private static IEnumerable<PlayLemonCard> PlaysTargetingEach(
+            IEnumerable<PlayerState> victims, PlayerState player, int cardId)
+        {
+            foreach (var victim in victims)
+            {
+                var play = NewPlay(player, cardId);
+                play.TargetPlayerId = victim.PlayerId;
+                yield return play;
+            }
+        }
+
+        /// <summary>Tantrum copies are interchangeable — one move, engine picks.</summary>
+        private static IEnumerable<PlayLemonCard> ApologizePlays(PlayerState player, int cardId)
+        {
+            if (player.TantrumPile.Count > 0)
+            {
+                yield return NewPlay(player, cardId);
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> BlameChangerPlays(PlayerState player, int cardId)
+        {
+            if (player.TantrumPile.Count == 0)
+            {
+                yield break;
+            }
+            foreach (var play in PlaysTargetingEach(OpponentsOf(player), player, cardId))
+            {
+                yield return play;
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> ConnectionsPlays(PlayerState player, int cardId)
+        {
+            for (int marketIndex = 0; marketIndex < State.Market.Count; marketIndex++)
+            {
+                var marketDef = EquippedDef(State.Market[marketIndex]);
+                foreach (var (standId, replaceId) in DestinationsFor(player, marketDef))
                 {
-                    // EVERY physical copy in the discard is offered: the picker shows the
-                    // pile as it sits on the table, and players count the copies.
-                    foreach (int bmId in State.BlackMarketDiscard)
-                    {
-                        var bmDef = EquippedDef(bmId);
-                        foreach (var (standId, replaceId) in DestinationsFor(player, bmDef))
-                        {
-                            var play = Base();
-                            play.DiscardedBmInstanceId = bmId;
-                            play.EquipStandInstanceId = standId;
-                            play.EquipReplaceInstanceId = replaceId;
-                            yield return play;
-                        }
-                    }
-                    break;
+                    var play = NewPlay(player, cardId);
+                    play.MarketIndex = marketIndex;
+                    play.EquipStandInstanceId = standId;
+                    play.EquipReplaceInstanceId = replaceId;
+                    yield return play;
                 }
+            }
+        }
 
-                case "reverse-engineer":
+        private static IEnumerable<PlayLemonCard> DoorbusterSalePlays(PlayerState player, int cardId)
+        {
+            foreach (var stand in player.Stands)
+            {
+                var play = NewPlay(player, cardId);
+                play.TargetStandInstanceId = stand.InstanceId;
+                yield return play;
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> FindersKeepersPlays(PlayerState player, int cardId)
+        {
+            foreach (var victim in OpponentsOf(player))
+            {
+                foreach (int equippedId in AllEquipped(victim))
                 {
-                    var draw = Base();
-                    draw.DrawInstead = true;
-                    yield return draw;
-
-                    // EVERY physical copy in the discard is offered: the picker shows the
-                    // pile as it sits on the table, and players count the copies.
-                    foreach (int lemonId in State.LemonDiscard)
+                    foreach (var (standId, replaceId) in DestinationsFor(player, EquippedDef(equippedId)))
                     {
-                        var lemonDef = Db.Lemon(State.LemonInstances[lemonId].DefId);
-                        if (!IsReverseEngineerable(lemonDef))
-                        {
-                            continue;
-                        }
-                        var play = Base();
-                        play.DiscardedLemonInstanceId = lemonId;
-                        yield return play;
-                    }
-                    break;
-                }
-
-                case "rummage-sale":
-                {
-                    // Subsets of size 1-3, capped to keep the move list bounded.
-                    var equips = AllEquipped(player).ToList();
-                    int emitted = 0;
-                    for (int size = 1; size <= 3 && emitted < 40; size++)
-                    {
-                        foreach (var combo in CardCombos(equips, size))
-                        {
-                            emitted++;
-                            var play = Base();
-                            play.SelectedInstanceIds = combo;
-                            yield return play;
-                            if (emitted >= 40)
-                            {
-                                break;
-                            }
-                        }
-                    }
-                    break;
-                }
-
-                case "steal-the-cashbox":
-                    foreach (var victim in opponents.Where(v => v.Turf.TrapInstanceId == null))
-                    {
-                        var play = Base();
+                        var play = NewPlay(player, cardId);
                         play.TargetPlayerId = victim.PlayerId;
+                        play.TargetEquippedInstanceId = equippedId;
+                        play.EquipStandInstanceId = standId;
+                        play.EquipReplaceInstanceId = replaceId;
                         yield return play;
                     }
-                    break;
+                }
+            }
+        }
 
-                case "thats-not-fair":
-                    foreach (var victim in opponents)
+        private IEnumerable<PlayLemonCard> RebrandPlays(PlayerState player, int cardId)
+        {
+            foreach (var stand in player.Stands)
+            {
+                foreach (var newType in Db.StandTypes)
+                {
+                    if (newType.Id == stand.StandTypeId || State.StandSupply[newType.Id].Count == 0)
                     {
-                        foreach (int equippedId in AllEquipped(victim))
-                        {
-                            var play = Base();
-                            play.TargetEquippedInstanceId = equippedId;
-                            yield return play;
-                        }
+                        continue;
                     }
-                    break;
+                    int overflow = System.Math.Max(0, stand.Equipped.Count - newType.UpgradeSlots);
+                    foreach (var discards in CardCombos(stand.Equipped, overflow))
+                    {
+                        var play = NewPlay(player, cardId);
+                        play.TargetStandInstanceId = stand.InstanceId;
+                        play.NewStandTypeId = newType.Id;
+                        play.SelectedInstanceIds = discards;
+                        yield return play;
+                    }
+                }
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> ReduceAndReusePlays(PlayerState player, int cardId)
+        {
+            // Every physical copy in the discard is offered, not one per card name: the
+            // picker shows the pile as it sits on the table, and players count copies.
+            foreach (int bmId in State.BlackMarketDiscard)
+            {
+                foreach (var (standId, replaceId) in DestinationsFor(player, EquippedDef(bmId)))
+                {
+                    var play = NewPlay(player, cardId);
+                    play.DiscardedBmInstanceId = bmId;
+                    play.EquipStandInstanceId = standId;
+                    play.EquipReplaceInstanceId = replaceId;
+                    yield return play;
+                }
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> ReverseEngineerPlays(PlayerState player, int cardId)
+        {
+            var drawTwo = NewPlay(player, cardId);
+            drawTwo.DrawInstead = true;
+            yield return drawTwo;
+
+            // Every physical copy is offered, as for Reduce and Reuse.
+            foreach (int lemonId in State.LemonDiscard)
+            {
+                if (!IsReverseEngineerable(Db.Lemon(State.LemonInstances[lemonId].DefId)))
+                {
+                    continue;
+                }
+                var play = NewPlay(player, cardId);
+                play.DiscardedLemonInstanceId = lemonId;
+                yield return play;
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> RummageSalePlays(PlayerState player, int cardId)
+        {
+            var equips = AllEquipped(player).ToList();
+            int emitted = 0;
+            for (int size = 1; size <= RummageSaleMaxCards && emitted < RummageSaleMoveCap; size++)
+            {
+                foreach (var soldIds in CardCombos(equips, size))
+                {
+                    emitted++;
+                    var play = NewPlay(player, cardId);
+                    play.SelectedInstanceIds = soldIds;
+                    yield return play;
+                    if (emitted >= RummageSaleMoveCap)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        private IEnumerable<PlayLemonCard> ThatsNotFairPlays(PlayerState player, int cardId)
+        {
+            foreach (var victim in OpponentsOf(player))
+            {
+                foreach (int equippedId in AllEquipped(victim))
+                {
+                    var play = NewPlay(player, cardId);
+                    play.TargetEquippedInstanceId = equippedId;
+                    yield return play;
+                }
             }
         }
 
@@ -214,108 +238,106 @@ namespace LemonadeWars.Engine.Core
         private IEnumerable<int> AllEquipped(PlayerState player) =>
             player.Turf.Equipped.Concat(player.Stands.SelectMany(s => s.Equipped));
 
-        /// <summary>
-        /// Valid equip destinations for a Black Market def on this player's board:
-        /// (standInstanceId, replaceInstanceId) pairs; (null, x) targets the turf.
-        /// </summary>
+        /// <summary>A null StandId targets the turf.</summary>
         private IEnumerable<(int? StandId, int? ReplaceId)> DestinationsFor(PlayerState player, BlackMarketCardDef def)
         {
-            if (def.Target == EquipTarget.Stand)
-            {
-                // Free slots first: the top option (and a tie-breaking greedy bot)
-                // should never silently trash an existing upgrade.
-                foreach (var stand in player.Stands)
-                {
-                    if (stand.Equipped.Count < Db.StandType(stand.StandTypeId).UpgradeSlots)
-                    {
-                        yield return (stand.InstanceId, null);
-                    }
-                }
-                foreach (var stand in player.Stands)
-                {
-                    if (stand.Equipped.Count >= Db.StandType(stand.StandTypeId).UpgradeSlots)
-                    {
-                        foreach (int replace in stand.Equipped)
-                        {
-                            yield return (stand.InstanceId, replace);
-                        }
-                    }
-                }
-            }
-            else
+            if (def.Target != EquipTarget.Stand)
             {
                 if (player.Turf.Equipped.Count < Db.Turf.UpgradeSlots)
                 {
                     yield return (null, null);
+                    yield break;
                 }
-                else
+                foreach (int replace in player.Turf.Equipped)
                 {
-                    foreach (int replace in player.Turf.Equipped)
+                    yield return (null, replace);
+                }
+                yield break;
+            }
+
+            // Free slots first: the top option (and a tie-breaking greedy bot)
+            // should never silently trash an existing upgrade.
+            foreach (var stand in player.Stands)
+            {
+                if (!IsStandFull(stand))
+                {
+                    yield return (stand.InstanceId, null);
+                }
+            }
+            foreach (var stand in player.Stands)
+            {
+                if (IsStandFull(stand))
+                {
+                    foreach (int replace in stand.Equipped)
                     {
-                        yield return (null, replace);
+                        yield return (stand.InstanceId, replace);
                     }
                 }
             }
         }
 
-        /// <summary>
-        /// k-card combinations from a zone. Exhaustive when small; otherwise a deterministic
-        /// sliding-window sample so the move list stays bounded.
-        /// </summary>
-        private static List<List<int>> CardCombos(IReadOnlyList<int> cards, int k)
+        private bool IsStandFull(StandInstance stand) =>
+            stand.Equipped.Count >= Db.StandType(stand.StandTypeId).UpgradeSlots;
+
+        /// <summary>Exhaustive when small; otherwise a deterministic sliding-window sample, so the move list stays bounded.</summary>
+        private static List<List<int>> CardCombos(IReadOnlyList<int> cards, int comboSize)
         {
-            var results = new List<List<int>>();
-            if (k <= 0)
+            var combos = new List<List<int>>();
+            if (comboSize <= 0)
             {
-                results.Add(new List<int>());
-                return results;
+                combos.Add(new List<int>());
+                return combos;
             }
-            if (k > cards.Count)
+            if (comboSize > cards.Count)
             {
-                return results;
+                return combos;
             }
 
-            long total = 1;
-            for (int i = 0; i < k; i++)
+            if (CombinationCount(cards.Count, comboSize) > ExhaustiveComboLimit)
             {
-                total = total * (cards.Count - i) / (i + 1);
-            }
-            if (total <= 30)
-            {
-                var combo = new int[k];
-                void Recurse(int start, int depth)
+                for (int start = 0;
+                     start + comboSize <= cards.Count && combos.Count < SampledComboLimit;
+                     start += comboSize)
                 {
-                    if (depth == k)
-                    {
-                        results.Add(combo.ToList());
-                        return;
-                    }
-                    for (int i = start; i <= cards.Count - (k - depth); i++)
-                    {
-                        combo[depth] = cards[i];
-                        Recurse(i + 1, depth + 1);
-                    }
+                    combos.Add(cards.Skip(start).Take(comboSize).ToList());
                 }
-                Recurse(0, 0);
+                return combos;
             }
-            else
+
+            var combo = new int[comboSize];
+            void AddCombosFrom(int firstIndex, int chosenCount)
             {
-                // Sample: contiguous windows across the zone.
-                for (int start = 0; start + k <= cards.Count && results.Count < 10; start += k)
+                if (chosenCount == comboSize)
                 {
-                    results.Add(cards.Skip(start).Take(k).ToList());
+                    combos.Add(combo.ToList());
+                    return;
+                }
+                for (int i = firstIndex; i <= cards.Count - (comboSize - chosenCount); i++)
+                {
+                    combo[chosenCount] = cards[i];
+                    AddCombosFrom(i + 1, chosenCount + 1);
                 }
             }
-            return results;
+            AddCombosFrom(0, 0);
+            return combos;
+        }
+
+        private static long CombinationCount(int itemCount, int comboSize)
+        {
+            long count = 1;
+            for (int i = 0; i < comboSize; i++)
+            {
+                count = count * (itemCount - i) / (i + 1);
+            }
+            return count;
         }
 
         /// <summary>
-        /// Plans and attacks can be recovered and played at once — except another
-        /// Reverse Engineer: with two copies in the game, each one recovering the other
-        /// is a forced-play chain that never ends (an all-bot table looped on it).
+        /// Plans and attacks, except another Reverse Engineer: two copies recovering each other
+        /// is a forced-play chain that never ends.
         /// </summary>
         private static bool IsReverseEngineerable(LemonCardDef def) =>
             (def.Type == LemonCardType.Plan || def.Type == LemonCardType.Attack) &&
-            def.Id != "reverse-engineer";
+            def.Id != LemonCardIds.ReverseEngineer;
     }
 }

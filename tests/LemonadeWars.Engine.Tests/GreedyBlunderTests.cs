@@ -1,8 +1,10 @@
+using System;
 using System.Linq;
 using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using Xunit;
 using static LemonadeWars.Engine.Tests.BotScenario;
+using static LemonadeWars.Engine.Tests.StateRigging;
 
 namespace LemonadeWars.Engine.Tests
 {
@@ -22,21 +24,48 @@ namespace LemonadeWars.Engine.Tests
         // ------------------------------------------------------- attack targeting
 
         [Fact]
+        public void MoneyAttacksChaseTheVictimWhoCanActuallyPay()
+        {
+            var game = ReadyToAct(21, 3);
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var others = state.Players.Where(p => p.PlayerId != actor).ToList();
+            var broke = others[0];  // enumerated first: the old flat scoring picked this one
+            var rich = others[1];
+
+            // Taxes is the only playable card and there is no money to spend elsewhere,
+            // so the whole decision is which victim to hit.
+            StripToOneCard(game, actor, "taxes");
+            me.Money = 0;
+            // Equal stand counts => an equal NOMINAL steal ($10). Only the wallets differ,
+            // and StealMoney caps the transfer at what the victim actually holds.
+            while (broke.Stands.Count < 5) { AddStand(broke, "bargain"); }
+            while (rich.Stands.Count < 5) { AddStand(rich, "bargain"); }
+            broke.Money = 1;
+            rich.Money = 20;
+
+            var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
+            Assert.Equal("taxes", state.LemonInstances[pick.CardInstanceId].DefId);
+            Assert.Equal(rich.PlayerId, pick.TargetPlayerId);
+        }
+
+        [Fact]
         public void TaxesHitsTheLeaderNotTheRichLoser()
         {
             var game = ReadyToAct(41, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
-            var others = s.Players.Where(p => p.PlayerId != actor).ToList();
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var others = state.Players.Where(p => p.PlayerId != actor).ToList();
             var richLoser = others[0]; // enumerated first, and the bigger nominal steal
             var leader = others[1];
             ClearNoise(game, me);
             StripToOneCard(game, actor, "taxes");
             me.Money = 0;
 
-            // $10 off the loser vs $6 off the leader — but the leader is one VP from
-            // ending the game, and the loser is nowhere.
+            // $10 off the loser vs $6 off the leader, but the leader is one VP from
+            // ending the game and the loser is nowhere.
             while (richLoser.Stands.Count < 5) { AddStand(richLoser, "bargain"); }
             richLoser.Money = 12;
             while (leader.Stands.Count < 3) { AddStand(leader, "bargain"); }
@@ -46,7 +75,7 @@ namespace LemonadeWars.Engine.Tests
             BuryHand(game, leader.PlayerId);
 
             var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
-            Assert.Equal("taxes", s.LemonInstances[pick.CardInstanceId].DefId);
+            Assert.Equal("taxes", state.LemonInstances[pick.CardInstanceId].DefId);
             Assert.Equal(leader.PlayerId, pick.TargetPlayerId);
         }
 
@@ -54,10 +83,10 @@ namespace LemonadeWars.Engine.Tests
         public void EqualThreatsFavorTheDefenselessVictim()
         {
             var game = ReadyToAct(42, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
-            var others = s.Players.Where(p => p.PlayerId != actor).ToList();
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var others = state.Players.Where(p => p.PlayerId != actor).ToList();
             var fatHand = others[0]; // enumerated first: a tie would pick this one
             var emptyHand = others[1];
             ClearNoise(game, me);
@@ -74,8 +103,46 @@ namespace LemonadeWars.Engine.Tests
             BuryHand(game, emptyHand.PlayerId);
 
             var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
-            Assert.Equal("taxes", s.LemonInstances[pick.CardInstanceId].DefId);
+            Assert.Equal("taxes", state.LemonInstances[pick.CardInstanceId].DefId);
             Assert.Equal(emptyHand.PlayerId, pick.TargetPlayerId);
+        }
+
+        // ------------------------------------------------------------- plans
+
+        [Fact]
+        public void RebrandProtectsFirstDibsStandProgress()
+        {
+            var game = ReadyToAct(23, 3);
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            me.Money = 0;
+
+            // Connoisseur (first to 3 Gourmet Stands and 1 other) is the only stand title
+            // on offer, and we are two thirds of the way there.
+            state.FirstDibsRow.Clear();
+            state.FirstDibsRow.Add("connoisseur");
+            me.Stands.Clear();
+            AddStand(me, "gourmet");
+            AddStand(me, "gourmet");
+            AddStand(me, "classic");
+
+            // Tantrums fill the hand (so drawing is cheap) without adding rival plays:
+            // instants are not playable in the Play phase.
+            StripToOneCard(game, actor, "rebrand");
+            for (int i = 0; i < 6; i++)
+            {
+                GiveCard(game, actor, "tantrum");
+            }
+            me.LemonLordKept.Clear();
+            me.LemonLordKept.Add("friendly-fran");
+
+            var pick = Assert.IsType<PlayLemonCard>(new GreedyBot().Choose(game, actor));
+            Assert.Equal("rebrand", state.LemonInstances[pick.CardInstanceId].DefId);
+            // Converts the odd classic stand INTO the third gourmet, never a gourmet away.
+            Assert.Equal("gourmet", pick.NewStandTypeId);
+            Assert.Equal("classic",
+                me.Stands.First(stand => stand.InstanceId == pick.TargetStandInstanceId).StandTypeId);
         }
 
         // ------------------------------------------------- response windows
@@ -84,82 +151,82 @@ namespace LemonadeWars.Engine.Tests
         public void TantrumCountersARubberGlueOnItsOwnAttack()
         {
             var game = ReadyToAct(43, 3);
-            var s = game.State;
-            int a = s.ActivePlayer;
-            int b = (a + 1) % 3;
-            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
-            foreach (var p in s.Players) { p.LemonLordKept.Clear(); }
+            var state = game.State;
+            int attacker = state.ActivePlayer;
+            int victim = (attacker + 1) % 3;
+            StripStackReactions(game);
+            ClearLemonLords(game);
 
-            int finders = Hold(game, a, "finders-keepers");
-            int tantrumA = Hold(game, a, "tantrum");
-            int rubber = Hold(game, b, "im-rubber-youre-glue");
-            EquipFromDeck(game, s.Players[b], "pink-lemonade", s.Players[b].Stands[0]);
+            int findersKeepers = GiveCard(game, attacker, "finders-keepers");
+            int attackerTantrum = GiveCard(game, attacker, "tantrum");
+            int rubberGlue = GiveCard(game, victim, "im-rubber-youre-glue");
+            EquipFromDeck(game, state.Players[victim], "pink-lemonade", state.Players[victim].Stands[0]);
 
-            var steal = game.LegalMovesFor(a).OfType<PlayLemonCard>()
-                .First(p => p.CardInstanceId == finders && p.TargetPlayerId == b);
+            var steal = game.LegalMovesFor(attacker).OfType<PlayLemonCard>()
+                .First(play => play.CardInstanceId == findersKeepers && play.TargetPlayerId == victim);
             game.Apply(steal);
-            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = rubber });
-            Assert.Contains(a, s.AwaitingResponse);
+            game.Apply(new RespondToWindow { PlayerId = victim, CardInstanceId = rubberGlue });
+            Assert.Contains(attacker, state.AwaitingResponse);
 
-            // Passing here lets the reflection resolve and the steal turn on A itself.
-            var keepAlive = new RespondToWindow { PlayerId = a, CardInstanceId = tantrumA };
-            Assert.False(MoveFilters.ObjectivelyWasted(game, a, keepAlive));
-            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, a));
-            Assert.Equal(tantrumA, pick.CardInstanceId);
+            // Passing here lets the reflection resolve and the steal turn on the attacker.
+            var keepAlive = new RespondToWindow { PlayerId = attacker, CardInstanceId = attackerTantrum };
+            Assert.False(MoveFilters.ObjectivelyWasted(game, attacker, keepAlive));
+            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, attacker));
+            Assert.Equal(attackerTantrum, pick.CardInstanceId);
         }
 
         [Fact]
         public void TantrumCountersATagOnItsOwnAttack()
         {
             var game = ReadyToAct(44, 3);
-            var s = game.State;
-            int a = s.ActivePlayer;
-            int b = (a + 1) % 3;
-            int c = (a + 2) % 3;
-            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
-            foreach (var p in s.Players) { p.LemonLordKept.Clear(); }
+            var state = game.State;
+            int attacker = state.ActivePlayer;
+            int victim = (attacker + 1) % 3;
+            int redirectedTo = (attacker + 2) % 3;
+            StripStackReactions(game);
+            ClearLemonLords(game);
 
-            int attack = Hold(game, a, "hoa-violation");
-            int tantrumA = Hold(game, a, "tantrum");
-            int tag = Hold(game, b, "tag-youre-it");
-            s.Players[b].Money = 10;
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int attackerTantrum = GiveCard(game, attacker, "tantrum");
+            int tag = GiveCard(game, victim, "tag-youre-it");
+            state.Players[victim].Money = 10;
 
-            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
-            game.Apply(new RespondToWindow { PlayerId = b, CardInstanceId = tag, RedirectTargetId = c });
-            Assert.Contains(a, s.AwaitingResponse);
+            game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
+            game.Apply(new RespondToWindow { PlayerId = victim, CardInstanceId = tag, RedirectTargetId = redirectedTo });
+            Assert.Contains(attacker, state.AwaitingResponse);
 
-            var keepAlive = new RespondToWindow { PlayerId = a, CardInstanceId = tantrumA };
-            Assert.False(MoveFilters.ObjectivelyWasted(game, a, keepAlive));
-            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, a));
-            Assert.Equal(tantrumA, pick.CardInstanceId);
+            var keepAlive = new RespondToWindow { PlayerId = attacker, CardInstanceId = attackerTantrum };
+            Assert.False(MoveFilters.ObjectivelyWasted(game, attacker, keepAlive));
+            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, attacker));
+            Assert.Equal(attackerTantrum, pick.CardInstanceId);
         }
 
         [Fact]
         public void TagRedirectsOntoTheLeader()
         {
             var game = ReadyToAct(48, 4);
-            var s = game.State;
-            int a = s.ActivePlayer;
-            int b = (a + 1) % 4;
-            int c = (a + 2) % 4;
-            int d = (a + 3) % 4;
-            StripAllHands(game, "tantrum", "tag-youre-it", "im-rubber-youre-glue");
-            foreach (var p in s.Players) { p.LemonLordKept.Clear(); }
+            var state = game.State;
+            int attacker = state.ActivePlayer;
+            int victim = (attacker + 1) % 4;
+            int thirdSeat = (attacker + 2) % 4;
+            int fourthSeat = (attacker + 3) % 4;
+            StripStackReactions(game);
+            ClearLemonLords(game);
 
             // Redirect candidates enumerate by player id: make the LATER one the leader.
-            var leader = s.Players[System.Math.Max(c, d)];
-            var straggler = s.Players[System.Math.Min(c, d)];
+            var leader = state.Players[Math.Max(thirdSeat, fourthSeat)];
+            var straggler = state.Players[Math.Min(thirdSeat, fourthSeat)];
             leader.BraggingRights = 2;
             straggler.BraggingRights = 0;
 
-            int attack = Hold(game, a, "hoa-violation");
-            int tag = Hold(game, b, "tag-youre-it");
-            s.Players[b].Money = 10;
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int tag = GiveCard(game, victim, "tag-youre-it");
+            state.Players[victim].Money = 10;
 
-            game.Apply(new PlayLemonCard { PlayerId = a, CardInstanceId = attack, TargetPlayerId = b });
-            Assert.Contains(b, s.AwaitingResponse);
+            game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
+            Assert.Contains(victim, state.AwaitingResponse);
 
-            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, b));
+            var pick = Assert.IsType<RespondToWindow>(new GreedyBot().Choose(game, victim));
             Assert.Equal(tag, pick.CardInstanceId);
             Assert.Equal(leader.PlayerId, pick.RedirectTargetId);
         }
@@ -170,17 +237,17 @@ namespace LemonadeWars.Engine.Tests
         public void PickCardTakesTheMostValuableCard()
         {
             var game = ReadyToAct(45, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
-            var victim = s.Players.First(p => p.PlayerId != actor);
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var victim = state.Players.First(p => p.PlayerId != actor);
             ClearNoise(game, me);
 
             // The revealed hand: a throwaway plan first, the tantrum second.
             BuryHand(game, victim.PlayerId);
-            int rummage = Hold(game, victim.PlayerId, "rummage-sale");
-            int tantrum = Hold(game, victim.PlayerId, "tantrum");
-            s.PendingDecisions.Add(new PendingDecision
+            int rummage = GiveCard(game, victim.PlayerId, "rummage-sale");
+            int tantrum = GiveCard(game, victim.PlayerId, "tantrum");
+            state.PendingDecisions.Add(new PendingDecision
             {
                 PlayerId = actor,
                 Kind = DecisionKind.AbilityPickCard,
@@ -196,15 +263,15 @@ namespace LemonadeWars.Engine.Tests
         public void WordOfMouthSellsTheBestEarningStand()
         {
             var game = ReadyToAct(46, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
             ClearNoise(game, me);
 
             me.Stands.Clear();
             AddStand(me, "bargain"); // $1 a sale, enumerated first
             var gourmet = AddStand(me, "gourmet"); // $3 a sale
-            s.PendingDecisions.Add(new PendingDecision
+            state.PendingDecisions.Add(new PendingDecision
             {
                 PlayerId = actor,
                 Kind = DecisionKind.WordOfMouthStand,
@@ -218,10 +285,10 @@ namespace LemonadeWars.Engine.Tests
         public void RetargetTakesTheBestLoot()
         {
             var game = ReadyToAct(47, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
-            var victim = s.Players.First(p => p.PlayerId != actor);
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var victim = state.Players.First(p => p.PlayerId != actor);
             ClearNoise(game, me);
 
             // Our Finders Keepers was Tagged onto a new victim holding a Pushy Salesman
@@ -230,7 +297,7 @@ namespace LemonadeWars.Engine.Tests
             int pushy = EquipFromDeck(game, victim, "pushy-salesman-1", AddStand(victim, "classic"));
             int diluted = EquipFromDeck(game, victim, "diluted-lemonade", AddStand(victim, "classic"));
             const int attackItemId = 777;
-            s.ResponseStack.Add(new StackItem
+            state.ResponseStack.Add(new StackItem
             {
                 ItemId = attackItemId,
                 Kind = StackItemKind.LemonPlay,
@@ -238,7 +305,7 @@ namespace LemonadeWars.Engine.Tests
                 LemonDefId = "finders-keepers",
                 AttackTargetId = victim.PlayerId,
             });
-            s.PendingDecisions.Add(new PendingDecision
+            state.PendingDecisions.Add(new PendingDecision
             {
                 PlayerId = actor,
                 Kind = DecisionKind.AttackRetarget,
@@ -256,10 +323,10 @@ namespace LemonadeWars.Engine.Tests
         public void NearGameEndPrefersBraggingRightsOverAStand()
         {
             var game = ReadyToAct(49, 3);
-            var s = game.State;
-            int actor = s.ActivePlayer;
-            var me = s.Players[actor];
-            var rival = s.Players.First(p => p.PlayerId != actor);
+            var state = game.State;
+            int actor = state.ActivePlayer;
+            var me = state.Players[actor];
+            var rival = state.Players.First(p => p.PlayerId != actor);
             ClearNoise(game, me);
 
             // One stand and exactly the first Bragging Rights price: mid-game the bot
@@ -268,8 +335,8 @@ namespace LemonadeWars.Engine.Tests
             me.Stands.Clear();
             AddStand(me, "bargain");
             me.Money = 16;
-            s.BraggingRightsSold = 0;
-            s.Market.Clear();
+            state.BraggingRightsSold = 0;
+            state.Market.Clear();
             BuryHand(game, actor);
 
             Assert.IsType<BuyBraggingRights>(new GreedyBot().Choose(game, actor));

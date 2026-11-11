@@ -3,9 +3,8 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// A reaction card slapped onto a staged play: flies in from the responder's bar,
-    /// oversized and shrinking to rest as it lands, then sits where it fell until told
-    /// to fade. The pile it joins is torn down by its owner.
+    /// A reaction card slapped onto a staged play: flies in oversized, shrinks to rest as
+    /// it lands, then sits where it fell until told to fade.
     /// </summary>
     public sealed class SlapMotion : MonoBehaviour
     {
@@ -44,9 +43,9 @@ namespace LemonadeWars.Unity
             _elapsed += Time.deltaTime;
             if (_fadeStart >= 0f)
             {
-                float f = Mathf.Clamp01((_elapsed - _fadeStart) / FadeSeconds);
-                _group.alpha = 1f - f;
-                if (f >= 1f)
+                float fade = Mathf.Clamp01((_elapsed - _fadeStart) / FadeSeconds);
+                _group.alpha = 1f - fade;
+                if (fade >= 1f)
                 {
                     Destroy(gameObject);
                 }
@@ -56,11 +55,11 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            float t = Mathf.Clamp01(_elapsed / SlapSeconds);
-            float eased = t * t; // accelerating in: the hand comes DOWN, it doesn't float
+            float progress = Mathf.Clamp01(_elapsed / SlapSeconds);
+            float eased = progress * progress; // accelerating in: the hand comes DOWN, it doesn't float
             _rect.anchoredPosition = Vector2.Lerp(From, To, eased);
             transform.localScale = Vector3.one * Mathf.Lerp(LiftScale, 1f, eased);
-            Landed = t >= 1f;
+            Landed = progress >= 1f;
         }
     }
 }

@@ -3,9 +3,8 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// One Black Market card's part in a shelf deal: where it sits (or lands) and
-    /// what it looks like, both resolved when the effect starts, since the shelf is
-    /// rebuilt between queueing and playing.
+    /// One Black Market card's part in a shelf deal. Art and slot are resolved when the
+    /// effect starts, since the shelf is rebuilt between queueing and playing.
     /// </summary>
     public sealed class ShelfCardFlight
     {

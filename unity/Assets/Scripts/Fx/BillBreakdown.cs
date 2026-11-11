@@ -4,11 +4,9 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The bills a payment is made with, largest first. Not the fewest: real wallets
-    /// hold change, so the pile size varies with the amount — one or two bills up to
-    /// $2, one to three up to $10, one to four beyond — and among the ways to make the
-    /// amount with that many bills, one is picked at random. The game's denominations
-    /// are $10, $5, $2 and $1.
+    /// The bills a payment is made with, largest first. Not the fewest: real wallets hold
+    /// change, so a bill count is picked at random from a range that grows with the
+    /// amount, then one of the ways to make the amount with that many bills.
     /// </summary>
     public static class BillBreakdown
     {
@@ -69,17 +67,17 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>Greedy is exact for this canonical set; the fallback when no preferred count fits.</summary>
+        /// <summary>The fallback when no preferred count fits. Greedy is exact for these denominations.</summary>
         private static List<int> Fewest(int amount)
         {
             var bills = new List<int>();
-            int left = amount;
+            int remaining = amount;
             foreach (int denomination in Denominations)
             {
-                while (left >= denomination)
+                while (remaining >= denomination)
                 {
                     bills.Add(denomination);
-                    left -= denomination;
+                    remaining -= denomination;
                 }
             }
             return bills;

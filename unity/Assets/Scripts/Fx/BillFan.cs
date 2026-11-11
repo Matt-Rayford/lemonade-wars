@@ -3,10 +3,8 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// A hand of bills slapped onto the table: slides in to the showcase spot (from
-    /// the buyer's bar, growing and fading in — the purchased card's departure
-    /// reversed — or from off-screen for earnings), waits there, then either fades
-    /// where it lies or, given a Destination, slides into a player's bar shrinking
+    /// A hand of bills slapped onto the table: slides in to its spot, waits, then either
+    /// fades where it lies or, given a Destination, slides into a player's bar shrinking
     /// and fading. The owning effect tears it down on skip.
     /// </summary>
     public sealed class BillFan : MonoBehaviour
@@ -64,13 +62,13 @@ namespace LemonadeWars.Unity
                 BeginFade();
                 return;
             }
-            float t = Mathf.Clamp01(_elapsed / ArriveSeconds);
-            float eased = t * t * (3f - 2f * t);
+            float arrival = Mathf.Clamp01(_elapsed / ArriveSeconds);
+            float eased = arrival * arrival * (3f - 2f * arrival);
             _rect.anchoredPosition = Vector2.Lerp(From, To, eased);
             if (GrowAndFadeIn)
             {
                 transform.localScale = Vector3.one * Mathf.Lerp(StartScale, 1f, eased);
-                _group.alpha = Mathf.Clamp01(t / FadeInFraction);
+                _group.alpha = Mathf.Clamp01(arrival / FadeInFraction);
             }
             else
             {
@@ -82,20 +80,20 @@ namespace LemonadeWars.Unity
         {
             if (Destination == null)
             {
-                float f = Mathf.Clamp01((_elapsed - _fadeStart) / FadeSeconds);
-                _group.alpha = 1f - f;
-                if (f >= 1f)
+                float fade = Mathf.Clamp01((_elapsed - _fadeStart) / FadeSeconds);
+                _group.alpha = 1f - fade;
+                if (fade >= 1f)
                 {
                     Destroy(gameObject);
                 }
                 return;
             }
-            float d = Mathf.Clamp01((_elapsed - _fadeStart) / DepartSeconds);
-            float eased = d * d * (3f - 2f * d);
+            float departure = Mathf.Clamp01((_elapsed - _fadeStart) / DepartSeconds);
+            float eased = departure * departure * (3f - 2f * departure);
             _rect.anchoredPosition = Vector2.Lerp(To, Destination.Value, eased);
             transform.localScale = Vector3.one * Mathf.Lerp(1f, EndScale, eased);
-            _group.alpha = d < 0.5f ? 1f : 1f - (d - 0.5f) * 2f;
-            if (d >= 1f)
+            _group.alpha = departure < 0.5f ? 1f : 1f - (departure - 0.5f) * 2f;
+            if (departure >= 1f)
             {
                 OnArrive?.Invoke();
                 Destroy(gameObject);

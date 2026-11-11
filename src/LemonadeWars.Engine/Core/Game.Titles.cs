@@ -6,24 +6,23 @@ using LemonadeWars.Engine.Data;
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// Title evaluation: First Dibs are claimed automatically the instant their condition
-    /// holds (checked after every action settles); Lemon Lord titles are secret and scored
-    /// once at game end. Every title is worth 1 VP.
+    /// Victory points beyond Bragging Rights. First Dibs titles are claimed the instant their
+    /// condition holds (checked after every action settles); Lemon Lord titles are secret and
+    /// scored once at game end. Every title is worth 1 VP.
     /// </summary>
     public sealed partial class Game
     {
         // ------------------------------------------------------ first dibs
 
-        /// <summary>Award every face-up First Dibs title whose condition a player now meets.</summary>
         private void CheckFirstDibs(List<GameEvent> events)
         {
+            int playerCount = State.Players.Count;
             foreach (string titleId in State.FirstDibsRow.ToList())
             {
                 // Turn order from the active player breaks simultaneous claims.
-                int n = State.Players.Count;
-                for (int offset = 0; offset < n; offset++)
+                for (int offset = 0; offset < playerCount; offset++)
                 {
-                    var player = State.Players[(State.ActivePlayer + offset) % n];
+                    var player = State.Players[(State.ActivePlayer + offset) % playerCount];
                     if (!MeetsFirstDibs(player, titleId))
                     {
                         continue;
@@ -31,143 +30,163 @@ namespace LemonadeWars.Engine.Core
                     State.FirstDibsRow.Remove(titleId);
                     player.FirstDibsClaimed.Add(titleId);
                     events.Add(new TitleClaimed { PlayerId = player.PlayerId, TitleId = titleId });
-                    // Claiming a VP may hand off Spoiled Rotten (rulebook p12).
                     AssignSpoiledRotten(events);
                     break;
                 }
             }
         }
 
-        private bool MeetsFirstDibs(PlayerState p, string titleId)
+        private bool MeetsFirstDibs(PlayerState player, string titleId)
         {
-            var stats = State.RollStats.TryGetValue(p.PlayerId, out var s) ? s : null;
+            var rollStats = State.RollStats.TryGetValue(player.PlayerId, out var tracked) ? tracked : null;
             switch (titleId)
             {
-                case "balanced-set":
+                case FirstDibsIds.BalancedSet:
                 {
-                    var shapes = ShapesOf(p);
-                    return shapes.Count(sh => sh == Shape.Circle) >= 2 &&
-                           shapes.Count(sh => sh == Shape.Diamond) >= 2 &&
-                           shapes.Count(sh => sh == Shape.Square) >= 2;
+                    var shapes = ShapesOf(player);
+                    return shapes.Count(shape => shape == Shape.Circle) >= 2 &&
+                           shapes.Count(shape => shape == Shape.Diamond) >= 2 &&
+                           shapes.Count(shape => shape == Shape.Square) >= 2;
                 }
-                case "block-builder":
-                    return ShapesOf(p).Count(sh => sh == Shape.Square) >= 6;
-                case "diamond-dealer":
-                    return ShapesOf(p).Count(sh => sh == Shape.Diamond) >= 6;
-                case "full-circle":
-                    return ShapesOf(p).Count(sh => sh == Shape.Circle) >= 6;
+                case FirstDibsIds.BlockBuilder:
+                    return ShapesOf(player).Count(shape => shape == Shape.Square) >= 6;
+                case FirstDibsIds.DiamondDealer:
+                    return ShapesOf(player).Count(shape => shape == Shape.Diamond) >= 6;
+                case FirstDibsIds.FullCircle:
+                    return ShapesOf(player).Count(shape => shape == Shape.Circle) >= 6;
 
-                case "big-earner":
-                    return stats != null && stats.Earned >= 9;
-                case "clean-getaway":
-                    return stats != null && stats.MoneyStolen >= 3;
-                case "sticky-fingers":
-                    return stats != null && stats.CardsStolen >= 2;
-                case "double-scoop":
-                    return stats != null && stats.CardsKept >= 2;
+                case FirstDibsIds.BigEarner:
+                    return rollStats != null && rollStats.Earned >= 9;
+                case FirstDibsIds.CleanGetaway:
+                    return rollStats != null && rollStats.MoneyStolen >= 3;
+                case FirstDibsIds.StickyFingers:
+                    return rollStats != null && rollStats.CardsStolen >= 2;
+                case FirstDibsIds.DoubleScoop:
+                    return rollStats != null && rollStats.CardsKept >= 2;
 
-                case "connoisseur":
-                    return CountStands(p, "gourmet") >= 3 &&
-                           p.Stands.Count(st => st.StandTypeId != "gourmet") >= 1;
-                case "local-legend":
-                    return CountStands(p, "classic") >= 4;
-                case "penny-pincher":
-                    return CountStands(p, "bargain") >= 5;
+                case FirstDibsIds.Connoisseur:
+                    return CountStands(player, StandTypeIds.Gourmet) >= 3 &&
+                           player.Stands.Count(stand => stand.StandTypeId != StandTypeIds.Gourmet) >= 1;
+                case FirstDibsIds.LocalLegend:
+                    return CountStands(player, StandTypeIds.Classic) >= 4;
+                case FirstDibsIds.PennyPincher:
+                    return CountStands(player, StandTypeIds.Bargain) >= 5;
 
-                case "cranky-pants":
-                    return p.TantrumPile.Count >= 3;
-                case "expander":
-                    return p.Turf.Equipped.Count >= 5;
-                case "innovator":
-                    return p.Stands.Sum(st => st.Equipped.Count) >= 5;
-                case "shopaholic":
-                    return p.PlayerId == State.ActivePlayer && State.SpentThisTurn >= 12;
-                case "stand-surge":
-                    return p.Stands.Any(st =>
-                        StandEarnings(p, st) - Db.StandType(st.StandTypeId).BaseEarnings >= 3);
-
-                default:
-                    return false; // unknown title: never auto-claimed
-            }
-        }
-
-        /// <summary>All shape icons a player controls: their stands plus every equipped Black Market copy.</summary>
-        private List<Shape> ShapesOf(PlayerState p)
-        {
-            var shapes = p.Stands.Select(st => st.Shape).ToList();
-            shapes.AddRange(p.Turf.Equipped
-                .Concat(p.Stands.SelectMany(st => st.Equipped))
-                .Select(id => State.BlackMarketInstances[id].Shape));
-            return shapes;
-        }
-
-        private int CountStands(PlayerState p, string typeId) =>
-            p.Stands.Count(st => st.StandTypeId == typeId);
-
-        // ------------------------------------------------------ lemon lord
-
-        /// <summary>Is this end-game condition satisfied right now?</summary>
-        public bool MeetsLemonLord(PlayerState p, string titleId)
-        {
-            switch (titleId)
-            {
-                case "bare-bones":
-                    return p.Stands.Count(st => st.Equipped.Count == 0) >= 3;
-                case "budget-beast":
-                    return p.Stands.Any(st => st.StandTypeId == "bargain" && StandEarnings(p, st) >= 3);
-                case "elite-squeezer":
-                    return p.Stands.Any(st => st.StandTypeId == "gourmet" && st.Equipped.Count >= 4);
-                case "expert-whiner":
-                    return State.WhiniestBabyHolder == p.PlayerId;
-                case "friendly-fran":
-                    return p.TantrumPile.Count == 0;
-
-                case "fuming-phil":
-                    return CountHand(p, LemonCardType.Attack) >= 5;
-                case "pam-the-planner":
-                    return CountHand(p, LemonCardType.Plan) >= 5;
-                case "hoarder":
-                    return p.Hand.Count >= 10;
-                case "meltdown-master":
-                    return p.Hand.Count(id => State.LemonInstances[id].DefId == "tantrum") >= 3;
-
-                case "cash-queen":
-                    return EquippedDefs(p).Count(d => d.Cost >= 6) >= 3;
-                case "pour-master":
-                    return EquippedDefs(p).Count(d => d.Name == "Spiked Lemonade") >= 2;
-                case "pushover":
-                    return EquippedDefs(p).Count(d => d.Name == "Pushy Salesman") >= 4;
-
-                // Icon-count conditions, validated against the deck by the data pipeline.
-                case "card-shark":
-                    return EquippedDefs(p).Count(d => d.Icons.Contains("draw")) >= 2;
-                case "flow-master":
-                    return EquippedDefs(p).Count(d => d.Timing == EffectTiming.PowerPour) >= 4;
-                case "no-bullies-allowed":
-                    return EquippedDefs(p).Count(d => d.Category == "Defense") >= 2;
-                case "profit-pusher":
-                    return EquippedDefs(p).Count(d => d.Icons.Contains("dollar")) >= 3;
-                case "roll-wrangler":
-                    return EquippedDefs(p).Count(d => d.Category == "Roll Modification") >= 3;
-                case "sales-engine":
-                    return EquippedDefs(p).Count(d => d.Timing == EffectTiming.OnSale) >= 3;
-                case "swindling-sammy":
-                    return EquippedDefs(p).Count(d => d.Icons.Contains("steal-card")) >= 2;
-                case "thieving-tommy":
-                    return EquippedDefs(p).Count(d => d.Icons.Contains("steal-dollar")) >= 2;
+                case FirstDibsIds.CrankyPants:
+                    return player.TantrumPile.Count >= 3;
+                case FirstDibsIds.Expander:
+                    return player.Turf.Equipped.Count >= 5;
+                case FirstDibsIds.Innovator:
+                    return player.Stands.Sum(stand => stand.Equipped.Count) >= 5;
+                case FirstDibsIds.Shopaholic:
+                    return player.PlayerId == State.ActivePlayer && State.SpentThisTurn >= 12;
+                case FirstDibsIds.StandSurge:
+                    return player.Stands.Any(stand =>
+                        StandEarnings(player, stand) - Db.StandType(stand.StandTypeId).BaseEarnings >= 3);
 
                 default:
                     return false;
             }
         }
 
-        private int CountHand(PlayerState p, LemonCardType type) =>
-            p.Hand.Count(id => Db.Lemon(State.LemonInstances[id].DefId).Type == type);
+        /// <summary>All shape icons a player controls: their stands plus every equipped Black Market copy.</summary>
+        private List<Shape> ShapesOf(PlayerState player)
+        {
+            var shapes = player.Stands.Select(stand => stand.Shape).ToList();
+            shapes.AddRange(player.Turf.Equipped
+                .Concat(player.Stands.SelectMany(stand => stand.Equipped))
+                .Select(id => State.BlackMarketInstances[id].Shape));
+            return shapes;
+        }
 
-        private IEnumerable<BlackMarketCardDef> EquippedDefs(PlayerState p) =>
-            p.Turf.Equipped
-                .Concat(p.Stands.SelectMany(st => st.Equipped))
+        private int CountStands(PlayerState player, string typeId) =>
+            player.Stands.Count(stand => stand.StandTypeId == typeId);
+
+        // ------------------------------------------------------ lemon lord
+
+        public bool MeetsLemonLord(PlayerState player, string titleId)
+        {
+            switch (titleId)
+            {
+                case LemonLordIds.BareBones:
+                    return player.Stands.Count(stand => stand.Equipped.Count == 0) >= 3;
+                case LemonLordIds.BudgetBeast:
+                    return player.Stands.Any(stand =>
+                        stand.StandTypeId == StandTypeIds.Bargain && StandEarnings(player, stand) >= 3);
+                case LemonLordIds.EliteSqueezer:
+                    return player.Stands.Any(stand => stand.StandTypeId == StandTypeIds.Gourmet && stand.Equipped.Count >= 4);
+                case LemonLordIds.ExpertWhiner:
+                    return State.WhiniestBabyHolder == player.PlayerId;
+                case LemonLordIds.FriendlyFran:
+                    return player.TantrumPile.Count == 0;
+
+                case LemonLordIds.FumingPhil:
+                    return CountHand(player, LemonCardType.Attack) >= 5;
+                case LemonLordIds.PamThePlanner:
+                    return CountHand(player, LemonCardType.Plan) >= 5;
+                case LemonLordIds.Hoarder:
+                    return player.Hand.Count >= 10;
+                case LemonLordIds.MeltdownMaster:
+                    return player.Hand.Count(id => State.LemonInstances[id].DefId == LemonCardIds.Tantrum) >= 3;
+
+                case LemonLordIds.CashQueen:
+                    return EquippedDefs(player).Count(def => def.Cost >= 6) >= 3;
+                case LemonLordIds.PourMaster:
+                    return EquippedDefs(player).Count(def => def.Name == "Spiked Lemonade") >= 2;
+                case LemonLordIds.Pushover:
+                    return EquippedDefs(player).Count(def => def.Name == "Pushy Salesman") >= 4;
+
+                // Icon-count conditions, validated against the deck by the data pipeline.
+                case LemonLordIds.CardShark:
+                    return EquippedDefs(player).Count(def => def.Icons.Contains("draw")) >= 2;
+                case LemonLordIds.FlowMaster:
+                    return EquippedDefs(player).Count(def => def.Timing == EffectTiming.PowerPour) >= 4;
+                case LemonLordIds.NoBulliesAllowed:
+                    return EquippedDefs(player).Count(def => def.Category == "Defense") >= 2;
+                case LemonLordIds.ProfitPusher:
+                    return EquippedDefs(player).Count(def => def.Icons.Contains("dollar")) >= 3;
+                case LemonLordIds.RollWrangler:
+                    return EquippedDefs(player).Count(def => def.Category == "Roll Modification") >= 3;
+                case LemonLordIds.SalesEngine:
+                    return EquippedDefs(player).Count(def => def.Timing == EffectTiming.OnSale) >= 3;
+                case LemonLordIds.SwindlingSammy:
+                    return EquippedDefs(player).Count(def => def.Icons.Contains("steal-card")) >= 2;
+                case LemonLordIds.ThievingTommy:
+                    return EquippedDefs(player).Count(def => def.Icons.Contains("steal-dollar")) >= 2;
+
+                default:
+                    return false;
+            }
+        }
+
+        private int CountHand(PlayerState player, LemonCardType type) =>
+            player.Hand.Count(id => Db.Lemon(State.LemonInstances[id].DefId).Type == type);
+
+        private IEnumerable<BlackMarketCardDef> EquippedDefs(PlayerState player) =>
+            player.Turf.Equipped
+                .Concat(player.Stands.SelectMany(stand => stand.Equipped))
                 .Select(EquippedDef);
+
+        // -------------------------------------------------- spoiled rotten
+
+        /// <summary>Each VP gain re-checks Spoiled Rotten: sole last place holds it (rulebook p12).</summary>
+        private void AssignSpoiledRotten(List<GameEvent> events)
+        {
+            int fewestPoints = State.Players.Min(p => p.InGameVictoryPoints);
+            var lastPlace = State.Players.Where(p => p.InGameVictoryPoints == fewestPoints).ToList();
+            int? newHolder = lastPlace.Count == 1 ? lastPlace[0].PlayerId : (int?)null;
+            if (newHolder != State.SpoiledRottenHolder)
+            {
+                events.Add(new SpoiledRottenMoved
+                {
+                    FromPlayerId = State.SpoiledRottenHolder,
+                    ToPlayerId = newHolder,
+                });
+                State.SpoiledRottenHolder = newHolder;
+            }
+        }
+
+        // ---------------------------------------------------- final scoring
 
         /// <summary>Final scoring: in-game VP plus each kept Lemon Lord title that holds (rulebook p2/p13).</summary>
         private void FinishGameWithScores(List<GameEvent> events)
@@ -177,30 +196,34 @@ namespace LemonadeWars.Engine.Core
             var scores = new Dictionary<int, int>();
             foreach (var player in State.Players)
             {
-                int total = player.InGameVictoryPoints;
-                foreach (string titleId in player.LemonLordKept)
-                {
-                    if (MeetsLemonLord(player, titleId))
-                    {
-                        total += Db.Title(titleId).VictoryPoints;
-                        events.Add(new LemonLordMet { PlayerId = player.PlayerId, TitleId = titleId });
-                    }
-                }
-                scores[player.PlayerId] = total;
+                scores[player.PlayerId] = player.InGameVictoryPoints + ScoreLemonLords(player, events);
             }
 
-            int best = scores.Values.Max();
-            var contenders = State.Players.Where(p => scores[p.PlayerId] == best).ToList();
+            int bestScore = scores.Values.Max();
+            var contenders = State.Players.Where(p => scores[p.PlayerId] == bestScore).ToList();
             State.Winners.AddRange(BreakTies(contenders).Select(p => p.PlayerId));
 
             events.Add(new StageChanged { Stage = State.Stage });
             events.Add(new GameEnded { Winners = State.Winners.ToList(), Scores = scores });
         }
 
+        private int ScoreLemonLords(PlayerState player, List<GameEvent> events)
+        {
+            int points = 0;
+            foreach (string titleId in player.LemonLordKept)
+            {
+                if (MeetsLemonLord(player, titleId))
+                {
+                    points += Db.Title(titleId).VictoryPoints;
+                    events.Add(new LemonLordMet { PlayerId = player.PlayerId, TitleId = titleId });
+                }
+            }
+            return points;
+        }
+
         /// <summary>
-        /// Rulebook p14: on equal victory points the most money wins, then the fewest played
-        /// tantrums. A tie surviving both is settled away from the table with rock paper scissors,
-        /// so the engine reports those players as joint winners rather than inventing a result.
+        /// Rulebook p14: most money wins a VP tie, then fewest played tantrums. A tie surviving both
+        /// is settled by rock paper scissors at the table, so the engine reports joint winners.
         /// </summary>
         private static List<PlayerState> BreakTies(List<PlayerState> contenders) =>
             KeepBest(KeepBest(contenders, p => p.Money), p => -p.TantrumPile.Count);

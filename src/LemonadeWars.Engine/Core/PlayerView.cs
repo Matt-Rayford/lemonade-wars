@@ -1,14 +1,12 @@
 using System.Collections.Generic;
-using System.Linq;
 using LemonadeWars.Engine.Data;
 
 namespace LemonadeWars.Engine.Core
 {
     /// <summary>
-    /// What one seat is allowed to see. This is the ONLY state object that should ever
-    /// cross the network to a client: full <see cref="GameState"/> (deck order, other
-    /// hands, secret titles, RNG state) stays server-side. Rich enough to drive the whole
-    /// client UI without touching the Game object.
+    /// What one seat is allowed to see, and the ONLY state object that may cross the network to a
+    /// client: the full <see cref="GameState"/> (deck order, other hands, secret titles, RNG
+    /// state) stays server-side.
     /// </summary>
     public sealed class PlayerView
     {
@@ -21,7 +19,6 @@ namespace LemonadeWars.Engine.Core
         public int BmOnlyActionsRemaining { get; set; }
         /// <summary>Seats the game currently waits on (turn, window, or decisions).</summary>
         public List<int> ActingPlayers { get; set; } = new List<int>();
-        /// <summary>Whose pick it is during the setup draft.</summary>
         public int? CurrentInitialBuyer { get; set; }
 
         public List<PlayerPanel> Players { get; set; } = new List<PlayerPanel>();
@@ -56,27 +53,21 @@ namespace LemonadeWars.Engine.Core
         // ---- Interaction surface ----
         public List<int> AwaitingResponse { get; set; } = new List<int>();
         public int? PendingRollValue { get; set; }
-        /// <summary>What the pending die is for, so the UI can name it (Night Shifts, etc.).</summary>
         public RollPurpose? PendingRollPurpose { get; set; }
-        /// <summary>Who threw the pending die.</summary>
         public int? PendingRollerId { get; set; }
         /// <summary>Trade Winds only: the single stand this roll applies to (null = not stand-scoped).</summary>
         public int? PendingRollStandInstanceId { get; set; }
         /// <summary>Top of the response stack, when a window is open.</summary>
         public StackTopInfo? StackTop { get; set; }
-        /// <summary>The viewer's own pending decisions, with the payloads their UI needs.</summary>
         public List<DecisionInfo> MyDecisions { get; set; } = new List<DecisionInfo>();
         /// <summary>Who owes a Timeout fine right now — the whole table sees the card — and how much.</summary>
         public int? TimeoutFinePlayerId { get; set; }
         public int TimeoutFineAmount { get; set; }
-        /// <summary>A money steal against the viewer awaits a Profit Share response.</summary>
+        /// <summary>A money steal against the viewer awaits a Profit Share response; the other Theft fields are set only then.</summary>
         public bool TheftOnMe { get; set; }
-        /// <summary>Who robbed the viewer, when TheftOnMe.</summary>
         public int? TheftAttackerId { get; set; }
-        /// <summary>How much was stolen, when TheftOnMe.</summary>
         public int? TheftAmount { get; set; }
-        /// <summary>What Profit Share would claw back right now (half rounded up,
-        /// capped by what the attacker still holds), when TheftOnMe.</summary>
+        /// <summary>What Profit Share would claw back right now: half rounded up, capped by what the attacker still holds.</summary>
         public int? TheftRecoverable { get; set; }
         public List<int> Winners { get; set; } = new List<int>();
 
@@ -165,219 +156,6 @@ namespace LemonadeWars.Engine.Core
             public int? ContextPlayerId { get; set; }
             /// <summary>When set, only these hand cards may answer (Whiniest Baby's drawn pair).</summary>
             public List<int>? EligibleCardIds { get; set; }
-        }
-    }
-
-    public sealed partial class Game
-    {
-        /// <summary>Project the current state into what <paramref name="viewerId"/> may see.</summary>
-        public PlayerView ViewFor(int viewerId)
-        {
-            var viewer = Player(viewerId);
-
-            var timeoutFine = State.PendingDecisions.FirstOrDefault(d => d.Kind == DecisionKind.TimeoutFine);
-
-            PendingTheftResponse? TheftOnViewer(int id) =>
-                State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == id
-                    ? State.TheftQueue[0]
-                    : null;
-
-            PlayerView.CardInfo Lemon(int id) => new PlayerView.CardInfo
-            {
-                InstanceId = id,
-                DefId = State.LemonInstances[id].DefId,
-            };
-            PlayerView.CardInfo Bm(int id) => new PlayerView.CardInfo
-            {
-                InstanceId = id,
-                DefId = State.BlackMarketInstances[id].DefId,
-                Shape = State.BlackMarketInstances[id].Shape,
-            };
-
-            var view = new PlayerView
-            {
-                ViewerId = viewerId,
-                Stage = State.Stage,
-                Phase = State.Phase,
-                ActivePlayer = State.ActivePlayer,
-                FirstPlayer = State.FirstPlayer,
-                ActionsRemaining = State.ActionsRemaining,
-                BmOnlyActionsRemaining = State.BmOnlyActionsRemaining,
-                ActingPlayers = ActingPlayers().ToList(),
-                CurrentInitialBuyer =
-                    State.Stage == GameStage.InitialBuys && State.InitialBuyQueue.Count > 0
-                        ? State.InitialBuyQueue[0]
-                        : (int?)null,
-                Hand = viewer.Hand.Select(Lemon).ToList(),
-                LemonLordDealt = viewer.LemonLordDealt.ToList(),
-                LemonLordStatus = viewer.LemonLordKept
-                    .Select(id => new PlayerView.LordStatus
-                    {
-                        TitleId = id,
-                        Met = MeetsLemonLord(viewer, id),
-                    }).ToList(),
-                LemonDeckCount = State.LemonDeck.Count,
-                LemonDiscard = State.LemonDiscard.Select(Lemon).ToList(),
-                BlackMarketDeckCount = State.BlackMarketDeck.Count,
-                Market = State.Market.Select(Bm).ToList(),
-                MarketPrices = State.Market
-                    .Select(id => BlackMarketPrice(viewerId,
-                        Db.BlackMarket(State.BlackMarketInstances[id].DefId)))
-                    .ToList(),
-                BlackMarketDiscard = State.BlackMarketDiscard.Select(Bm).ToList(),
-                FirstDibsRow = State.FirstDibsRow.ToList(),
-                StandSupplyCounts = State.StandSupply.ToDictionary(kv => kv.Key, kv => kv.Value.Count),
-                SupplyTopShapes = State.StandSupply
-                    .Where(kv => kv.Value.Count > 0)
-                    .ToDictionary(kv => kv.Key, kv => kv.Value[0]),
-                SupplyPrices = Db.StandTypes.ToDictionary(t => t.Id, t => StandPrice(viewerId, t.Id)),
-                NextBraggingRightsPrice =
-                    State.BraggingRightsSold < Db.Supporting.BraggingRightsPrices.Count
-                        ? Db.Supporting.BraggingRightsPrices[State.BraggingRightsSold]
-                        : (int?)null,
-                MarketGapIndex = State.ResponseStack
-                    .FirstOrDefault(i => i.Kind == StackItemKind.BlackMarketPurchase)?.VacatedMarketIndex,
-                WhiniestBabyHolder = State.WhiniestBabyHolder,
-                SpoiledRottenHolder = State.SpoiledRottenHolder,
-                AwaitingResponse = State.AwaitingResponse.ToList(),
-                PendingRollValue = State.PendingRoll?.Value,
-                PendingRollPurpose = State.PendingRoll?.Purpose,
-                PendingRollerId = State.PendingRoll?.RollerId,
-                PendingRollStandInstanceId = State.PendingRoll?.StandInstanceId,
-                TheftOnMe = State.TheftQueue.Count > 0 && State.TheftQueue[0].VictimId == viewerId,
-                TheftAttackerId = TheftOnViewer(viewerId)?.AttackerId,
-                TheftAmount = TheftOnViewer(viewerId)?.AmountStolen,
-                TheftRecoverable = TheftOnViewer(viewerId) is PendingTheftResponse t
-                    ? System.Math.Min((t.AmountStolen + 1) / 2, State.Players[t.AttackerId].Money)
-                    : (int?)null,
-                MyDecisions = State.PendingDecisions
-                    .Where(d => d.PlayerId == viewerId)
-                    .Select(d => new PlayerView.DecisionInfo
-                    {
-                        Kind = d.Kind,
-                        RequiredCount = d.RequiredCount,
-                        RequiredMoney = d.RequiredMoney,
-                        StolenCardId = d.StolenCardId,
-                        ChosenPlayerId = d.ChosenPlayerId,
-                        CardInstanceId = d.CardInstanceId,
-                        StackItemId = d.StackItemId,
-                        SourceInstanceId = d.SourceInstanceId,
-                        ContextDefId = d.ContextDefId,
-                        ContextPlayerId = d.ContextPlayerId,
-                        EligibleCardIds = d.EligibleCardIds?.ToList(),
-                    }).ToList(),
-                TimeoutFinePlayerId = timeoutFine?.PlayerId,
-                TimeoutFineAmount = timeoutFine?.RequiredMoney ?? 0,
-                Winners = State.Winners.ToList(),
-            };
-
-            if (State.ResponseStack.Count > 0)
-            {
-                var top = State.ResponseStack[State.ResponseStack.Count - 1];
-                view.StackTop = new PlayerView.StackTopInfo
-                {
-                    OwnerId = top.OwnerId,
-                    IsPurchase = top.Kind == StackItemKind.BlackMarketPurchase,
-                    DefId = top.Kind == StackItemKind.BlackMarketPurchase
-                        ? State.BlackMarketInstances[top.BmInstanceId!.Value].DefId
-                        : top.LemonDefId,
-                    Shape = top.Kind == StackItemKind.BlackMarketPurchase
-                        ? State.BlackMarketInstances[top.BmInstanceId!.Value].Shape
-                        : (Shape?)null,
-                    AttackTargetId = top.AttackTargetId,
-                };
-                if (top.TargetEquippedInstanceId is int stolen &&
-                    State.BlackMarketInstances.TryGetValue(stolen, out var stolenInstance))
-                {
-                    view.StackTop.StolenDefId = stolenInstance.DefId;
-                    view.StackTop.StolenShape = stolenInstance.Shape;
-                }
-                // Takes name their loot too, so a response window can show WHAT is
-                // about to leave the shelf or the discard — not just the play.
-                if (top.MarketIndex is int shelfIndex &&
-                    shelfIndex >= 0 && shelfIndex < State.Market.Count)
-                {
-                    var shelfCard = State.BlackMarketInstances[State.Market[shelfIndex]];
-                    view.StackTop.TakenDefId = shelfCard.DefId;
-                    view.StackTop.TakenShape = shelfCard.Shape;
-                }
-                else if (top.DiscardedBmInstanceId is int discardedBm &&
-                         State.BlackMarketInstances.TryGetValue(discardedBm, out var discardedBmCard))
-                {
-                    view.StackTop.TakenDefId = discardedBmCard.DefId;
-                    view.StackTop.TakenShape = discardedBmCard.Shape;
-                }
-                else if (top.DiscardedLemonInstanceId is int discardedLemon)
-                {
-                    view.StackTop.TakenDefId = State.LemonInstances[discardedLemon].DefId;
-                    view.StackTop.TakenIsLemon = true;
-                }
-                view.StackTop.RedirectTargetId = top.RedirectTargetId;
-                // Name what a response answers, so "Dex tantrums" always says WHAT.
-                var answered = top.RespondingToItemId is int respondingTo
-                    ? State.ResponseStack.FirstOrDefault(i => i.ItemId == respondingTo)
-                    : null;
-                if (answered != null)
-                {
-                    view.StackTop.RespondingToOwnerId = answered.OwnerId;
-                    if (answered.Kind == StackItemKind.BlackMarketPurchase)
-                    {
-                        var instance = State.BlackMarketInstances[answered.BmInstanceId!.Value];
-                        view.StackTop.RespondingToIsPurchase = true;
-                        view.StackTop.RespondingToDefId = instance.DefId;
-                        view.StackTop.RespondingToShape = instance.Shape;
-                    }
-                    else
-                    {
-                        view.StackTop.RespondingToDefId = answered.LemonDefId;
-                    }
-                }
-            }
-
-            // Don's Blessings: the ability owner looks at the victim's hand while picking.
-            var peek = State.PendingDecisions.FirstOrDefault(d =>
-                d.PlayerId == viewerId && d.Kind == DecisionKind.AbilityPickCard);
-            if (peek?.ChosenPlayerId is int victimId)
-            {
-                view.RevealedHand = Player(victimId).Hand.Select(Lemon).ToList();
-            }
-
-            foreach (var p in State.Players)
-            {
-                view.Players.Add(new PlayerView.PlayerPanel
-                {
-                    PlayerId = p.PlayerId,
-                    Name = p.Name,
-                    Money = p.Money,
-                    HandCount = p.Hand.Count,
-                    TantrumCount = p.TantrumPile.Count,
-                    TurfPowerPourNumber = p.Turf.PowerPourNumber,
-                    PourNumbers = PourNumbersOf(p).OrderBy(x => x).ToList(),
-                    TurfEquipped = p.Turf.Equipped.Select(Bm).ToList(),
-                    TurfTrapped = p.Turf.TrapInstanceId != null,
-                    FirstDibsClaimed = p.FirstDibsClaimed.ToList(),
-                    BraggingRights = p.BraggingRights,
-                    InGameVictoryPoints = p.InGameVictoryPoints,
-                    FinishedLords = State.Stage == GameStage.Finished
-                        ? p.LemonLordKept.Select(id => new PlayerView.LordStatus
-                        {
-                            TitleId = id,
-                            Met = MeetsLemonLord(p, id),
-                        }).ToList()
-                        : new List<PlayerView.LordStatus>(),
-                    Stands = p.Stands.Select(s => new PlayerView.StandPanel
-                    {
-                        InstanceId = s.InstanceId,
-                        StandTypeId = s.StandTypeId,
-                        Shape = s.Shape,
-                        Equipped = s.Equipped.Select(Bm).ToList(),
-                        SaleNumbers = SaleNumbersOf(s).OrderBy(x => x).ToList(),
-                        Earnings = StandEarnings(p, s),
-                    }).ToList(),
-                });
-            }
-
-            return view;
         }
     }
 }

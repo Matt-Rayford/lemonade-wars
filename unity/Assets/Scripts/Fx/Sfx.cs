@@ -4,9 +4,9 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// One-shot sound effects, loaded from Resources/sounds (synced from
-    /// game-assets/sound-effects). Clip names are the file names without extension.
-    /// Everything is fire-and-forget through a single hidden AudioSource.
+    /// One-shot sound effects through a single hidden AudioSource, loaded from
+    /// Resources/sounds (synced from game-assets/sound-effects). Clip names are the file
+    /// names without extension.
     /// </summary>
     public static class Sfx
     {
@@ -25,7 +25,7 @@ namespace LemonadeWars.Unity
         /// <summary>The spoken pace for a bot-speed setting ("slow"/"medium"/"fast").</summary>
         public static string BotSpeed(string speed) => "bot-speeds/bot-speed-" + speed;
 
-        /// <summary>Slider step, in percent — the whole volume model moves in fives.</summary>
+        /// <summary>In percent: the whole volume model moves in fives.</summary>
         public const int VolumeStep = 5;
 
         private const string VolumePref = "lw_sfx_volume";
@@ -35,7 +35,7 @@ namespace LemonadeWars.Unity
         private static readonly Dictionary<string, AudioClip> Clips =
             new Dictionary<string, AudioClip>();
 
-        /// <summary>Effects volume, 0-100 in steps of 5. Persisted and applied globally.</summary>
+        /// <summary>0-100 in steps of <see cref="VolumeStep"/>. Persisted and applied globally.</summary>
         public static int Volume
         {
             get
@@ -63,14 +63,7 @@ namespace LemonadeWars.Unity
         {
             if (_source == null)
             {
-                var go = new GameObject("Sfx", typeof(AudioSource));
-                Object.DontDestroyOnLoad(go);
-                _source = go.GetComponent<AudioSource>();
-                _source.playOnAwake = false;
-                if (Object.FindFirstObjectByType<AudioListener>() == null)
-                {
-                    go.AddComponent<AudioListener>(); // code-built scene may lack one
-                }
+                CreateSource();
             }
             if (!Clips.TryGetValue(name, out var clip))
             {
@@ -79,6 +72,18 @@ namespace LemonadeWars.Unity
             if (clip != null)
             {
                 _source.PlayOneShot(clip, volume);
+            }
+        }
+
+        private static void CreateSource()
+        {
+            var go = new GameObject("Sfx", typeof(AudioSource));
+            Object.DontDestroyOnLoad(go);
+            _source = go.GetComponent<AudioSource>();
+            _source.playOnAwake = false;
+            if (Object.FindFirstObjectByType<AudioListener>() == null)
+            {
+                go.AddComponent<AudioListener>(); // code-built scene may lack one
             }
         }
     }

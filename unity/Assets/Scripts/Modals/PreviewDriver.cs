@@ -50,20 +50,19 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            // The hovered card can be DESTROYED by a re-render (drop, bot action);
-            // destroyed objects never send pointer-exit, so self-dismiss instead of
-            // leaving the preview stranded on screen.
+            // A re-render can destroy the hovered card, and destroyed objects never send
+            // pointer-exit: dismiss here or the preview is stranded on screen.
             if (_source == null || Suppressed)
             {
                 EndHover();
                 HideRequested?.Invoke();
                 return;
             }
-            bool modifier = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) ||
-                            Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
+            bool isModifierHeld = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt) ||
+                                  Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
 
             _hoverTime += Time.unscaledDeltaTime;
-            if (!_shown && (modifier || _hoverTime >= DwellSeconds))
+            if (!_shown && (isModifierHeld || _hoverTime >= DwellSeconds))
             {
                 _shown = true;
                 ShowReady?.Invoke();

@@ -27,12 +27,7 @@ namespace LemonadeWars.UnityEditorTools
         private static void Build(BuildTarget target, string outputPath)
         {
             EnsureBootScene();
-
-            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-            PlayerSettings.defaultScreenWidth = 1280;
-            PlayerSettings.defaultScreenHeight = 720;
-            PlayerSettings.resizableWindow = true;
-            PlayerSettings.runInBackground = true; // keep sockets alive when unfocused
+            UseResizableWindowedPlayer();
 
             var options = new BuildPlayerOptions
             {
@@ -46,10 +41,7 @@ namespace LemonadeWars.UnityEditorTools
                       $"({report.summary.totalSize / (1024 * 1024)} MB)");
         }
 
-        /// <summary>
-        /// Import TMP Essential Resources (SDF shaders, TMP Settings, Liberation Sans)
-        /// without the interactive dialog — runnable headless via -executeMethod.
-        /// </summary>
+        /// <summary>SDF shaders, TMP Settings and Liberation Sans, without the dialog, so it runs headless via -executeMethod.</summary>
         [MenuItem("Lemonade Wars/Import TMP Essentials")]
         public static void ImportTmpEssentials()
         {
@@ -60,7 +52,15 @@ namespace LemonadeWars.UnityEditorTools
             Debug.Log("TMP Essential Resources imported.");
         }
 
-        /// <summary>Create and register the minimal boot scene if it does not exist yet.</summary>
+        private static void UseResizableWindowedPlayer()
+        {
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 720;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.runInBackground = true; // keep sockets alive when unfocused
+        }
+
         private static void EnsureBootScene()
         {
             if (!File.Exists(ScenePath))

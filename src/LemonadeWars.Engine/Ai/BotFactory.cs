@@ -27,17 +27,14 @@ namespace LemonadeWars.Engine.Ai
             switch (Normalize(level))
             {
                 case Easy: return new EasyBot(seed);
-                // Hard and the wambulance are the planner judging every line from the
-                // start of its NEXT turn (sale roll + a greedy turn by every rival) over
-                // more sampled worlds. Arena, 150 games vs three medium bots: 1.15x for
-                // this config; the flat-search hard it replaces had fallen to 0.80x once
-                // medium learned to plan. See tools/BotArena for the levels kept for A/Bs.
+                // Arena, 150 games vs three medium bots: 1.15x for this Hard config; the
+                // flat-search hard it replaced had fallen to 0.80x once medium learned to plan.
                 case Hard:
                     return new PlannerBot(seed, PlannerConfig.Hard);
                 case Wambulance:
                     return new PlannerBot(seed, PlannerConfig.Wambulance);
-                // Medium plans its turn on a determinized copy; the greedy policy it
-                // replaced lives on as Easy's brain and every search's rollout policy.
+                // The greedy policy Medium replaced lives on as Easy's brain and every
+                // search's rollout policy.
                 default: return new PlannerBot(seed, PlannerConfig.Medium);
             }
         }
