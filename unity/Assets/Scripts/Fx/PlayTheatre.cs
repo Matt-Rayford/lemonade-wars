@@ -52,6 +52,10 @@ namespace LemonadeWars.Unity
         private Vector2 _to;
         private int _attackerId = -1;
         private int _targetId = -1;
+        /// <summary>The attack's real victim while a reaction on the pile proposes another; null = no proposal showing.</summary>
+        private int? _targetBeforeProposal;
+        private int _proposalOwnerId = -1;
+        private string _proposalDefId;
         private float _arriveSeconds = ArriveSeconds;
         private string _defId = "";
         private bool _resolveWhenReady;
@@ -140,6 +144,40 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>A Tag moved the attack; a Rubber-Glue also hands it to a new owner.</summary>
+        /// <summary>
+        /// A Tag or Rubber-Glue just landed on the pile: the arrow swings to who the attack would hit, so
+        /// the table can judge whether to stop the reaction. Undone if that reaction is cancelled.
+        /// </summary>
+        public void ProposeTarget(int responderId, string responseDefId, int proposedTargetId)
+        {
+            if (!IsActive)
+            {
+                return;
+            }
+            _targetBeforeProposal = _targetBeforeProposal ?? _targetId;
+            _proposalOwnerId = responderId;
+            _proposalDefId = responseDefId;
+            PointArrowAt(proposedTargetId);
+        }
+
+        private void WithdrawProposalOf(int responderId, string responseDefId)
+        {
+            if (_targetBeforeProposal is int realTargetId &&
+                _proposalOwnerId == responderId && _proposalDefId == responseDefId)
+            {
+                _targetBeforeProposal = null;
+                PointArrowAt(realTargetId);
+            }
+        }
+
+        private void PointArrowAt(int targetId)
+        {
+            _targetId = targetId;
+            _targetArrowDrawn = false;
+            RedrawArrows(force: true);
+            GlowVictim();
+        }
+
         public void Retarget(int attackerId, int targetId)
         {
             if (!IsActive)
@@ -149,6 +187,7 @@ namespace LemonadeWars.Unity
             bool reflected = attackerId != _attackerId;
             _attackerId = attackerId;
             _targetId = targetId;
+            _targetBeforeProposal = null; // the proposal, if any, just became the truth
             _targetArrowDrawn = false;
             PinPlayerBadge(_chip, attackerId); // a reflection makes the card someone else's
             // The engine drops the card-specific pick on a redirect (the attacker re-picks
@@ -204,6 +243,7 @@ namespace LemonadeWars.Unity
             _resolveWhenReady = false;
             _cancelWhenReady = false;
             _targetArrowDrawn = false;
+            _targetBeforeProposal = null;
             _resolveDestination = null;
             var arrived = _resolveArrived;
             _resolveArrived = null;

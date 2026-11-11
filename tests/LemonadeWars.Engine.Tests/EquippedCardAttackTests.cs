@@ -59,7 +59,7 @@ namespace LemonadeWars.Engine.Tests
             int victimsCard = RigTurfEquipFromDeckTop(game, victim);
             int attack = GiveCard(game, thief, "finders-keepers");
 
-            game.Apply(new PlayLemonCard
+            var events = game.Apply(new PlayLemonCard
             {
                 PlayerId = thief,
                 CardInstanceId = attack,
@@ -72,6 +72,8 @@ namespace LemonadeWars.Engine.Tests
             bool onOwnBoard = game.State.Players[thief].Turf.Equipped.Contains(victimsCard) ||
                 game.State.Players[thief].Stands.Any(stand => stand.Equipped.Contains(victimsCard));
             Assert.True(onOwnBoard);
+            // The table is told a Black Market card moved, not Lemon cards from a hand.
+            Assert.True(Assert.Single(events.OfType<CardsStolen>()).IsBlackMarketCard);
         }
 
         [Fact]

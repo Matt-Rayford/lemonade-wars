@@ -153,6 +153,7 @@ namespace LemonadeWars.Unity
         /// <summary>A reaction that was itself cancelled (a counter-Tantrum) fades off the pile.</summary>
         public void CancelResponse(int ownerId, string defId)
         {
+            WithdrawProposalOf(ownerId, defId);
             for (int i = _responses.Count - 1; i >= 0; i--)
             {
                 var response = _responses[i];

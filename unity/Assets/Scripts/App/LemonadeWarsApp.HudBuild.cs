@@ -62,7 +62,8 @@ namespace LemonadeWars.Unity
         private void WireTableCallbacks()
         {
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
-            _table.UnshownMoney = id => _earningsInFlight.TryGetValue(id, out int amount) ? amount : 0;
+            _table.UnshownMoney = id =>
+                (_earningsInFlight.TryGetValue(id, out int earned) ? earned : 0) - HeldSpendingOf(id);
             _table.TheatreBusy = () =>
                 (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||
                 (_turnBanner != null && _turnBanner.IsOpen) ||

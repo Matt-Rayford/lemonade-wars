@@ -140,7 +140,9 @@ namespace LemonadeWars.Unity
         /// </summary>
         private bool TurnHandoverPending() =>
             IsMyTurn() && !_wasMyTurn &&
-            (TheatreHoldsModals() || View.PendingRollValue != null || EarningsStillShowing());
+            (TheatreHoldsModals() ||
+             // A waiting Spoiled Rotten roll is thrown AFTER the banner, so it cannot hold the banner back.
+             (!_turnStartRollWaiting && (View.PendingRollValue != null || EarningsStillShowing())));
 
         /// <summary>A modal is held back while theatre plays; the reaction strip waits for the same beat.</summary>
         private bool TheatreHoldsModals() =>

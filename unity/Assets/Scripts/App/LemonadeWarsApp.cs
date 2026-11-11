@@ -149,7 +149,9 @@ namespace LemonadeWars.Unity
         {
             // A roll that is still open for responses keeps its die on the table.
             _dice.Linger = View != null && View.PendingRollValue != null;
-            _dice.KeepForEarnings = EarningsStillShowing();
+            // A waiting Spoiled Rotten roll already holds earnings of its own: the die on the table
+            // belongs to the roll before it, and stays only while that roll's payouts are playing.
+            _dice.KeepForEarnings = _turnStartRollWaiting ? _fx.IsBusy : EarningsStillShowing();
             _dice.Tick();
             if (_dice.HeadlineRevision != _shownDiceHeadline)
             {

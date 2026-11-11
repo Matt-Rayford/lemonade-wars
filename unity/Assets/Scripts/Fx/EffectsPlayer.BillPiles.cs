@@ -40,12 +40,7 @@ namespace LemonadeWars.Unity
             {
                 return null;
             }
-            var root = new GameObject("BillFan", typeof(RectTransform));
-            root.transform.SetParent(_layer, false);
-            var pile = (RectTransform)root.transform;
-            pile.anchorMin = pile.anchorMax = new Vector2(0.5f, 0.5f);
-            pile.pivot = new Vector2(0.5f, 0.5f);
-            pile.sizeDelta = new Vector2(BillWidth, BillHeight);
+            var pile = CreateEmptyPile();
             var placements = PilePlacements(bills.Count);
             // Smallest first, so the largest denomination ends up drawn on top.
             for (int i = bills.Count - 1; i >= 0; i--)
@@ -58,7 +53,18 @@ namespace LemonadeWars.Unity
                 AddBillToPile(pile, bills[i], art, placements[i]);
             }
             AddPileAmountLabel(pile, label, labelColor, placements);
-            return root.AddComponent<BillFan>();
+            return pile.gameObject.AddComponent<BillFan>();
+        }
+
+        private RectTransform CreateEmptyPile()
+        {
+            var root = new GameObject("BillFan", typeof(RectTransform));
+            root.transform.SetParent(_layer, false);
+            var pile = (RectTransform)root.transform;
+            pile.anchorMin = pile.anchorMax = new Vector2(0.5f, 0.5f);
+            pile.pivot = new Vector2(0.5f, 0.5f);
+            pile.sizeDelta = new Vector2(BillWidth, BillHeight);
+            return pile;
         }
 
         /// <param name="placement">Offset in x and y, turn in z.</param>

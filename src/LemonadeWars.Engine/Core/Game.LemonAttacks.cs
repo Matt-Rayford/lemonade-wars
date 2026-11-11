@@ -33,7 +33,13 @@ namespace LemonadeWars.Engine.Core
             }
             int stolenId = item.TargetEquippedInstanceId!.Value;
             RemoveEquipped(victim, stolenId);
-            events.Add(new CardsStolen { FromPlayerId = victim.PlayerId, ToPlayerId = owner.PlayerId, Count = 1 });
+            events.Add(new CardsStolen
+            {
+                FromPlayerId = victim.PlayerId,
+                ToPlayerId = owner.PlayerId,
+                Count = 1,
+                IsBlackMarketCard = true,
+            });
             EquipOrDiscard(owner, stolenId, item, events);
             return true;
         }

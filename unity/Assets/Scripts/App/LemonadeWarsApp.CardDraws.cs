@@ -14,6 +14,13 @@ namespace LemonadeWars.Unity
 
         private void HandleOwnCardDrawn(CardDrawn drawn)
         {
+            if (TryHoldDrawForRollPayout(drawn))
+            {
+                // The fan keeps the card out of sight until the payout carrying it lands.
+                _handCardsInFlight.Add(drawn.InstanceId);
+                _renderedRevision = -1;
+                return;
+            }
             // Queued, not played: the turn-start draw waits behind ONWARD!.
             _fx.QueueSound(Sfx.CardDraw);
             int drawnId = drawn.InstanceId;
@@ -36,9 +43,31 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>
+        /// A card a sale roll deals (Meditation, Revelation) is part of that roll's payout: it rides in on
+        /// the player's money when the roll pays out, not the instant the die is cast.
+        /// </summary>
+        private bool TryHoldDrawForRollPayout(CardDrawn drawn)
+        {
+            if (_rollEarnings == null || drawn.Reason != DrawReason.Effect)
+            {
+                return false;
+            }
+            if (!_rollDraws.TryGetValue(drawn.PlayerId, out var drawnIds))
+            {
+                _rollDraws[drawn.PlayerId] = drawnIds = new List<int>();
+            }
+            drawnIds.Add(drawn.InstanceId);
+            return true;
+        }
+
         /// <summary>Face-down into their chip: you see that they drew, never what.</summary>
         private void HandleRivalCardDrawn(CardDrawn rivalDraw)
         {
+            if (TryHoldDrawForRollPayout(rivalDraw))
+            {
+                return;
+            }
             _table.GlideCardToPlayer(_art.Back("lemon"), _table.LemonPileWorld(), rivalDraw.PlayerId);
         }
 

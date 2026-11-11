@@ -17,7 +17,8 @@ namespace LemonadeWars.Unity
         /// <summary>True while the table is mid-theatre (effects, die, turn banner). The turn lemon and
         /// the hourglasses hold their last position until it ends, so the turn is seen to finish first.</summary>
         public System.Func<bool> TheatreBusy;
-        /// <summary>Dollars a player has earned that the theatre has not delivered to their bar yet.</summary>
+        /// <summary>Dollars the bar must not show yet: earnings still on their way, less any payment the table
+        /// has not been shown leaving (so a negative value shows MORE than the player holds).</summary>
         public System.Func<int, int> UnshownMoney;
         private int _shownTurnHolder = -1;
         private List<int> _shownAwaited;

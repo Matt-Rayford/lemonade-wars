@@ -16,10 +16,16 @@ namespace LemonadeWars.Unity
         private const float BoardCardHeightPx = 263f;
         /// <summary>How much of a tucked card shows above the card in front: its top icon bar, so five fit in the band's headroom.</summary>
         private const float TuckPeek = 40f;
+        private const float TuckedSlideSeconds = 0.18f;
 
         /// <summary>True for an equipped card whose flight onto the board is still in the air: it holds
         /// its tucked place, drawn invisible, until the flight lands.</summary>
         public System.Func<int, bool> EquippedCardInvisible;
+
+        /// <summary>Each tucked card's height in its stack as last drawn, by instance id.</summary>
+        private readonly Dictionary<int, float> _tuckedCardHeights = new Dictionary<int, float>();
+        /// <summary>The cell each equipped card belongs to, picked-for-sale cards included.</summary>
+        private readonly Dictionary<int, RectTransform> _equipHomeCells = new Dictionary<int, RectTransform>();
 
         private RectTransform _boardPanel;
         private RectTransform _boardRow;
@@ -35,6 +41,7 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_boardRow);
             _equipCells.Clear();
+            _equipHomeCells.Clear();
             UnbindEquipAimFromOldBoardCells();
             _dropGlows.Clear();
             _dropCells.Clear();
@@ -198,11 +205,21 @@ namespace LemonadeWars.Unity
             return (RectTransform)cell.transform;
         }
 
-        private void TuckEquippedCards(RectTransform cell, List<PlayerView.CardInfo> equipped)
+        private void TuckEquippedCards(RectTransform cell, List<PlayerView.CardInfo> allEquipped)
         {
+            foreach (var card in allEquipped)
+            {
+                _equipHomeCells[card.InstanceId] = cell;
+            }
+            // A card picked for a sale lies on the staged pile, so the stack closes up without it.
+            var equipped = allEquipped.Where(card => !_rummagePicked.Contains(card.InstanceId)).ToList();
             var tuckedCards = AddTuckedStack(cell, equipped
                 .Select(card => _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square))
                 .ToList());
+            for (int i = 0; i < tuckedCards.Count; i++)
+            {
+                SlideTuckedCardFromLastHeight(tuckedCards[i], equipped[i].InstanceId);
+            }
             for (int i = 0; i < tuckedCards.Count; i++)
             {
                 if (tuckedCards[i] != null && EquippedCardInvisible?.Invoke(equipped[i].InstanceId) == true)
@@ -220,6 +237,23 @@ namespace LemonadeWars.Unity
         /// Cards tucked behind a cell's front card, each peeking its top strip out above it.
         /// Returns their rects index-aligned with the input (all null when the cell has no front card).
         /// </summary>
+        /// <summary>The stack is rebuilt in its new order on every render; a card whose height changed eases there.</summary>
+        private void SlideTuckedCardFromLastHeight(RectTransform tuckedCard, int instanceId)
+        {
+            if (tuckedCard == null)
+            {
+                return;
+            }
+            var restingPosition = tuckedCard.anchoredPosition;
+            if (_tuckedCardHeights.TryGetValue(instanceId, out float lastHeight) &&
+                !Mathf.Approximately(lastHeight, restingPosition.y))
+            {
+                tuckedCard.anchoredPosition = new Vector2(restingPosition.x, lastHeight);
+                UiTween.SlideTo(tuckedCard, restingPosition, TuckedSlideSeconds);
+            }
+            _tuckedCardHeights[instanceId] = restingPosition.y;
+        }
+
         private List<RectTransform> AddTuckedStack(RectTransform cell, List<Texture2D> textures)
         {
             var tuckedCards = new List<RectTransform>(new RectTransform[textures.Count]);

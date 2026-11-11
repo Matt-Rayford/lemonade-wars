@@ -91,8 +91,10 @@ namespace LemonadeWars.Unity
             });
         }
 
+        /// <param name="riderCardCount">Cards the roll also dealt this player: shown riding on the pile. An
+        /// amount of 0 with riders shows the cards alone.</param>
         public void QueueEarnings(int playerId, int amount, System.Func<int, Texture2D> billArt,
-            System.Action onArrived)
+            System.Action onArrived, Texture2D riderCardArt = null, int riderCardCount = 0)
         {
             _announceIdle = true;
             _queue.Enqueue(new EarnFx
@@ -100,6 +102,8 @@ namespace LemonadeWars.Unity
                 PlayerId = playerId,
                 Amount = amount,
                 BillArt = billArt,
+                RiderCardArt = riderCardArt,
+                RiderCardCount = riderCardArt == null ? 0 : riderCardCount,
                 OnArrived = onArrived,
             });
         }

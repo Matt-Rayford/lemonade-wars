@@ -120,6 +120,7 @@ namespace LemonadeWars.Engine.Core
 
         private bool ResolveRummageSale(StackItem item, PlayerState owner, List<GameEvent> events)
         {
+            int proceeds = 0;
             foreach (int soldId in item.SelectedInstanceIds)
             {
                 if (!OwnsEquipped(owner, soldId))
@@ -129,13 +130,12 @@ namespace LemonadeWars.Engine.Core
                 RemoveEquipped(owner, soldId);
                 State.BlackMarketDiscard.Add(soldId);
                 int halfCostRoundedUp = (EquippedDef(soldId).Cost + 1) / 2;
-                owner.Money += halfCostRoundedUp;
-                events.Add(new MoneyChanged
-                {
-                    PlayerId = owner.PlayerId,
-                    Amount = halfCostRoundedUp,
-                    Reason = "rummage sale",
-                });
+                proceeds += halfCostRoundedUp;
+            }
+            if (proceeds > 0)
+            {
+                owner.Money += proceeds;
+                events.Add(new MoneyChanged { PlayerId = owner.PlayerId, Amount = proceeds, Reason = "rummage sale" });
             }
             return true;
         }

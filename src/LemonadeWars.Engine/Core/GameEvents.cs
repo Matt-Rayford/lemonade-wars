@@ -235,6 +235,8 @@ namespace LemonadeWars.Engine.Core
         /// purchase this answers, so a reveal can say "on Jeremy's Smear Campaign".</summary>
         public int? RespondingToOwnerId { get; set; }
         public string? RespondingToDefId { get; set; }
+        /// <summary>Tag, You're It!: who the attack will move to if the Tag is not stopped.</summary>
+        public int? RedirectTargetId { get; set; }
         /// <summary>Finders Keepers / That's Not Fair: the equipped Black Market card the play
         /// is aimed at (public table info), shown beside the attack.</summary>
         public string? StolenDefId { get; set; }
@@ -311,6 +313,8 @@ namespace LemonadeWars.Engine.Core
         public int FromPlayerId { get; set; }
         public int ToPlayerId { get; set; }
         public int Count { get; set; }
+        /// <summary>An equipped Black Market card taken off a board (Finders Keepers), not Lemon cards from a hand.</summary>
+        public bool IsBlackMarketCard { get; set; }
         public override string ToString() => $"P{ToPlayerId} stole {Count} card(s) from P{FromPlayerId}";
     }
 

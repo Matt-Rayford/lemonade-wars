@@ -39,6 +39,8 @@ namespace LemonadeWars.Unity
         /// <summary>What the Black Market take in progress cost (0 for a free take), for the bills its drift slaps down.</summary>
         private int _lastMarketPrice;
         private ShelfDeparture _shelfDeparture;
+        /// <summary>Paid for a contested purchase that has not resolved: hidden from the bars until it does.</summary>
+        private readonly Dictionary<int, int> _spendingHeld = new Dictionary<int, int>();
 
         /// <summary>An uncontested in-game purchase waiting for the refill that follows it in the same burst.</summary>
         private sealed class ShelfDeparture
@@ -122,16 +124,17 @@ namespace LemonadeWars.Unity
             }
             var art = _art.BlackMarket(started.DefId, started.Shape);
             int slot = started.MarketIndex;
-            _fx.QueueSound(Sfx.CashRegister);
             if (IsContestedPurchase(started.PlayerId, started.DefId))
             {
+                // Only the card moves for now: the money is shown leaving once nobody stops the
+                // purchase (see HandleBlackMarketPurchased), and never if it is cancelled.
                 _stagedAttacker = started.PlayerId;
                 _playTheatre.Begin(art, started.DefId, started.PlayerId, -1,
                     fromWorld: landing ?? _table.MarketSlotWorld(slot));
-                _fx.QueuePurchase(art, started.PlayerId, started.Price, _art.Bill,
-                    () => _table.MarketSlotWorld(slot), null, showCard: false);
+                HoldSpending(started.PlayerId, started.Price);
                 return;
             }
+            _fx.QueueSound(Sfx.CashRegister);
             _shelfDeparture = new ShelfDeparture
             {
                 Art = art, Slot = slot, BuyerId = started.PlayerId, Price = started.Price, Lifted = lifted,
@@ -148,6 +151,14 @@ namespace LemonadeWars.Unity
             // event naming the taker.
             _lastSpenderId = bought.PlayerId;
             _lastMarketPrice = bought.Price;
+            // Released whether or not the staged card is still up: a held payment that outlived
+            // its purchase would leave the bar showing money the player no longer has.
+            if (ReleaseHeldSpending(bought.PlayerId, bought.Price))
+            {
+                _fx.QueueSound(Sfx.CashRegister);
+                _fx.QueuePurchase(null, bought.PlayerId, bought.Price, _art.Bill,
+                    origin: null, onDelivered: null, showCard: false);
+            }
             if (_playTheatre.Matches(bought.PlayerId, bought.DefId))
             {
                 // The staged card slides to its tucked place on the stand (or the bar, off
@@ -304,6 +315,29 @@ namespace LemonadeWars.Unity
             _fx.QueueMarketDeal(() => _table.BlackMarketDeckWorld(), sweep, deals, payerId, price, _art.Bill,
                 onStarted: () => DropStandIns(dealt));
         }
+
+        /// <summary>The engine has taken this money, but the table has not been shown it leaving: the bar keeps the old total.</summary>
+        private void HoldSpending(int playerId, int dollars)
+        {
+            _spendingHeld[playerId] = HeldSpendingOf(playerId) + dollars;
+            _renderedRevision = -1;
+        }
+
+        /// <returns>False when nothing of that size was held (the purchase was staged before this client joined).</returns>
+        private bool ReleaseHeldSpending(int playerId, int dollars)
+        {
+            int held = HeldSpendingOf(playerId);
+            if (dollars <= 0 || held < dollars)
+            {
+                return false;
+            }
+            _spendingHeld[playerId] = held - dollars;
+            _renderedRevision = -1;
+            return true;
+        }
+
+        private int HeldSpendingOf(int playerId) =>
+            _spendingHeld.TryGetValue(playerId, out int held) ? held : 0;
 
         /// <summary>The purchase just went onto the response stack: others may still Tantrum it.</summary>
         private bool IsContestedPurchase(int buyerId, string defId) =>

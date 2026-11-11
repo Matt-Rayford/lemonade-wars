@@ -226,6 +226,20 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private string SellButtonLabel(int count, int money, bool enough)
+        {
+            string assets = count == 1 ? "card" : "cards";
+            int total = SaleTotal();
+            if (!_sale.IsTimeoutFine)
+            {
+                return $"Sell {count} {assets} for ${total}";
+            }
+            // A fine gives no change (rulebook, Timeout), so a covered sale names the fine, not the proceeds.
+            return enough
+                ? $"Sell {count} {assets} to pay the ${_sale.FineOwed} fine"
+                : $"Sell {count} {assets} for ${total} — you still owe ${_sale.FineOwed - money - total}";
+        }
+
         /// <summary>An instruction until something is picked, then the Sell button with count and
         /// total (held dark while a fine is still short), plus Cancel when the sale has a way out.</summary>
         private void RenderSaleStrip()
@@ -245,16 +259,14 @@ namespace LemonadeWars.Unity
             }
             else
             {
-                string cards = count == 1 ? "card" : "cards";
-                int total = SaleTotal();
                 bool enough = SaleCoversItsPurpose();
-                string label = enough
-                    ? $"Sell {count} {cards} for ${total}"
-                    : $"Sell {count} {cards} for ${total} — ${_sale.FineOwed - money - total} short";
-                var sell = UiKit.CreateButton(_tableActionHost, label, fontSize,
+                var sell = UiKit.CreateButton(_tableActionHost, SellButtonLabel(count, money, enough), fontSize,
                     enough ? ConfirmAssetSale : () => { }, dark: !enough, highlighted: enough);
+                // Wide enough for its whole label on one line: a clipped label lost the amount still owed.
+                var sellText = sell.GetComponentInChildren<TMPro.TMP_Text>();
+                sellText.enableWordWrapping = false;
                 var sellLayout = sell.GetComponent<LayoutElement>();
-                sellLayout.minWidth = 300f;
+                sellLayout.minWidth = Mathf.Max(300f, sellText.preferredWidth + StripButtonPaddingPx);
                 sellLayout.minHeight = EndTurnButtonHeightPx;
             }
             if (_sale.Cancelable)

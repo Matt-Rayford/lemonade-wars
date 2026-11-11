@@ -72,6 +72,28 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void RummageSalePaysOnceForEverythingSold()
+        {
+            var game = ReadyToPlay(seed: 7);
+            StripHands(game, "tantrum");
+            int seller = ActivePlayer(game);
+            int first = RigTurfEquipFromDeckTop(game, seller);
+            int second = RigTurfEquipFromDeckTop(game, seller);
+            int proceeds = (BlackMarketDefOf(game, first).Cost + 1) / 2 + (BlackMarketDefOf(game, second).Cost + 1) / 2;
+            int card = GiveCard(game, seller, "rummage-sale");
+
+            var events = game.Apply(new PlayLemonCard
+            {
+                PlayerId = seller,
+                CardInstanceId = card,
+                SelectedInstanceIds = new List<int> { first, second },
+            });
+
+            var payout = Assert.Single(events.OfType<MoneyChanged>(), change => change.Reason == "rummage sale");
+            Assert.Equal(proceeds, payout.Amount);
+        }
+
+        [Fact]
         public void ReverseEngineerForcesThePlayOfARecoveredCard()
         {
             var game = ReadyToPlay(seed: 7);

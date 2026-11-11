@@ -50,6 +50,28 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void ATagAnnouncesWhoTheAttackWouldMoveTo()
+        {
+            // The table decides whether to Tantrum a Tag knowing where it sends the attack.
+            var game = ReadyToPlay(seed: 7);
+            StripAttackReactions(game);
+            int attacker = ActivePlayer(game);
+            int victim = SeatAfterActive(game, 1);
+            int tagger = SeatAfterActive(game, 2);
+            int newVictim = SeatAfterActive(game, 3);
+            int attack = GiveCard(game, attacker, "hoa-violation");
+            int tag = GiveCard(game, tagger, "tag-youre-it");
+            GiveCard(game, attacker, "tantrum"); // keeps the Tag's own window open
+
+            game.Apply(new PlayLemonCard { PlayerId = attacker, CardInstanceId = attack, TargetPlayerId = victim });
+            var events = game.Apply(
+                new RespondToWindow { PlayerId = tagger, CardInstanceId = tag, RedirectTargetId = newVictim });
+
+            var tagPlayed = Assert.Single(events.OfType<LemonCardPlayed>());
+            Assert.Equal(newVictim, tagPlayed.RedirectTargetId);
+        }
+
+        [Fact]
         public void RubberGlueReflectsTheAttack()
         {
             var game = ReadyToPlay(seed: 7);
