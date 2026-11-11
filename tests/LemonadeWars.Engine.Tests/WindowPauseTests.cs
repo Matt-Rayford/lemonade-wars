@@ -1,69 +1,43 @@
-using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
 using Xunit;
+using static LemonadeWars.Engine.Tests.InteractionScenario;
 
 namespace LemonadeWars.Engine.Tests
 {
     /// <summary>
-    /// Regression harness for "the game didn't pause for my tantrum": simulates the
-    /// client's bot loop (bots act whenever ActingPlayers contains them, human never
-    /// acts) and asserts the game blocks on the human's open window.
+    /// "The game didn't pause for my tantrum": simulates the client's bot loop (bots act
+    /// whenever ActingPlayers contains them, the human never acts) and asserts the game
+    /// blocks on the human's open window.
     /// </summary>
     public class WindowPauseTests
     {
-        private static readonly string[] FourPlayers = { "Ana", "Ben", "Cai", "Dee" };
-
-        /// <summary>Mirror of LocalGameSession.Tick: let every non-human actor act.</summary>
-        private static int RunBots(Game game, int human, int maxSteps = 200)
-        {
-            var bot = new GreedyBot();
-            int steps = 0;
-            while (steps < maxSteps && game.State.Stage != GameStage.Finished)
-            {
-                int actor = game.ActingPlayers().FirstOrDefault(a => a != human, -1);
-                if (actor < 0)
-                {
-                    break;
-                }
-                game.Apply(bot.Choose(game, actor));
-                steps++;
-            }
-            return steps;
-        }
+        private static readonly string[] PlayerNames = { "Ana", "Ben", "Cai", "Dee" };
 
         [Fact]
         public void BotPlayWaitsForHumanTantrumHolder()
         {
-            var game = Game.Create(TestData.Db, FourPlayers, 424242);
-            foreach (var p in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
-                });
-            }
+            var game = NewGameWithLordsChosen(seed: 424242);
             int human = (game.State.ActivePlayer + 1) % 4;
 
-            // Setup buys + all bot turns run; the human never acts. The game must
-            // eventually stop with the human as the ONLY player being waited on.
+            // The setup buys and every bot turn run without the human, so the game must stop
+            // with the human as the ONLY player being waited on.
             int steps = RunBots(game, human);
             Assert.True(steps < 200, "bot loop never yielded to the human");
             var acting = game.ActingPlayers();
             Assert.Equal(new[] { human }, acting);
 
-            // If what blocks is a response window, verify bots cannot advance past it
-            // and the pending interaction stays pending.
+            // When what blocks is a response window, bots cannot advance past it and the
+            // pending interaction stays pending.
             if (game.State.AwaitingResponse.Contains(human))
             {
                 int stackBefore = game.State.ResponseStack.Count;
-                bool rollBefore = game.State.PendingRoll != null;
+                bool hadPendingRoll = game.State.PendingRoll != null;
                 Assert.Equal(0, RunBots(game, human, 50));
                 Assert.Equal(stackBefore, game.State.ResponseStack.Count);
-                Assert.Equal(rollBefore, game.State.PendingRoll != null);
+                Assert.Equal(hadPendingRoll, game.State.PendingRoll != null);
 
                 // The human passes; play continues without them until the next window.
                 game.Apply(new PassWindow { PlayerId = human });
@@ -75,53 +49,76 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void WindowBlocksResolutionUntilHumanPasses()
         {
-            var game = Game.Create(TestData.Db, FourPlayers, 77);
-            foreach (var p in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
-                });
-            }
+            var game = NewGameWithLordsChosen(seed: 77);
             int human = (game.State.ActivePlayer + 1) % 4;
             RunBots(game, human);
 
-            // Force the exact scenario: give the human a tantrum, have the active bot
-            // play a tantrummable card, then run the bot loop hard.
-            var s = game.State;
-            if (s.AwaitingResponse.Count > 0 || s.PendingDecisions.Count > 0)
+            var state = game.State;
+            if (state.AwaitingResponse.Count > 0 || state.PendingDecisions.Count > 0)
             {
                 return; // seed landed in another blocking shape; first test covers it
             }
-            int active = s.ActivePlayer;
-            Assert.NotEqual(human, active);
+            int activeBot = state.ActivePlayer;
+            Assert.NotEqual(human, activeBot);
 
-            int tantrum = s.LemonDeck.Concat(s.LemonDiscard)
-                .First(id => s.LemonInstances[id].DefId == "tantrum");
-            s.LemonDeck.Remove(tantrum);
-            s.LemonDiscard.Remove(tantrum);
-            s.Players[human].Hand.Add(tantrum);
-
-            var play = game.LegalMovesFor(active).OfType<PlayLemonCard>()
+            // The exact scenario: the human holds a Tantrum and the active bot plays a
+            // tantrummable card.
+            GiveTantrumFromDeckOrDiscard(game, human);
+            var play = game.LegalMovesFor(activeBot).OfType<PlayLemonCard>()
                 .FirstOrDefault(m => TestData.Db.Lemon(
-                    s.LemonInstances[m.CardInstanceId].DefId).Type == LemonCardType.Plan);
+                    state.LemonInstances[m.CardInstanceId].DefId).Type == LemonCardType.Plan);
             if (play == null)
             {
                 return; // active bot holds no plan this seed; first test covers the flow
             }
             game.Apply(play);
 
-            Assert.Contains(human, s.AwaitingResponse);
-            int stackCount = s.ResponseStack.Count;
+            Assert.Contains(human, state.AwaitingResponse);
+            int stackCount = state.ResponseStack.Count;
             Assert.True(stackCount > 0);
 
-            // Bots may respond among themselves, but the human's window must survive
-            // every recompute, and nothing may resolve out from under it.
+            // Bots may respond among themselves, but the human's window must survive every
+            // recompute, and nothing may resolve out from under it.
             RunBots(game, human, 50);
             Assert.Equal(new[] { human }, game.ActingPlayers());
-            Assert.True(s.ResponseStack.Count > 0,
+            Assert.True(state.ResponseStack.Count > 0,
                 "stack resolved while the human still held an open response window");
+        }
+
+        /// <summary>The draft is left unplayed: the bot loop makes the setup buys.</summary>
+        private static Game NewGameWithLordsChosen(ulong seed)
+        {
+            var game = Game.Create(TestData.Db, PlayerNames, seed);
+            KeepFirstTwoLemonLords(game);
+            return game;
+        }
+
+        /// <summary>Mirror of LocalGameSession.Tick: every non-human actor acts. Returns the steps taken.</summary>
+        private static int RunBots(Game game, int human, int maxSteps = 200)
+        {
+            var bot = new GreedyBot();
+            int steps = 0;
+            while (steps < maxSteps && game.State.Stage != GameStage.Finished)
+            {
+                int actor = game.ActingPlayers().FirstOrDefault(player => player != human, -1);
+                if (actor < 0)
+                {
+                    break;
+                }
+                game.Apply(bot.Choose(game, actor));
+                steps++;
+            }
+            return steps;
+        }
+
+        private static void GiveTantrumFromDeckOrDiscard(Game game, int playerId)
+        {
+            var state = game.State;
+            int tantrum = state.LemonDeck.Concat(state.LemonDiscard)
+                .First(id => state.LemonInstances[id].DefId == "tantrum");
+            state.LemonDeck.Remove(tantrum);
+            state.LemonDiscard.Remove(tantrum);
+            state.Players[playerId].Hand.Add(tantrum);
         }
     }
 }

@@ -8,9 +8,8 @@ using Xunit;
 namespace LemonadeWars.Engine.Tests
 {
     /// <summary>
-    /// The hand-written cloner is held to the JSON round-trip, field for field, at
-    /// many points of fuzzed games — the only defense against a new state field that
-    /// quietly never gets copied.
+    /// The hand-written cloner is held to the JSON round-trip at many points of fuzzed games:
+    /// the only defense against a new state field that quietly never gets copied.
     /// </summary>
     public class GameStateClonerTests
     {

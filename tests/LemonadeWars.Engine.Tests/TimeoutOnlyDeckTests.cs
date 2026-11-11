@@ -20,15 +20,7 @@ namespace LemonadeWars.Engine.Tests
         public void DrawingFromATimeoutOnlyDeckTerminates()
         {
             var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal" }, 11);
-            var random = new RandomBot(99);
-            int guard = 0;
-            while (!(game.State.Stage == GameStage.Playing && game.State.Phase == TurnPhase.Play &&
-                     game.State.PendingDecisions.Count == 0 && game.State.AwaitingResponse.Count == 0) &&
-                   guard++ < 800)
-            {
-                int actor = game.ActingPlayers()[0];
-                game.Apply(random.Choose(game, actor));
-            }
+            PlayRandomlyToAQuietPlayPhase(game);
             Assert.Equal(GameStage.Playing, game.State.Stage);
 
             var state = game.State;
@@ -42,9 +34,23 @@ namespace LemonadeWars.Engine.Tests
             var draw = game.LegalMovesFor(drawer).OfType<DrawLemonCard>().FirstOrDefault();
             Assert.NotNull(draw);
 
+            // On a worker thread, so a wedged Apply fails the test instead of hanging the run.
             var apply = Task.Run(() => game.Apply(draw).ToList());
             Assert.True(apply.Wait(TimeSpan.FromSeconds(5)), "Apply wedged: the Timeout-only deck looped forever");
             Assert.Empty(state.PendingDraws);
+        }
+
+        private static void PlayRandomlyToAQuietPlayPhase(Game game)
+        {
+            var random = new RandomBot(99);
+            int guard = 0;
+            while (!(game.State.Stage == GameStage.Playing && game.State.Phase == TurnPhase.Play &&
+                     game.State.PendingDecisions.Count == 0 && game.State.AwaitingResponse.Count == 0) &&
+                   guard++ < 800)
+            {
+                int actor = game.ActingPlayers()[0];
+                game.Apply(random.Choose(game, actor));
+            }
         }
     }
 }

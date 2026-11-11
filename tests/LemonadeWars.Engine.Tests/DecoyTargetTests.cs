@@ -1,74 +1,30 @@
+using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using Xunit;
+using static LemonadeWars.Engine.Tests.InteractionScenario;
 
 namespace LemonadeWars.Engine.Tests
 {
     /// <summary>
-    /// Inflatable Decoy defends its owner only: it may respond to an attack solely
-    /// when its owner is the attack's current target (live-play bug 2026-07-05).
+    /// Inflatable Decoy defends its owner only: it may answer an attack solely when its
+    /// owner is the attack's current target.
     /// </summary>
     public class DecoyTargetTests
     {
         [Fact]
         public void DecoyRespondsOnlyWhenYouAreTheTarget()
         {
-            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal", "Dee" }, 13);
-            foreach (var p in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
-                });
-            }
-            while (game.State.Stage == GameStage.InitialBuys)
-            {
-                int buyer = game.State.InitialBuyQueue[0];
-                game.Apply(new InitialBuyStand { PlayerId = buyer, StandTypeId = "bargain" });
-                game.Apply(new InitialBuyEnd { PlayerId = buyer });
-            }
-            GameFlowTests.PassAll(game);
-
-            var s = game.State;
-            // Quiet hands: nobody can tantrum/tag/reroll, so windows hinge on decoys.
-            foreach (var p in s.Players)
-            {
-                p.Hand.RemoveAll(id =>
-                {
-                    string defId = s.LemonInstances[id].DefId;
-                    if (defId == "tantrum" || defId == "out-of-stock" ||
-                        defId == "tag-youre-it" || defId == "im-rubber-youre-glue")
-                    {
-                        s.LemonDiscard.Add(id);
-                        return true;
-                    }
-                    return false;
-                });
-            }
-
-            int attacker = s.ActivePlayer;
-            int victim = (attacker + 1) % 4;
-            int bystander = (attacker + 2) % 4;
-
-            // An attack card for the attacker.
-            int attack = s.LemonDeck.Concat(s.LemonDiscard)
-                .First(id => s.LemonInstances[id].DefId == "taxes");
-            s.LemonDeck.Remove(attack);
-            s.LemonDiscard.Remove(attack);
-            s.Players[attacker].Hand.Add(attack);
-
-            // Decoys on BOTH the victim's and the bystander's turf.
-            var decoys = s.BlackMarketDeck
-                .Where(id => s.BlackMarketInstances[id].DefId == "inflatable-decoy")
-                .Take(2).ToList();
-            Assert.Equal(2, decoys.Count);
-            foreach (int id in decoys)
-            {
-                s.BlackMarketDeck.Remove(id);
-            }
-            s.Players[victim].Turf.Equipped.Add(decoys[0]);
-            s.Players[bystander].Turf.Equipped.Add(decoys[1]);
+            var game = ReadyToPlay(seed: 13);
+            var state = game.State;
+            DiscardReactionsFromHands(game);
+            int attacker = ActivePlayer(game);
+            int victim = SeatAfterActive(game, 1);
+            int bystander = SeatAfterActive(game, 2);
+            int attack = GiveCard(game, attacker, "taxes");
+            var decoys = TakeDecoysFromDeck(game, 2);
+            state.Players[victim].Turf.Equipped.Add(decoys[0]);
+            state.Players[bystander].Turf.Equipped.Add(decoys[1]);
 
             game.Apply(new PlayLemonCard
             {
@@ -78,100 +34,51 @@ namespace LemonadeWars.Engine.Tests
             });
 
             // Only the target is awaited; the bystander's decoy grants nothing.
-            Assert.Contains(victim, s.AwaitingResponse);
-            Assert.DoesNotContain(bystander, s.AwaitingResponse);
-            Assert.Contains(game.LegalMovesFor(victim),
-                m => m is RespondToWindow r && r.EquippedInstanceId != null);
-            Assert.DoesNotContain(game.LegalMovesFor(bystander),
-                m => m is RespondToWindow r && r.EquippedInstanceId != null);
+            Assert.Contains(victim, state.AwaitingResponse);
+            Assert.DoesNotContain(bystander, state.AwaitingResponse);
+            Assert.Contains(game.LegalMovesFor(victim), IsDecoyResponse);
+            Assert.DoesNotContain(game.LegalMovesFor(bystander), IsDecoyResponse);
 
-            // Even a bystander somehow awaited cannot use the decoy on someone
-            // else's attack: the apply-side validation holds the line.
-            s.AwaitingResponse.Add(bystander);
+            // Even a bystander who is somehow awaited is refused when the move is applied.
+            state.AwaitingResponse.Add(bystander);
             Assert.Throws<InvalidActionException>(() => game.Apply(new RespondToWindow
             {
                 PlayerId = bystander,
                 EquippedInstanceId = decoys[1],
             }));
-            s.AwaitingResponse.Remove(bystander);
+            state.AwaitingResponse.Remove(bystander);
 
-            // The target's decoy works: attack cancelled, decoy discarded.
             game.Apply(new RespondToWindow
             {
                 PlayerId = victim,
                 EquippedInstanceId = decoys[0],
             });
-            Assert.Empty(s.ResponseStack);
-            Assert.DoesNotContain(decoys[0], s.Players[victim].Turf.Equipped);
-            // The window died with the attack: nobody is left "awaited" on it, so no
-            // one gets shown an empty Pass-only prompt (live-play bug 2026-10-20).
-            Assert.Empty(s.AwaitingResponse);
+
+            // The target's decoy cancels the attack and is spent.
+            Assert.Empty(state.ResponseStack);
+            Assert.DoesNotContain(decoys[0], state.Players[victim].Turf.Equipped);
+            // The window died with the attack: an awaited player left behind here is shown
+            // an empty Pass-only prompt.
+            Assert.Empty(state.AwaitingResponse);
             Assert.Equal(attacker, Assert.Single(game.ActingPlayers()));
-            Assert.Contains(decoys[0], s.BlackMarketDiscard);
-            Assert.Contains(attack, s.LemonDiscard);
+            Assert.Contains(decoys[0], state.BlackMarketDiscard);
+            Assert.Contains(attack, state.LemonDiscard);
         }
 
-        /// <summary>
-        /// Designer ruling: after I'm Rubber You're Glue, the reflector IS the attacker
-        /// ("as if you played it"), so the original attacker — now the target — may
-        /// use their own Inflatable Decoy against the reflected attack.
-        /// </summary>
         [Fact]
         public void ReflectedAttackLetsTheOriginalAttackerDecoy()
         {
-            var game = Game.Create(TestData.Db, new[] { "Ana", "Ben", "Cal", "Dee" }, 21);
-            foreach (var p in game.State.Players)
-            {
-                game.Apply(new ChooseLemonLords
-                {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
-                });
-            }
-            while (game.State.Stage == GameStage.InitialBuys)
-            {
-                int buyer = game.State.InitialBuyQueue[0];
-                game.Apply(new InitialBuyStand { PlayerId = buyer, StandTypeId = "bargain" });
-                game.Apply(new InitialBuyEnd { PlayerId = buyer });
-            }
-            GameFlowTests.PassAll(game);
-
-            var s = game.State;
-            foreach (var p in s.Players)
-            {
-                p.Hand.RemoveAll(id =>
-                {
-                    string defId = s.LemonInstances[id].DefId;
-                    if (defId == "tantrum" || defId == "out-of-stock" ||
-                        defId == "tag-youre-it" || defId == "im-rubber-youre-glue")
-                    {
-                        s.LemonDiscard.Add(id);
-                        return true;
-                    }
-                    return false;
-                });
-            }
-
-            int attacker = s.ActivePlayer;
-            int victim = (attacker + 1) % 4;
-
-            int attack = s.LemonDeck.Concat(s.LemonDiscard)
-                .First(id => s.LemonInstances[id].DefId == "taxes");
-            s.LemonDeck.Remove(attack);
-            s.LemonDiscard.Remove(attack);
-            s.Players[attacker].Hand.Add(attack);
-
-            int rubber = s.LemonDeck.Concat(s.LemonDiscard)
-                .First(id => s.LemonInstances[id].DefId == "im-rubber-youre-glue");
-            s.LemonDeck.Remove(rubber);
-            s.LemonDiscard.Remove(rubber);
-            s.Players[victim].Hand.Add(rubber);
-
-            // The ATTACKER owns a decoy.
-            int decoy = s.BlackMarketDeck
-                .First(id => s.BlackMarketInstances[id].DefId == "inflatable-decoy");
-            s.BlackMarketDeck.Remove(decoy);
-            s.Players[attacker].Turf.Equipped.Add(decoy);
+            // Designer ruling: after I'm Rubber You're Glue the reflector IS the attacker
+            // ("as if you played it"), so the original attacker is a target like any other.
+            var game = ReadyToPlay(seed: 21);
+            var state = game.State;
+            DiscardReactionsFromHands(game);
+            int attacker = ActivePlayer(game);
+            int victim = SeatAfterActive(game, 1);
+            int attack = GiveCard(game, attacker, "taxes");
+            int rubber = GiveCard(game, victim, "im-rubber-youre-glue");
+            int decoy = TakeDecoysFromDeck(game, 1)[0];
+            state.Players[attacker].Turf.Equipped.Add(decoy);
 
             game.Apply(new PlayLemonCard
             {
@@ -181,19 +88,54 @@ namespace LemonadeWars.Engine.Tests
             });
             game.Apply(new RespondToWindow { PlayerId = victim, CardInstanceId = rubber });
 
-            // Reflection resolved: the attack now belongs to the victim and targets
-            // the original attacker, whose decoy may answer.
-            var reflected = s.ResponseStack.Last();
+            // The attack now belongs to the victim and targets the original attacker.
+            var reflected = state.ResponseStack.Last();
             Assert.Equal(victim, reflected.OwnerId);
             Assert.Equal(attacker, reflected.AttackTargetId);
-            Assert.Contains(attacker, s.AwaitingResponse);
-            Assert.Contains(game.LegalMovesFor(attacker),
-                m => m is RespondToWindow r && r.EquippedInstanceId != null);
+            Assert.Contains(attacker, state.AwaitingResponse);
+            Assert.Contains(game.LegalMovesFor(attacker), IsDecoyResponse);
 
             game.Apply(new RespondToWindow { PlayerId = attacker, EquippedInstanceId = decoy });
-            Assert.Empty(s.ResponseStack);
-            Assert.Contains(decoy, s.BlackMarketDiscard);
-            Assert.Contains(attack, s.LemonDiscard);
+            Assert.Empty(state.ResponseStack);
+            Assert.Contains(decoy, state.BlackMarketDiscard);
+            Assert.Contains(attack, state.LemonDiscard);
+        }
+
+        private static bool IsDecoyResponse(GameAction move) =>
+            move is RespondToWindow respond && respond.EquippedInstanceId != null;
+
+        /// <summary>Nobody can Tantrum, Tag, reflect or re-roll, so every window hinges on the decoys.</summary>
+        private static void DiscardReactionsFromHands(Game game)
+        {
+            var state = game.State;
+            foreach (var player in state.Players)
+            {
+                player.Hand.RemoveAll(id =>
+                {
+                    string defId = state.LemonInstances[id].DefId;
+                    if (defId == "tantrum" || defId == "out-of-stock" ||
+                        defId == "tag-youre-it" || defId == "im-rubber-youre-glue")
+                    {
+                        state.LemonDiscard.Add(id);
+                        return true;
+                    }
+                    return false;
+                });
+            }
+        }
+
+        private static List<int> TakeDecoysFromDeck(Game game, int count)
+        {
+            var state = game.State;
+            var decoys = state.BlackMarketDeck
+                .Where(id => state.BlackMarketInstances[id].DefId == "inflatable-decoy")
+                .Take(count).ToList();
+            Assert.Equal(count, decoys.Count);
+            foreach (int id in decoys)
+            {
+                state.BlackMarketDeck.Remove(id);
+            }
+            return decoys;
         }
     }
 }

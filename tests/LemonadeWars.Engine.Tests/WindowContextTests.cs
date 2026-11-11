@@ -28,7 +28,8 @@ namespace LemonadeWars.Engine.Tests
             {
                 int actor = game.ActingPlayers()[0];
                 var move = bots[actor].Choose(game, actor);
-                string last = $"P{actor}: {MoveDescriber.Describe(game, move)}"; // before it changes the table
+                // Described before the move changes the table it is described against.
+                string lastMove = $"P{actor}: {MoveDescriber.Describe(game, move)}";
                 game.Apply(move);
 
                 foreach (int awaited in game.State.AwaitingResponse)
@@ -37,17 +38,26 @@ namespace LemonadeWars.Engine.Tests
                     bool hasContext = view.StackTop != null || view.PendingRollValue != null ||
                                       view.TheftOnMe || view.MyDecisions.Count > 0;
                     Assert.True(hasContext,
-                        $"P{awaited} is awaited with nothing to answer after {last} " +
+                        $"P{awaited} is awaited with nothing to answer after {lastMove} " +
                         $"(step {step}). {GameRunner.Describe(game)}");
                     if (view.MyDecisions.Count == 0)
                     {
                         var options = game.LegalMovesFor(awaited);
                         Assert.True(options.Any(m => !(m is PassWindow)),
-                            $"P{awaited} is asked to respond but can only Pass, after {last}. " +
-                            $"window={(view.StackTop != null ? "stack:" + view.StackTop.DefId : view.PendingRollValue != null ? "roll:" + view.PendingRollPurpose : "theft")}");
+                            $"P{awaited} is asked to respond but can only Pass, after {lastMove}. " +
+                            $"window={DescribeWindow(view)}");
                     }
                 }
             }
+        }
+
+        private static string DescribeWindow(PlayerView view)
+        {
+            if (view.StackTop != null)
+            {
+                return "stack:" + view.StackTop.DefId;
+            }
+            return view.PendingRollValue != null ? "roll:" + view.PendingRollPurpose : "theft";
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace LemonadeWars.Engine.Tests
@@ -29,6 +30,8 @@ namespace LemonadeWars.Engine.Tests
             return bots;
         }
 
+        // ---------------------------------------------------------- full games
+
         [Theory]
         [InlineData(1UL, 2)]
         [InlineData(2UL, 3)]
@@ -50,26 +53,25 @@ namespace LemonadeWars.Engine.Tests
             Assert.True(actions > 20, $"suspiciously short game: {actions} actions");
 
             // Conservation: every lemon card instance is in exactly one zone.
-            var s = game.State;
-            var zones = s.LemonDeck.Concat(s.LemonDiscard)
-                .Concat(s.Players.SelectMany(p => p.Hand))
-                .Concat(s.Players.SelectMany(p => p.TantrumPile.Select(t => t.InstanceId)))
-                .Concat(s.Players.Where(p => p.Turf.TrapInstanceId != null)
+            var state = game.State;
+            var lemonZones = state.LemonDeck.Concat(state.LemonDiscard)
+                .Concat(state.Players.SelectMany(p => p.Hand))
+                .Concat(state.Players.SelectMany(p => p.TantrumPile.Select(t => t.InstanceId)))
+                .Concat(state.Players.Where(p => p.Turf.TrapInstanceId != null)
                     .Select(p => p.Turf.TrapInstanceId!.Value))
                 .ToList();
-            Assert.Equal(s.LemonInstances.Count, zones.Count);
-            Assert.Equal(s.LemonInstances.Count, zones.Distinct().Count());
+            Assert.Equal(state.LemonInstances.Count, lemonZones.Count);
+            Assert.Equal(state.LemonInstances.Count, lemonZones.Distinct().Count());
 
             // Same for Black Market instances.
-            var bmZones = s.BlackMarketDeck.Concat(s.Market).Concat(s.BlackMarketDiscard)
-                .Concat(s.Players.SelectMany(p => p.Turf.Equipped))
-                .Concat(s.Players.SelectMany(p => p.Stands.SelectMany(st => st.Equipped)))
+            var blackMarketZones = state.BlackMarketDeck.Concat(state.Market).Concat(state.BlackMarketDiscard)
+                .Concat(state.Players.SelectMany(p => p.Turf.Equipped))
+                .Concat(state.Players.SelectMany(p => p.Stands.SelectMany(stand => stand.Equipped)))
                 .ToList();
-            Assert.Equal(s.BlackMarketInstances.Count, bmZones.Count);
-            Assert.Equal(s.BlackMarketInstances.Count, bmZones.Distinct().Count());
+            Assert.Equal(state.BlackMarketInstances.Count, blackMarketZones.Count);
+            Assert.Equal(state.BlackMarketInstances.Count, blackMarketZones.Distinct().Count());
 
-            // Money never goes negative.
-            Assert.All(s.Players, p => Assert.True(p.Money >= 0, $"P{p.PlayerId} has ${p.Money}"));
+            Assert.All(state.Players, p => Assert.True(p.Money >= 0, $"P{p.PlayerId} has ${p.Money}"));
         }
 
         [Fact]
@@ -102,8 +104,8 @@ namespace LemonadeWars.Engine.Tests
             for (ulong seed = 200; seed < 210; seed++)
             {
                 var game = NewGame(seed, 4);
-                // Seat 0 is greedy; the rest are random. Rotate nothing — seat advantage
-                // washes out across seeds because the first player is seed-random.
+                // Greedy always sits in seat 0: seat advantage washes out across seeds,
+                // because the first player is seed-random.
                 var bots = new Dictionary<int, IBot> { [0] = new GreedyBot() };
                 for (int i = 1; i < 4; i++)
                 {
@@ -116,30 +118,29 @@ namespace LemonadeWars.Engine.Tests
                     greedyWins++;
                 }
             }
-            // 4-player baseline is 25%; the heuristic bot should clear it comfortably.
+            // The 4-player baseline is 25%.
             Assert.True(greedyWins * 4 >= games,
                 $"GreedyBot won only {greedyWins}/{games} against random opponents");
         }
 
-        // --------------------------------------------------------- view tests
+        // --------------------------------------------------------- player views
 
         [Fact]
         public void ViewsHideOtherHandsAndSecrets()
         {
             var game = NewGame(42, 4);
-            foreach (var p in game.State.Players)
+            foreach (var player in game.State.Players)
             {
                 game.Apply(new ChooseLemonLords
                 {
-                    PlayerId = p.PlayerId,
-                    KeepTitleIds = p.LemonLordDealt.Take(2).ToList(),
+                    PlayerId = player.PlayerId,
+                    KeepTitleIds = player.LemonLordDealt.Take(2).ToList(),
                 });
             }
 
             var view = game.ViewFor(0);
 
             Assert.Equal(0, view.ViewerId);
-            // Own hand visible, with real def ids.
             Assert.Equal(game.State.Players[0].Hand.Count, view.Hand.Count);
             Assert.All(view.Hand, c => Assert.False(string.IsNullOrEmpty(c.DefId)));
             // Others' hands are counts only.
@@ -147,11 +148,11 @@ namespace LemonadeWars.Engine.Tests
                 p => Assert.Equal(game.State.Players[p.PlayerId].Hand.Count, p.HandCount));
             // Own secret titles visible; the view type carries no field for anyone else's.
             Assert.Equal(2, view.LemonLordStatus.Count);
-            // Deck contents are hidden — only counts cross the wire.
+            // Deck contents are hidden: only counts cross the wire.
             Assert.Equal(game.State.LemonDeck.Count, view.LemonDeckCount);
 
-            // Serialized view must not leak other players' hand instance ids or secret titles.
-            string json = Newtonsoft.Json.JsonConvert.SerializeObject(view);
+            // The serialized view must not leak other players' secret titles.
+            string json = JsonConvert.SerializeObject(view);
             foreach (var other in game.State.Players.Where(p => p.PlayerId != 0))
             {
                 foreach (string titleId in other.LemonLordKept)
@@ -174,9 +175,9 @@ namespace LemonadeWars.Engine.Tests
             while (game.State.Stage != GameStage.Finished && guard++ < 5000)
             {
                 // Building a view for every seat at every step must never throw.
-                for (int p = 0; p < 3; p++)
+                for (int seat = 0; seat < 3; seat++)
                 {
-                    var view = game.ViewFor(p);
+                    var view = game.ViewFor(seat);
                     Assert.Equal(game.State.LemonDeck.Count, view.LemonDeckCount);
                 }
                 int actor = game.ActingPlayers()[0];
@@ -190,10 +191,8 @@ namespace LemonadeWars.Engine.Tests
         [Fact]
         public void EveryEnumeratedMoveAppliesCleanly()
         {
-            // Walk a full random game; at each step, EVERY enumerated move for the acting
-            // player must validate against a cloned snapshot... cloning isn't wired yet, so
-            // we assert the cheaper contract: the chosen random move never throws, across
-            // many seeds (covered above), and the move list is non-empty for actors.
+            // Checks the cheaper contract across one random game: acting players always
+            // have a move, nobody else has any, and the chosen move never throws.
             var game = NewGame(999, 4);
             var bots = Bots(4, 999);
             int guard = 0;
@@ -201,16 +200,15 @@ namespace LemonadeWars.Engine.Tests
             {
                 var acting = game.ActingPlayers();
                 Assert.NotEmpty(acting);
-                foreach (int p in acting)
+                foreach (int seat in acting)
                 {
-                    Assert.NotEmpty(game.LegalMovesFor(p));
+                    Assert.NotEmpty(game.LegalMovesFor(seat));
                 }
-                // Non-acting players must have zero moves.
-                for (int p = 0; p < 4; p++)
+                for (int seat = 0; seat < 4; seat++)
                 {
-                    if (!acting.Contains(p) && game.State.Stage != GameStage.ChoosingLemonLords)
+                    if (!acting.Contains(seat) && game.State.Stage != GameStage.ChoosingLemonLords)
                     {
-                        Assert.Empty(game.LegalMovesFor(p));
+                        Assert.Empty(game.LegalMovesFor(seat));
                     }
                 }
                 int actor = acting[0];
