@@ -7,18 +7,15 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // The player panels down the left edge: portrait badge, VP crowns, stat row,
-    // first-player lemon, viewed-board rim and the attack-glow ring.
+    // The player bars down the left edge: avatar, VP crowns, name, stat row, turn lemon,
+    // hourglass, first-player tag, viewed-board rim and the attack-glow ring.
     public sealed partial class TableView
     {
-        /// <summary>playerId -> "easy"/"medium"/"hard" for bot seats, null for humans.</summary>
+        /// <summary>Player id to a bot seat's level name ("easy", "hard"...); null for humans.</summary>
         public System.Func<int, string> BotLevelLookup;
 
-        /// <summary>
-        /// True while the table is mid-theatre (effects, die, turn banner). The turn
-        /// lemon holds its last position until then, so a bot's purchases and roll are
-        /// seen to finish before the turn visibly passes.
-        /// </summary>
+        /// <summary>True while the table is mid-theatre (effects, die, turn banner). The turn lemon and
+        /// the hourglasses hold their last position until it ends, so the turn is seen to finish first.</summary>
         public System.Func<bool> TheatreBusy;
         /// <summary>Dollars a player has earned that the theatre has not delivered to their bar yet.</summary>
         public System.Func<int, int> UnshownMoney;
@@ -44,6 +41,11 @@ namespace LemonadeWars.Unity
         /// <summary>The cards' blank price tag with its pin: worn by the first player's bar, numbered 1.</summary>
         private Texture2D _pinnedTagIcon;
 
+        private const float AvatarInsetPx = 12f;
+        private const float AvatarDiameterPx = 56f;
+        private const float TantrumStatColumnPx = 168f;
+        private const float TantrumIconSizePx = 36f;
+
         private const float FirstPlayerTagWidthPx = 36f;
         /// <summary>Counter-clockwise, so the tag hangs off its pin with its foot swung outward.</summary>
         private const float FirstPlayerTagTiltDegrees = 15f;
@@ -52,16 +54,14 @@ namespace LemonadeWars.Unity
         /// <summary>The turn lemon steps this far left on the first player's bar, out from under the tag.</summary>
         private const float TurnLemonTagClearancePx = 16f;
         private const int FirstPlayerTagFontSize = 20;
-        /// <summary>The numeral's navy border: thick, like the price lettering on the cards' own tags.</summary>
+        /// <summary>Thick, like the price lettering on the cards' own tags.</summary>
         private const float FirstPlayerTagBorderPx = 2f;
-        /// <summary>The navy the card art outlines everything in — tag numerals included.</summary>
+        /// <summary>The navy the card art outlines everything in.</summary>
         private static readonly Color CardInkColor = new Color32(34, 13, 64, 255);
 
         /// <summary>
-        /// Player panels, Dune Imperium style: turn order top to bottom starting with
-        /// the player after you; you sit pinned at the bottom. The lemon marks whose
-        /// turn it is and moves with the turn (the hourglass separately marks whoever
-        /// the table is waiting on, which mid-window is often someone else).
+        /// Bars run in turn order from the player after you; yours is pinned at the bottom. The lemon marks
+        /// whose turn it is; the hourglass marks whoever the table waits on, often someone else mid-window.
         /// </summary>
         private void RenderPlayers(PlayerView view)
         {
@@ -77,7 +77,7 @@ namespace LemonadeWars.Unity
                 bool isMe = playerId == view.ViewerId;
                 if (isMe)
                 {
-                    // Stretchy spacer pushes your own panel to the column's bottom.
+                    // A stretchy spacer pushes your own bar to the column's bottom.
                     var spacer = new GameObject("Spacer", typeof(RectTransform), typeof(LayoutElement));
                     spacer.transform.SetParent(_playersColumn, false);
                     spacer.GetComponent<LayoutElement>().flexibleHeight = 1;
@@ -85,18 +85,49 @@ namespace LemonadeWars.Unity
                 BuildPlayerRow(view, playerId, isMe, playerId == viewedBoard);
             }
 
-            // Effects read bar anchors in the SAME frame as this render (a purchase
-            // floater spawns from the fx tick immediately after), but a layout group
-            // does not place its children until end of frame — until then every fresh
-            // row sits at the column's center, which dropped the "-$X" on whoever
-            // happened to be sitting mid-column instead of on the buyer.
+            // Effects read bar anchors in the same frame as this render, before the layout group
+            // would place the rows: settle them now, or a floater spawns at the column's centre.
             LayoutRebuilder.ForceRebuildLayoutImmediate(_playersColumn);
         }
 
+        /// <summary>Widgets are added in draw order: each one covers those before it.</summary>
         private void BuildPlayerRow(PlayerView view, int playerId, bool isMe, bool isViewedBoard)
         {
             var player = view.Players[playerId];
+            var row = CreatePlayerBar();
+            // The drafter holds the lemon during setup (ActivePlayer is frozen until play starts).
+            int turnHolder = ShownTurnHolder(view);
+            var awaited = ShownAwaited(view);
+            bool wearsFirstPlayerTag = playerId == view.FirstPlayer && _pinnedTagIcon != null;
 
+            if (playerId == turnHolder && _lemonIcon != null)
+            {
+                AddTurnLemon(row, wearsFirstPlayerTag);
+            }
+            var avatar = AddPlayerAvatar(row, player.Name);
+            _avatarBadges[playerId] = avatar;
+            if (awaited.Contains(playerId) && !isMe)
+            {
+                AddWaitingHourglass(avatar);
+            }
+            AddVictoryCrowns(row, player);
+            AddPlayerNameLabel(row, player.Name, playerId, isMe);
+            AddPlayerStats(row, view, player, playerId);
+            if (isViewedBoard)
+            {
+                AddViewedBoardRim(row);
+            }
+            var attackGlow = AddPlayerAttackGlow(row);
+            _playerRows.Add((playerId, row, attackGlow));
+            ShowBoardOnBarClick(row, playerId, view.ViewerId);
+            if (wearsFirstPlayerTag)
+            {
+                PinFirstPlayerTag(row); // last: over everything else on the bar
+            }
+        }
+
+        private RectTransform CreatePlayerBar()
+        {
             var row = new GameObject("PlayerRow", typeof(RectTransform), typeof(Image),
                 typeof(LayoutElement));
             row.transform.SetParent(_playersColumn, false);
@@ -105,189 +136,192 @@ namespace LemonadeWars.Unity
             background.type = Image.Type.Sliced;
             background.color = new Color(0, 0, 0, 0.32f);
             row.GetComponent<LayoutElement>().minHeight = 82;
+            return (RectTransform)row.transform;
+        }
 
-            // Turn lemon, right edge: sits with whoever holds the turn and moves with
-            // it — the drafter during setup (ActivePlayer is frozen until play starts).
-            int turnHolder = ShownTurnHolder(view);
-            var awaited = ShownAwaited(view);
-            bool wearsFirstPlayerTag = playerId == view.FirstPlayer && _pinnedTagIcon != null;
-            if (playerId == turnHolder && _lemonIcon != null)
-            {
-                var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
-                lemonGo.transform.SetParent(row.transform, false);
-                var lemonRect = (RectTransform)lemonGo.transform;
-                lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
-                lemonRect.pivot = new Vector2(1f, 0.5f);
-                lemonRect.sizeDelta = new Vector2(38f, 38f);
-                lemonRect.anchoredPosition = new Vector2(
-                    wearsFirstPlayerTag ? -10f - TurnLemonTagClearancePx : -10f, 0);
-                var lemonImage = lemonGo.GetComponent<RawImage>();
-                lemonImage.texture = _lemonIcon;
-                lemonImage.raycastTarget = false;
-            }
+        private void AddTurnLemon(RectTransform row, bool wearsFirstPlayerTag)
+        {
+            var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
+            lemonGo.transform.SetParent(row, false);
+            var lemonRect = (RectTransform)lemonGo.transform;
+            lemonRect.anchorMin = lemonRect.anchorMax = new Vector2(1f, 0.5f);
+            lemonRect.pivot = new Vector2(1f, 0.5f);
+            lemonRect.sizeDelta = new Vector2(38f, 38f);
+            lemonRect.anchoredPosition = new Vector2(
+                wearsFirstPlayerTag ? -10f - TurnLemonTagClearancePx : -10f, 0);
+            var lemonImage = lemonGo.GetComponent<RawImage>();
+            lemonImage.texture = _lemonIcon;
+            lemonImage.raycastTarget = false;
+        }
 
-            // Circular badge on the left: dark color hashed from the name, big initial.
-            var badgeRect = CreatePlayerBadge(row.transform, player.Name, 56f);
-            badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0f, 0.5f);
-            badgeRect.pivot = new Vector2(0f, 0.5f);
-            badgeRect.anchoredPosition = new Vector2(12f, 0);
-            var badgeGo = badgeRect.gameObject;
-            _avatarBadges[playerId] = badgeRect; // an attack's arrow lands on the chip itself
+        private static RectTransform AddPlayerAvatar(RectTransform row, string playerName)
+        {
+            var avatar = CreatePlayerBadge(row, playerName, AvatarDiameterPx);
+            avatar.anchorMin = avatar.anchorMax = new Vector2(0f, 0.5f);
+            avatar.pivot = new Vector2(0f, 0.5f);
+            avatar.anchoredPosition = new Vector2(AvatarInsetPx, 0);
+            return avatar;
+        }
 
-            // The table is waiting on this player — their turn, a reaction window,
-            // a discard, a lord pick — so their badge greys out under the hourglass.
-            // Several can wait at once (a window open to everyone); each gets one.
-            if (awaited.Contains(playerId) && !isMe)
-            {
-                var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
-                shadeGo.transform.SetParent(badgeGo.transform, false);
-                UiKit.Anchor((RectTransform)shadeGo.transform, Vector2.zero, Vector2.one);
-                var shade = shadeGo.GetComponent<Image>();
-                shade.sprite = UiSprites.Circle;
-                shade.type = Image.Type.Simple;
-                shade.preserveAspect = true;
-                var grey = ModalBackdrop.Tint;
-                shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
-                shade.raycastTarget = false;
+        /// <summary>Greys the avatar under an hourglass while the table waits on this player; several can wait at once.</summary>
+        private void AddWaitingHourglass(RectTransform avatar)
+        {
+            var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
+            shadeGo.transform.SetParent(avatar, false);
+            UiKit.Anchor((RectTransform)shadeGo.transform, Vector2.zero, Vector2.one);
+            var shade = shadeGo.GetComponent<Image>();
+            shade.sprite = UiSprites.Circle;
+            shade.type = Image.Type.Simple;
+            shade.preserveAspect = true;
+            var grey = ModalBackdrop.Tint;
+            shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
+            shade.raycastTarget = false;
 
-                var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
-                    typeof(HourglassMotion));
-                glassGo.transform.SetParent(badgeGo.transform, false);
-                var glassRect = (RectTransform)glassGo.transform;
-                glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
-                glassRect.sizeDelta = new Vector2(28f, 28f); // 50% of the badge; the motion scales from here
-                var glass = glassGo.GetComponent<RawImage>();
-                glass.texture = _hourglassIcon;
-                glass.raycastTarget = false;
-            }
+            var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
+                typeof(HourglassMotion));
+            glassGo.transform.SetParent(avatar, false);
+            var glassRect = (RectTransform)glassGo.transform;
+            glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
+            // Half the avatar; HourglassMotion scales from here.
+            glassRect.sizeDelta = new Vector2(AvatarDiameterPx / 2f, AvatarDiameterPx / 2f);
+            var glass = glassGo.GetComponent<RawImage>();
+            glass.texture = _hourglassIcon;
+            glass.raycastTarget = false;
+        }
 
-            // Victory points: a crown per VP, arcing over the portrait left-to-right —
-            // frees the stat row below for the money/hand/tantrum counts. Met Lemon
-            // Lords count once revealed (FinishedLords is empty until game end), so
-            // the crowns agree with the final standings, not just the in-game score.
+        /// <summary>A crown per VP. Met Lemon Lords count once revealed (FinishedLords is empty until game
+        /// end), so the crowns agree with the final standings.</summary>
+        private void AddVictoryCrowns(RectTransform row, PlayerView.PlayerPanel player)
+        {
             int crowns = Mathf.Min(
-                player.InGameVictoryPoints + player.FinishedLords.Count(l => l.Met), 8);
-            var badgeCenter = new Vector2(12f + 28f, 0f);
+                player.InGameVictoryPoints + player.FinishedLords.Count(lord => lord.Met), 8);
+            var avatarCenter = new Vector2(AvatarInsetPx + AvatarDiameterPx / 2f, 0f);
             for (int crown = 0; crown < crowns; crown++)
             {
                 float degrees = 160f - crown * 32f;
                 float radians = degrees * Mathf.Deg2Rad;
                 var crownGo = new GameObject("Crown", typeof(RectTransform), typeof(RawImage));
-                crownGo.transform.SetParent(row.transform, false);
+                crownGo.transform.SetParent(row, false);
                 var crownRect = (RectTransform)crownGo.transform;
                 crownRect.anchorMin = crownRect.anchorMax = new Vector2(0f, 0.5f);
                 crownRect.pivot = new Vector2(0.5f, 0.5f);
                 crownRect.sizeDelta = new Vector2(22f, 22f);
-                crownRect.anchoredPosition = badgeCenter +
+                crownRect.anchoredPosition = avatarCenter +
                     new Vector2(Mathf.Cos(radians), Mathf.Sin(radians)) * 37f;
                 var crownImage = crownGo.GetComponent<RawImage>();
                 crownImage.texture = _vpIcon;
                 crownImage.raycastTarget = false;
             }
+        }
 
-            // Name on top, VP / Cash below. Bot seats wear their difficulty in the
-            // same colors as the lobby chips.
-            string nameLabel = player.Name + (isMe ? "  (you)" : "");
+        private void AddPlayerNameLabel(RectTransform row, string playerName, int playerId, bool isMe)
+        {
+            string nameLabel = playerName + (isMe ? "  (you)" : "");
             string botLevel = BotLevelLookup?.Invoke(playerId);
             if (!string.IsNullOrEmpty(botLevel))
             {
-                string levelColor = botLevel == "wambulance" ? "#8CC7FF"
-                    : botLevel == "hard" ? "#FF9E73"
-                    : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
+                string levelColor = BotLevelColorHex(botLevel);
                 nameLabel += $"  <size=13><color={levelColor}>{botLevel.ToUpperInvariant()}</color></size>";
             }
-            var nameText = UiKit.CreateText(row.transform,
+            var nameText = UiKit.CreateText(row,
                 nameLabel, 19, TextAnchor.LowerLeft, Color.white);
             nameText.raycastTarget = false;
             UiKit.Anchor((RectTransform)nameText.transform, new Vector2(0, 0.56f), new Vector2(1, 1),
                 new Vector2(80, 2), new Vector2(-52, -2));
-            // Icon stats under the name: cash, hand size, and tantrums (VP crowns arc
-            // over the portrait). FIXED columns — flowing layouts made the icons drift
-            // with digit width, so bars never lined up.
+        }
+
+        /// <summary>The same colours as the lobby's difficulty chips.</summary>
+        private static string BotLevelColorHex(string botLevel) =>
+            botLevel == "wambulance" ? "#8CC7FF"
+            : botLevel == "hard" ? "#FF9E73"
+            : botLevel == "easy" ? "#9EE59E" : "#D9E0EB";
+
+        /// <summary>Cash, hand size and tantrums under the name, in FIXED columns: a flowing layout let
+        /// the icons drift with digit width, so the bars never lined up.</summary>
+        private void AddPlayerStats(RectTransform row, PlayerView view, PlayerView.PlayerPanel player,
+            int playerId)
+        {
             var statsGo = new GameObject("Stats", typeof(RectTransform));
-            statsGo.transform.SetParent(row.transform, false);
+            statsGo.transform.SetParent(row, false);
             var stats = UiKit.Anchor((RectTransform)statsGo.transform,
                 new Vector2(0, 0), new Vector2(1, 0.56f), new Vector2(80, 4), new Vector2(-52, -1));
-            // Cash still in flight (a sale's bills sliding to the bar) is not shown yet.
+            // Cash still in flight to the bar is not shown yet.
             int shownMoney = player.Money - (UnshownMoney?.Invoke(playerId) ?? 0);
             var cashIcon = AddStatAt(stats, _cashIcon, $"${shownMoney}", 0f, 36f);
             if (cashIcon != null)
             {
                 _cashIcons[playerId] = cashIcon; // money floaters rise from the coin itself
             }
-            // Hand size is targeting intel: fewer cards = fewer possible reactions.
             AddStatAt(stats, _art.Back("lemon"), player.HandCount.ToString(), 92f, 26f);
-            AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(), 168f, 36f);
-            // The Whiniest Baby's tantrum icon visibly bawls: two fat tears over the
-            // eyes, drawn on the icon's exact rect. Held back while the title-claim
-            // animation is still mid-flight, like the lord fan.
+            AddStatAt(stats, _tantrumIcon, player.TantrumCount.ToString(),
+                TantrumStatColumnPx, TantrumIconSizePx);
+            // Held back while the title-claim animation is still in flight, like the lord fan.
             if (view.WhiniestBabyHolder == playerId && !SuppressWhiniestBaby)
             {
-                var tearsGo = new GameObject("BabyTears", typeof(RectTransform), typeof(Image));
-                tearsGo.transform.SetParent(stats, false);
-                var tearsRect = (RectTransform)tearsGo.transform;
-                tearsRect.anchorMin = tearsRect.anchorMax = new Vector2(0f, 0.5f);
-                tearsRect.sizeDelta = new Vector2(36f, 36f);
-                tearsRect.anchoredPosition = new Vector2(168f + 18f, 0f); // icon center
-                var tearsImage = tearsGo.GetComponent<Image>();
-                tearsImage.sprite = UiSprites.BabyTears;
-                tearsImage.type = Image.Type.Simple;
-                tearsImage.raycastTarget = false;
+                AddBabyTears(stats);
             }
+        }
 
-            // Yellow rim on whoever's board the table currently displays.
-            if (isViewedBoard)
-            {
-                var borderGo = new GameObject("ViewedBorder", typeof(RectTransform), typeof(Image));
-                borderGo.transform.SetParent(row.transform, false);
-                UiKit.Anchor((RectTransform)borderGo.transform, Vector2.zero, Vector2.one,
-                    new Vector2(-2, -2), new Vector2(2, 2));
-                var borderImage = borderGo.GetComponent<Image>();
-                borderImage.sprite = UiSprites.RoundedOutline;
-                borderImage.type = Image.Type.Sliced;
-                borderImage.color = UiKit.ButtonColor;
-                borderImage.raycastTarget = false;
-                // Behind the contents: the rim crosses the portrait, and a line drawn
-                // through the VP crowns reads as a scratch on them.
-                borderGo.transform.SetAsFirstSibling();
-            }
+        /// <summary>The Whiniest Baby's tantrum icon bawls: tears drawn on the icon's exact rect.</summary>
+        private static void AddBabyTears(RectTransform stats)
+        {
+            var tearsGo = new GameObject("BabyTears", typeof(RectTransform), typeof(Image));
+            tearsGo.transform.SetParent(stats, false);
+            var tearsRect = (RectTransform)tearsGo.transform;
+            tearsRect.anchorMin = tearsRect.anchorMax = new Vector2(0f, 0.5f);
+            tearsRect.sizeDelta = new Vector2(TantrumIconSizePx, TantrumIconSizePx);
+            tearsRect.anchoredPosition = new Vector2(TantrumStatColumnPx + TantrumIconSizePx / 2f, 0f);
+            var tearsImage = tearsGo.GetComponent<Image>();
+            tearsImage.sprite = UiSprites.BabyTears;
+            tearsImage.type = Image.Type.Simple;
+            tearsImage.raycastTarget = false;
+        }
 
-            // Red glow around the OUTSIDE while an attack is being aimed at this
-            // player: an outward-fading ring whose rim hugs the bar's edge (the ring
-            // sprite's rim sits 31 units inside its rect), leaving the bar readable.
+        private static void AddViewedBoardRim(RectTransform row)
+        {
+            var borderGo = new GameObject("ViewedBorder", typeof(RectTransform), typeof(Image));
+            borderGo.transform.SetParent(row, false);
+            UiKit.Anchor((RectTransform)borderGo.transform, Vector2.zero, Vector2.one,
+                new Vector2(-2, -2), new Vector2(2, 2));
+            var borderImage = borderGo.GetComponent<Image>();
+            borderImage.sprite = UiSprites.RoundedOutline;
+            borderImage.type = Image.Type.Sliced;
+            borderImage.color = UiKit.ButtonColor;
+            borderImage.raycastTarget = false;
+            // Behind the contents: a rim drawn across the avatar and crowns reads as a scratch on them.
+            borderGo.transform.SetAsFirstSibling();
+        }
+
+        /// <summary>Shown while an attack is aimed at this player. The ring's rim hugs the bar's edge and
+        /// fades outward, leaving the bar itself readable.</summary>
+        private static GameObject AddPlayerAttackGlow(RectTransform row)
+        {
             var attackGlowGo = new GameObject("AttackGlow", typeof(RectTransform), typeof(Image));
-            attackGlowGo.transform.SetParent(row.transform, false);
+            attackGlowGo.transform.SetParent(row, false);
             attackGlowGo.transform.SetAsFirstSibling();
+            float rimInset = UiSprites.GlowRingRimInset;
             UiKit.Anchor((RectTransform)attackGlowGo.transform, Vector2.zero, Vector2.one,
-                new Vector2(-31, -31), new Vector2(31, 31));
+                new Vector2(-rimInset, -rimInset), new Vector2(rimInset, rimInset));
             var attackGlowImage = attackGlowGo.GetComponent<Image>();
             attackGlowImage.sprite = UiSprites.GlowRing;
             attackGlowImage.type = Image.Type.Sliced;
             attackGlowImage.color = AttackGlowColor;
             attackGlowImage.raycastTarget = false;
             attackGlowGo.SetActive(false);
-            _playerRows.Add((playerId, (RectTransform)row.transform, attackGlowGo));
-
-            // Click a bar to view that player's board; your own bar comes home.
-            int clickedId = playerId;
-            int viewerId = view.ViewerId;
-            UiKit.AddClick(row, () =>
-            {
-                ViewedBoardPlayer = clickedId == viewerId ? -1 : clickedId;
-                OnBoardViewChanged?.Invoke();
-            });
-
-            if (wearsFirstPlayerTag)
-            {
-                PinFirstPlayerTag((RectTransform)row.transform); // last: over everything else on the bar
-            }
+            return attackGlowGo;
         }
 
-        /// <summary>
-        /// The first player's marker: the cards' own price tag, pinned over the bar's
-        /// top-right corner at a tilt, with a "1" lettered the way the cards letter
-        /// their prices — white, outlined in the art's navy.
-        /// </summary>
+        private void ShowBoardOnBarClick(RectTransform row, int playerId, int viewerId)
+        {
+            UiKit.AddClick(row.gameObject, () =>
+            {
+                ViewedBoardPlayer = playerId == viewerId ? -1 : playerId;
+                OnBoardViewChanged?.Invoke();
+            });
+        }
+
+        /// <summary>The first player's marker: the cards' own price tag pinned over the bar's top-right
+        /// corner at a tilt, numbered 1 the way the cards letter their prices.</summary>
         private void PinFirstPlayerTag(RectTransform row)
         {
             var tagGo = new GameObject("FirstPlayerTag", typeof(RectTransform), typeof(RawImage));
@@ -305,13 +339,13 @@ namespace LemonadeWars.Unity
 
             var number = UiKit.CreateOutlinedText(tag, "1", FirstPlayerTagFontSize,
                 Color.white, CardInkColor, FirstPlayerTagBorderPx);
-            // The paper below the pin, not the whole image: the pin overhangs the
-            // top-right, so the paper's own centre sits left of and below the art's.
+            // The paper below the pin, not the whole image: the pin overhangs the top-right,
+            // so the paper's own centre sits left of and below the art's.
             UiKit.Anchor(number, new Vector2(0.03f, 0.04f), new Vector2(0.89f, 0.63f));
         }
 
-        /// <summary>One icon-plus-count chip at a fixed column offset in the stat row.</summary>
-        /// <summary>Returns the icon's rect (null when the icon texture is missing).</summary>
+        /// <summary>One icon-plus-count chip at a fixed column in the stat row. Returns the icon's rect,
+        /// null when its texture is missing.</summary>
         private static RectTransform AddStatAt(RectTransform parent, Texture2D icon, string count,
             float columnX, float iconWidth)
         {
@@ -342,10 +376,8 @@ namespace LemonadeWars.Unity
             return iconRect;
         }
 
-        /// <summary>
-        /// A player's avatar: a circle in their stable name colour with their initial.
-        /// The caller anchors it; the same badge marks their bar and the cards they play.
-        /// </summary>
+        /// <summary>A player's avatar: a circle in their stable name colour with their initial. The caller
+        /// anchors it; the same badge marks their bar and the cards they play.</summary>
         public static RectTransform CreatePlayerBadge(Transform parent, string name, float diameter)
         {
             var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
@@ -378,17 +410,13 @@ namespace LemonadeWars.Unity
             return (center, rim);
         }
 
-        /// <summary>World-space center of a player's cash icon — where money floaters start.</summary>
         public Vector3? PlayerCashWorld(int playerId) =>
             _cashIcons.TryGetValue(playerId, out var icon) && icon != null
                 ? icon.TransformPoint(icon.rect.center)
                 : (Vector3?)null;
 
-        /// <summary>
-        /// Who wears the hourglass this render: the players the engine is waiting on,
-        /// except that while the theatre is still playing out the previous set keeps
-        /// it — the hourglass and the lemon move together, once the last animation ends.
-        /// </summary>
+        /// <summary>Who wears the hourglass this render: the players the engine waits on, except that the
+        /// previous set keeps it while the theatre is still playing, so it moves together with the lemon.</summary>
         private IReadOnlyList<int> ShownAwaited(PlayerView view)
         {
             bool holdBack = TheatreBusy?.Invoke() == true && _shownAwaited != null &&
@@ -400,11 +428,8 @@ namespace LemonadeWars.Unity
             return _shownAwaited;
         }
 
-        /// <summary>
-        /// Whose lemon it is this render: the engine's turn holder, except that while
-        /// the theatre is still playing out the previous holder keeps it — the effects'
-        /// OnFinished forces the re-render that hands it over.
-        /// </summary>
+        /// <summary>Whose lemon it is this render: the engine's turn holder, except that the previous holder
+        /// keeps it while the theatre is still playing (the effects' OnFinished forces the handover render).</summary>
         private int ShownTurnHolder(PlayerView view)
         {
             int actual = view.CurrentInitialBuyer ?? view.ActivePlayer;
@@ -414,7 +439,6 @@ namespace LemonadeWars.Unity
             return _shownTurnHolder;
         }
 
-        /// <summary>World-space center of a player's bar — anchor for floaters/effects.</summary>
         public Vector3? PlayerBarWorld(int playerId)
         {
             foreach (var (id, row, _) in _playerRows)

@@ -5,11 +5,14 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // Action log: the right-hand column mirroring the player panels. Collapsed it's
-    // one slim "latest thing that happened" chip; expanded it's the recent history —
-    // fast bot turns can be replayed at a glance.
+    // Action log: the right-hand column mirroring the player panels. Collapsed, a slim
+    // chip shows the latest line; expanded, the recent history, so fast bot turns can
+    // be read back.
     public sealed partial class TableView
     {
+        private const float LogHeaderHeightPx = 24f;
+        private static readonly Color LogHeaderTextColor = new Color(1f, 0.92f, 0.55f);
+
         private RectTransform _logCollapsed;
         private RectTransform _logExpandedPanel;
         private RectTransform _logList;
@@ -26,27 +29,35 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(zone, new Vector2(LogLeft, 0.24f), new Vector2(1f, 0.695f),
                 new Vector2(4, 0), new Vector2(-10, -4));
 
-            // Header pinned at the TOP in both states — toggling swaps only the +/–
-            // hint and what hangs beneath, so the control never jumps around the zone.
+            BuildLogHeader(zone);
+            BuildCollapsedLogChip(zone);
+            BuildExpandedLogPanel(zone);
+        }
+
+        /// <summary>Pinned at the top in both states, so the toggle never moves under the pointer.</summary>
+        private void BuildLogHeader(RectTransform zone)
+        {
             var header = UiKit.CreatePanel(zone, "LogHeader", new Color(0, 0, 0, 0.45f));
             UiKit.Anchor(header, new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -24), new Vector2(0, 0));
+                new Vector2(0, -LogHeaderHeightPx), new Vector2(0, 0));
             var headerText = UiKit.CreateText(header, "ACTION LOG", 13, TextAnchor.MiddleLeft,
-                new Color(1f, 0.92f, 0.55f));
+                LogHeaderTextColor);
             headerText.raycastTarget = false;
             UiKit.Anchor((RectTransform)headerText.transform, Vector2.zero, Vector2.one,
                 new Vector2(8, 0), new Vector2(0, 0));
             _logToggleHint = UiKit.CreateText(header, "+", 15, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f));
+                LogHeaderTextColor);
             _logToggleHint.raycastTarget = false;
             UiKit.Anchor((RectTransform)_logToggleHint.transform, new Vector2(1, 0), new Vector2(1, 1),
                 new Vector2(-24, 0), new Vector2(-4, 0));
             UiKit.AddClick(header.gameObject, ToggleLog);
+        }
 
-            // Collapsed: the latest line on a slim chip directly beneath the header.
+        private void BuildCollapsedLogChip(RectTransform zone)
+        {
             _logCollapsed = UiKit.CreatePanel(zone, "LogCollapsed", new Color(0, 0, 0, 0.40f));
             UiKit.Anchor(_logCollapsed, new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -50), new Vector2(0, -24));
+                new Vector2(0, -50), new Vector2(0, -LogHeaderHeightPx));
             _logLatest = UiKit.CreateText(_logCollapsed, "", 13, TextAnchor.MiddleLeft,
                 new Color(0.86f, 0.88f, 0.92f), body: true);
             _logLatest.raycastTarget = false;
@@ -54,19 +65,20 @@ namespace LemonadeWars.Unity
                 new Vector2(8, 0), new Vector2(-8, 0));
             UiKit.AddClick(_logCollapsed.gameObject, ToggleLog);
             _logCollapsed.gameObject.SetActive(false);
+        }
 
-            // Expanded: the recent history below the header, newest at the top — its
-            // first row sits exactly where the collapsed chip was.
+        /// <summary>Newest line first, so its first row sits exactly where the collapsed chip was.</summary>
+        private void BuildExpandedLogPanel(RectTransform zone)
+        {
             _logExpandedPanel = UiKit.CreatePanel(zone, "LogExpanded", new Color(0.05f, 0.07f, 0.11f, 0.93f));
             UiKit.Anchor(_logExpandedPanel, Vector2.zero, Vector2.one,
-                new Vector2(0, 0), new Vector2(0, -24));
+                new Vector2(0, 0), new Vector2(0, -LogHeaderHeightPx));
             var listHost = UiKit.CreatePanel(_logExpandedPanel, "LogLines", new Color(0, 0, 0, 0));
             listHost.GetComponent<Image>().raycastTarget = false;
             UiKit.Anchor(listHost, Vector2.zero, Vector2.one);
             _logList = UiKit.CreateScrollList(listHost);
-            // Flat: the expanded panel IS the surface. Strip the scroll list's own
-            // inset box + tint so expanding just makes the box taller, and pad the
-            // lines to line up with the collapsed chip's text.
+            // The panel is the surface: strip the scroll list's own inset box and tint,
+            // and pad the lines to line up with the collapsed chip's text.
             var scrollNode = (RectTransform)_logList.parent.parent;
             UiKit.Anchor(scrollNode, Vector2.zero, Vector2.one);
             scrollNode.GetComponent<Image>().color = new Color(0, 0, 0, 0);
@@ -84,7 +96,7 @@ namespace LemonadeWars.Unity
             RenderLog();
         }
 
-        /// <summary>Feed the friendly action-log lines (oldest first).</summary>
+        /// <param name="lines">Oldest first.</param>
         public void SetLog(IEnumerable<string> lines)
         {
             _logLines.Clear();

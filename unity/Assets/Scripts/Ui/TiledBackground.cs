@@ -4,10 +4,9 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Repeats a RawImage's texture at a fixed on-screen size, whatever the rect ends
-    /// up being. UGUI has no tiling mode for RawImage, so the repeat count lives in
-    /// uvRect and has to be recomputed whenever the rect resizes (window resize, aspect
-    /// change). Anchored bottom-left so the pattern stays put as the rect grows upward.
+    /// Repeats a RawImage's texture at a fixed on-screen size. UGUI has no tiling mode for RawImage,
+    /// so the repeat count lives in uvRect and is recomputed whenever the rect resizes. Anchored
+    /// bottom-left so the pattern stays put as the rect grows upward.
     /// </summary>
     public sealed class TiledBackground : MonoBehaviour
     {

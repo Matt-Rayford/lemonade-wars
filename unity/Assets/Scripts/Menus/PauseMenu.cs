@@ -48,7 +48,7 @@ namespace LemonadeWars.Unity
             layout.childControlHeight = true;
             layout.childControlWidth = true;
 
-            Button Add(string label, UnityEngine.Events.UnityAction onClick,
+            Button AddButton(string label, UnityEngine.Events.UnityAction onClick,
                 string clickSound = Sfx.ButtonClick)
             {
                 var button = UiKit.CreateButton(column.transform, label, 22, onClick,
@@ -57,17 +57,17 @@ namespace LemonadeWars.Unity
                 return button;
             }
 
-            Add("Resume", Close);
-            Add("Rulebook", () => OnRulebook?.Invoke());
-            _soundLabel = Add("", ToggleSound).GetComponentInChildren<TMP_Text>();
+            AddButton("Resume", Close);
+            AddButton("Rulebook", () => OnRulebook?.Invoke());
+            _soundLabel = AddButton("", ToggleSound).GetComponentInChildren<TMP_Text>();
             // Silent: cycling the pace announces itself in its own voice.
-            _speedButton = Add("", () =>
+            _speedButton = AddButton("", () =>
             {
                 OnCycleSpeed?.Invoke();
                 RefreshSpeedLabel();
             }, clickSound: null);
             _speedLabel = _speedButton.GetComponentInChildren<TMP_Text>();
-            Add("Quit to main menu", () =>
+            AddButton("Quit to main menu", () =>
             {
                 Close();
                 OnQuit?.Invoke();
@@ -87,9 +87,9 @@ namespace LemonadeWars.Unity
 
         private void RefreshSpeedLabel()
         {
-            bool bots = HasBots?.Invoke() == true;
-            _speedButton.gameObject.SetActive(bots);
-            if (bots)
+            bool hasBots = HasBots?.Invoke() == true;
+            _speedButton.gameObject.SetActive(hasBots);
+            if (hasBots)
             {
                 _speedLabel.text = $"Bot speed: {(SpeedLabel?.Invoke() ?? "medium").ToUpperInvariant()}";
             }
@@ -100,10 +100,7 @@ namespace LemonadeWars.Unity
             _root.gameObject.SetActive(false);
         }
 
-        /// <summary>
-        /// Mute toggle over the Settings volume: muting remembers the level so
-        /// unmuting comes back where the player left the slider.
-        /// </summary>
+        /// <summary>Muting remembers the level, so unmuting returns to where the slider was.</summary>
         private void ToggleSound()
         {
             if (Sfx.Volume > 0)

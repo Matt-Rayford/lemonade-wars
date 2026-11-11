@@ -38,76 +38,88 @@ namespace LemonadeWars.Unity
             if (groups.IsModal)
             {
                 groups.ModalMoves.AddRange(moves);
-                // Window responses ALSO map onto their hand cards: with the live-table
-                // reaction panel, clicking the Tantrum in your hand plays it (equipped
-                // responses like Inflatable Decoy stay panel-only).
-                // Free-play decisions (Bouncer strike-back, Smear Campaign's offer)
-                // enumerate full PlayLemonCard variants: bind those to their hand
-                // cards too, so the card itself is clickable mid-window and the
-                // normal aiming/menu flows do the target picking.
-                foreach (var move in moves)
-                {
-                    if (move is PlayLemonCard play)
-                    {
-                        Add(groups.HandMoves, play.CardInstanceId, move);
-                    }
-                }
+                groups.BindFreePlaysToHandCards(moves);
                 if (view.AwaitingResponse.Contains(view.ViewerId))
                 {
-                    foreach (var move in moves)
-                    {
-                        if (!(move is RespondToWindow respond) || respond.EquippedInstanceId != null)
-                        {
-                            continue;
-                        }
-                        // The engine lists ONE copy of each response card (identical
-                        // copies are interchangeable, and two "Play Tantrum" rows would
-                        // be noise) — so bind the move to EVERY copy in hand, or the
-                        // second Tantrum reads as dead.
-                        string defId = view.Hand
-                            .FirstOrDefault(c => c.InstanceId == respond.CardInstanceId)?.DefId;
-                        if (defId == null)
-                        {
-                            Add(groups.HandMoves, respond.CardInstanceId, move);
-                            continue;
-                        }
-                        foreach (var card in view.Hand)
-                        {
-                            if (card.DefId == defId)
-                            {
-                                Add(groups.HandMoves, card.InstanceId, move);
-                            }
-                        }
-                    }
+                    groups.BindResponsesToHandCards(view, moves);
                 }
                 return groups;
             }
 
             foreach (var move in moves)
             {
-                switch (move)
-                {
-                    case PlayLemonCard play:
-                        Add(groups.HandMoves, play.CardInstanceId, move);
-                        break;
-                    case BuyBlackMarket buy:
-                        Add(groups.MarketMoves, buy.MarketIndex, move);
-                        break;
-                    case BuyStand buyStand:
-                        Add(groups.SupplyMoves, buyStand.StandTypeId, move);
-                        break;
-                    case InitialBuyStand initial:
-                        Add(groups.SupplyMoves, initial.StandTypeId, move);
-                        break;
-                    case BuyBraggingRights _:
-                        groups.BraggingMoves.Add(move);
-                        break;
-                    default:
-                        groups.BarMoves.Add(move);
-                        break;
-                }
+                groups.BucketTurnMove(move);
             }
             return groups;
+        }
+
+        /// <summary>
+        /// Free-play decisions (Bouncer strike-back, Smear Campaign's offer) list full PlayLemonCard
+        /// variants: the card stays clickable mid-window and the normal aiming flows pick the target.
+        /// </summary>
+        private void BindFreePlaysToHandCards(IReadOnlyList<GameAction> moves)
+        {
+            foreach (var move in moves)
+            {
+                if (move is PlayLemonCard play)
+                {
+                    Add(HandMoves, play.CardInstanceId, move);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Equipped responses (Inflatable Decoy) stay panel-only. The engine lists ONE copy of each
+        /// response card, so the move is bound to EVERY copy in hand, or the second Tantrum reads as dead.
+        /// </summary>
+        private void BindResponsesToHandCards(PlayerView view, IReadOnlyList<GameAction> moves)
+        {
+            foreach (var move in moves)
+            {
+                if (!(move is RespondToWindow respond) || respond.EquippedInstanceId != null)
+                {
+                    continue;
+                }
+                string defId = view.Hand
+                    .FirstOrDefault(c => c.InstanceId == respond.CardInstanceId)?.DefId;
+                if (defId == null)
+                {
+                    Add(HandMoves, respond.CardInstanceId, move);
+                    continue;
+                }
+                foreach (var card in view.Hand)
+                {
+                    if (card.DefId == defId)
+                    {
+                        Add(HandMoves, card.InstanceId, move);
+                    }
+                }
+            }
+        }
+
+        private void BucketTurnMove(GameAction move)
+        {
+            switch (move)
+            {
+                case PlayLemonCard play:
+                    Add(HandMoves, play.CardInstanceId, move);
+                    break;
+                case BuyBlackMarket buy:
+                    Add(MarketMoves, buy.MarketIndex, move);
+                    break;
+                case BuyStand buyStand:
+                    Add(SupplyMoves, buyStand.StandTypeId, move);
+                    break;
+                case InitialBuyStand initial:
+                    Add(SupplyMoves, initial.StandTypeId, move);
+                    break;
+                case BuyBraggingRights _:
+                    BraggingMoves.Add(move);
+                    break;
+                default:
+                    BarMoves.Add(move);
+                    break;
+            }
         }
 
         private static void Add<TKey>(Dictionary<TKey, List<GameAction>> map, TKey key, GameAction move)

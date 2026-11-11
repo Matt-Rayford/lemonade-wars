@@ -11,8 +11,11 @@ namespace LemonadeWars.Unity
     /// <summary>Single-machine play: our Game, our bots, zero latency.</summary>
     public sealed class LocalGameSession : IGameSession
     {
-        // Play-tester verdict: 0.35s reads as a blur — a human-ish beat between bot
-        // actions lets the log/floaters land. Adjustable via the in-game speed chip.
+        private const float BotThinkTimeoutSeconds = 5f;
+        private const int MaxLogLines = 18;
+
+        /// <summary>A human-ish beat between bot actions so the log and floaters land (0.35s read
+        /// as a blur). Adjustable via the in-game speed chip.</summary>
         public float BotStepSeconds = 1.0f;
 
         private readonly Game _game;
@@ -30,11 +33,8 @@ namespace LemonadeWars.Unity
         public int Revision { get; private set; }
         public int Seat { get; }
         public bool HumanAutoplay { get; set; }
-        /// <summary>
-        /// While true, bots do not act: the app points this at its presentation
-        /// state (die tumbling, effects playing, turn banner up) so a bot never
-        /// starts its turn over a sale roll the human is still watching.
-        /// </summary>
+        /// <summary>While true, bots do not act. The app points this at its presentation state, so
+        /// a bot never starts its turn over a sale roll the human is still watching.</summary>
         public Func<bool> HoldBots;
         public event Action<GameEvent> EventEmitted;
 
@@ -96,11 +96,8 @@ namespace LemonadeWars.Unity
             Emit(_game.Apply(action));
         }
 
-        /// <summary>
-        /// Events go out with the View already caught up to them — the same order the
-        /// server's updates arrive in, so handlers can read the post-action state
-        /// (an open window, the stack top) while they play the events.
-        /// </summary>
+        /// <summary>The View is refreshed BEFORE the events go out, the order the server's updates
+        /// arrive in, so handlers can read the post-action state while they play the events.</summary>
         private void Emit(IEnumerable<GameEvent> events)
         {
             var burst = events.ToList();
@@ -118,34 +115,9 @@ namespace LemonadeWars.Unity
             {
                 return;
             }
-            // A search bot thinks off the main thread on a SNAPSHOT; its move applies
-            // here once ready — no frame hitches, no shared-state races.
             if (_pendingChoice != null)
             {
-                if (!_pendingChoice.IsCompleted)
-                {
-                    if (UnityEngine.Time.time - _pendingChoiceSince < 5f)
-                    {
-                        return;
-                    }
-                    // Watchdog: a think should take ~a quarter second. Abandon a
-                    // wedged one and re-decide rather than freeze the table forever.
-                    UnityEngine.Debug.LogWarning("Bot think timed out; re-deciding.");
-                    _pendingChoice = null;
-                    return;
-                }
-                var thought = _pendingChoice;
-                _pendingChoice = null;
-                try
-                {
-                    ApplyBotAction(thought.Result);
-                }
-                catch (System.Exception e)
-                {
-                    // Stale think (state moved on) or a faulted search: log it and
-                    // let the next tick re-decide from the current state.
-                    UnityEngine.Debug.LogException(e);
-                }
+                ApplyPendingChoiceWhenReady();
                 return;
             }
 
@@ -155,10 +127,8 @@ namespace LemonadeWars.Unity
                 return;
             }
             var acting = _game.ActingPlayers();
-            // The table waits for YOU: while you are among the players being asked
-            // (response window, discard, ...), bots hold their own responses. Without
-            // this they answer within a bot-step and cards resolve mid-thought — the
-            // pause never feels real even though the engine is blocked on you.
+            // While the human is among those being asked, bots hold their own responses:
+            // otherwise cards resolve mid-thought and the pause never feels real.
             if (!HumanAutoplay && acting.Contains(Seat))
             {
                 return;
@@ -170,25 +140,54 @@ namespace LemonadeWars.Unity
                 {
                     continue;
                 }
-                _nextBotStep = UnityEngine.Time.time + BotStepSeconds;
-                IBot bot = actor == Seat ? _autopilot : _bots[actor];
-                if (bot is IHeavyBot)
-                {
-                    // The background thread must NEVER touch the live game: a human
-                    // Apply (response window) racing a Dictionary read can spin the
-                    // search into an infinite loop and freeze the whole table. Clone
-                    // on the main thread; think on the copy. The chosen action still
-                    // applies to the live game — if the state moved on meanwhile, the
-                    // Apply above throws and the bot simply re-decides.
-                    var snapshot = Game.FromState(_game.Db, SearchTools.CloneState(_game.State));
-                    int seat = actor;
-                    _pendingChoiceSince = UnityEngine.Time.time;
-                    _pendingChoice = Task.Run(() => bot.Choose(snapshot, seat));
-                    return;
-                }
-                ApplyBotAction(bot.Choose(_game, actor));
+                StartBotStep(actor);
                 return;
             }
+        }
+
+        /// <summary>A search bot thinks off the main thread on a snapshot; its move is applied
+        /// here, on the main thread, once it is ready.</summary>
+        private void ApplyPendingChoiceWhenReady()
+        {
+            if (!_pendingChoice.IsCompleted)
+            {
+                if (UnityEngine.Time.time - _pendingChoiceSince < BotThinkTimeoutSeconds)
+                {
+                    return;
+                }
+                // A think should take about a quarter second: abandon a wedged one and
+                // re-decide rather than freeze the table forever.
+                UnityEngine.Debug.LogWarning("Bot think timed out; re-deciding.");
+                _pendingChoice = null;
+                return;
+            }
+            var thought = _pendingChoice;
+            _pendingChoice = null;
+            try
+            {
+                ApplyBotAction(thought.Result);
+            }
+            catch (System.Exception e)
+            {
+                // A stale think (the state moved on) or a faulted search: the next tick re-decides.
+                UnityEngine.Debug.LogException(e);
+            }
+        }
+
+        private void StartBotStep(int actor)
+        {
+            _nextBotStep = UnityEngine.Time.time + BotStepSeconds;
+            IBot bot = actor == Seat ? _autopilot : _bots[actor];
+            if (bot is IHeavyBot)
+            {
+                // The background thread must NEVER touch the live game: a human Apply racing its
+                // reads can spin the search forever. Clone here; a stale choice throws on Apply.
+                var snapshot = Game.FromState(_game.Db, SearchTools.CloneState(_game.State));
+                _pendingChoiceSince = UnityEngine.Time.time;
+                _pendingChoice = Task.Run(() => bot.Choose(snapshot, actor));
+                return;
+            }
+            ApplyBotAction(bot.Choose(_game, actor));
         }
 
         private void ApplyBotAction(GameAction action) => Emit(_game.Apply(action));
@@ -205,7 +204,7 @@ namespace LemonadeWars.Unity
         private void AddLog(string line)
         {
             _log.Add(line);
-            if (_log.Count > 18)
+            if (_log.Count > MaxLogLines)
             {
                 _log.RemoveAt(0);
             }

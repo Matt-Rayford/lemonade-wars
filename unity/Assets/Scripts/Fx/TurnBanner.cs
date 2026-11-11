@@ -5,10 +5,9 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// "Your turn" interstitial: blurred darkened backdrop, big lemonade-yellow title,
-    /// and a single ONWARD! button. Shown when the turn passes to the local player —
-    /// online or vs bots — so you get a clear cue before your decisions appear. Any
-    /// pending modal (discard, fine, response) is deferred until dismissed.
+    /// "Your turn" interstitial shown when the turn passes to the local player: blurred
+    /// backdrop, big title and a single ONWARD! button. Any pending modal (discard, fine,
+    /// response) is deferred until it is dismissed.
     /// </summary>
     public sealed class TurnBanner
     {
@@ -42,6 +41,13 @@ namespace LemonadeWars.Unity
                 new Vector2(0.1f, 0.44f), new Vector2(0.9f, 0.52f));
             UiKit.AddTextShadow(_subtitle);
 
+            BuildOnwardButton();
+
+            _root.gameObject.SetActive(false);
+        }
+
+        private void BuildOnwardButton()
+        {
             var buttonGo = new GameObject("Onward", typeof(RectTransform), typeof(Image), typeof(Shadow));
             buttonGo.transform.SetParent(_root, false);
             UiKit.Anchor((RectTransform)buttonGo.transform, new Vector2(0.41f, 0.29f), new Vector2(0.59f, 0.375f));
@@ -65,8 +71,6 @@ namespace LemonadeWars.Unity
                 Hide();
                 OnDismiss?.Invoke();
             });
-
-            _root.gameObject.SetActive(false);
         }
 
         public void Show(string subtitle)

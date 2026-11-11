@@ -4,17 +4,18 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // Equip targeting: the table dims EXCEPT the board band — you aim at your real
-    // stands (tucked upgrades visible, so "that one is full" is legible), with the
-    // taken card floating up top and a arrow to the hovered cell.
+    // Equip targeting: the table dims except the board band, the taken card floats up
+    // top, and the player aims at the live board (tucked upgrades visible, so a full
+    // stand reads as full) with an arrow to the hovered cell.
     public sealed partial class TableView
     {
-        /// <summary>True while the aim-at-your-stands layer is up — the modal pipeline
-        /// stands down on it exactly like an open prompt (see MaybeShowModal).</summary>
+        /// <summary>While true the modal pipeline stands down, as for an open prompt (see MaybeShowModal).</summary>
         public bool EquipTargetingActive => _targetingPick != null;
 
         /// <summary>Extra size of the hot ring on the hovered aim target, both sides together.</summary>
         private const float AimGlowPx = 21f;
+        private const float TargetingCardWidthPx = 190f;
+        private const float TargetingCardHeightPx = 266f;
 
         private RectTransform _targetingRoot;
         private RectTransform _targetingCardHost;
@@ -30,16 +31,13 @@ namespace LemonadeWars.Unity
         private Vector2 _targetingCardBottom;
 
         /// <summary>
-        /// Invisible full-screen layer for aiming a just-taken card at a turf/stand.
-        /// It intercepts the pointer itself and hit-tests the board cells manually, so
-        /// hover glows and clicks work without fighting the cells' own handlers.
+        /// An invisible full-screen layer that takes the pointer and hit-tests the board
+        /// cells itself, so hover and clicks do not fight the cells' own handlers.
         /// </summary>
         private void BuildEquipTargeting()
         {
             _targetingRoot = UiKit.CreatePanel(_canvasRoot, "EquipTargeting", new Color(0, 0, 0, 0));
             UiKit.Anchor(_targetingRoot, Vector2.zero, Vector2.one);
-            // Dim everything EXCEPT the board band: the live stands (tucked upgrades
-            // and all) are the targets, so the player aims with full information.
             var dimColor = new Color(0f, 0f, 0f, 0.66f);
             void Dim(Vector2 min, Vector2 max)
             {
@@ -51,22 +49,7 @@ namespace LemonadeWars.Unity
             Dim(new Vector2(0f, 0f), new Vector2(1f, BoardBottom));                  // action bar + hand
             Dim(new Vector2(0f, BoardBottom), new Vector2(BoardLeft, BoardTop));     // player column + stage
             Dim(new Vector2(BoardRight, BoardBottom), new Vector2(1f, BoardTop));    // whatever lies right of the board
-            UiKit.AddClick(_targetingRoot.gameObject, () =>
-            {
-                var pick = _targetingPick;
-                var cancel = _targetingCancel;
-                bool onTarget = _targetingHoverAny;
-                int? target = _targetingHover;
-                EndEquipTargeting();
-                if (onTarget)
-                {
-                    pick?.Invoke(target);
-                }
-                else
-                {
-                    cancel?.Invoke();
-                }
-            });
+            UiKit.AddClick(_targetingRoot.gameObject, PickOrCancelEquipTargeting);
 
             var copiesGo = new GameObject("TargetCopies", typeof(RectTransform));
             copiesGo.transform.SetParent(_targetingRoot, false);
@@ -86,12 +69,25 @@ namespace LemonadeWars.Unity
             _targetingRoot.gameObject.SetActive(false);
         }
 
-        /// <summary>
-        /// Dim everything but the board, float the taken card centered in the market
-        /// band, and wait for a click on one of your real stands (or the turf).
-        /// An optional caption floats above the card ("Word of Mouth — choose a
-        /// stand to sell") for picks whose card art alone doesn't say what's asked.
-        /// </summary>
+        private void PickOrCancelEquipTargeting()
+        {
+            var pick = _targetingPick;
+            var cancel = _targetingCancel;
+            bool onTarget = _targetingHoverAny;
+            int? target = _targetingHover;
+            EndEquipTargeting();
+            if (onTarget)
+            {
+                pick?.Invoke(target);
+            }
+            else
+            {
+                cancel?.Invoke();
+            }
+        }
+
+        /// <summary>Waits for a click on one of your stands (or the turf).</summary>
+        /// <param name="caption">Floats above the card, for picks whose art alone does not say what is asked.</param>
         public void BeginEquipTargeting(Texture2D texture, ISet<int?> validTargets,
             System.Action<int?> onPick, System.Action onCancel, string caption = null)
         {
@@ -101,11 +97,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Same layer, aimed at a board's EQUIPPED cards instead of stand cells: the
-        /// pickable tucked cards ring-glow in place (their stand context in full
-        /// view — which upgrade sits where often decides the take), the hovered one
-        /// gets the hot ring + arrow, a click picks it. The caller views the right
-        /// board first; the aim survives re-renders like the stand variant.
+        /// The same layer aimed at a board's equipped cards, each ringed in place with its
+        /// stand in view. The caller shows the right board first.
         /// </summary>
         public void BeginEquippedCardPick(Texture2D texture, ISet<int> validEquipped,
             System.Action<int> onPick, System.Action onCancel, string caption)
@@ -118,9 +111,6 @@ namespace LemonadeWars.Unity
         private void ArmTargetingLayer(Texture2D texture,
             System.Action<int?> onPick, System.Action onCancel, string caption)
         {
-            const float width = 190f;
-            const float height = 266f;
-
             _targetingPick = onPick;
             _targetingCancel = onCancel;
             _targetingHover = null;
@@ -129,40 +119,48 @@ namespace LemonadeWars.Unity
             UiKit.Clear(_targetingCopiesHost);
             UiKit.Clear(_targetingArrowHost);
 
-            // The taken card floats centered in the market band.
-            var anchor = new Vector2(0, _targetingRoot.rect.height * 0.325f);
-            var image = UiKit.CreateCardImage(_targetingCardHost, texture, width, height);
+            var marketBandCentre = new Vector2(0, _targetingRoot.rect.height * 0.325f);
+            FloatTakenCard(texture, marketBandCentre);
+            if (!string.IsNullOrEmpty(caption))
+            {
+                AddTargetingCaption(caption, marketBandCentre);
+            }
+
+            _targetingRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
+            _targetingRoot.gameObject.SetActive(true);
+        }
+
+        private void FloatTakenCard(Texture2D texture, Vector2 centre)
+        {
+            var image = UiKit.CreateCardImage(_targetingCardHost, texture,
+                TargetingCardWidthPx, TargetingCardHeightPx);
             image.raycastTarget = false;
             var frame = (RectTransform)image.transform.parent;
             frame.GetComponent<Image>().raycastTarget = false;
             frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0.5f);
             frame.pivot = new Vector2(0.5f, 0.5f);
-            frame.sizeDelta = new Vector2(width, height);
-            frame.anchoredPosition = anchor;
+            frame.sizeDelta = new Vector2(TargetingCardWidthPx, TargetingCardHeightPx);
+            frame.anchoredPosition = centre;
             var shadow = frame.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0, 0, 0, 0.6f);
             shadow.effectDistance = new Vector2(0, -6f);
             frame.gameObject.SetActive(texture != null); // no white slab for art-less picks
-            _targetingCardBottom = anchor + new Vector2(0, -height * 0.5f);
-
-            if (!string.IsNullOrEmpty(caption))
-            {
-                var label = UiKit.CreateText(_targetingCardHost, caption, 22,
-                    TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f));
-                label.raycastTarget = false;
-                var labelRect = (RectTransform)label.transform;
-                labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
-                labelRect.pivot = new Vector2(0.5f, 0f);
-                labelRect.sizeDelta = new Vector2(760f, 34f);
-                labelRect.anchoredPosition = anchor + new Vector2(0, height * 0.5f + 12f);
-            }
-
-            _targetingRoot.SetAsLastSibling();
-            _targetingRoot.SetAsLastSibling(); // over the HUD strip, which is built after the table
-            _targetingRoot.gameObject.SetActive(true);
+            _targetingCardBottom = centre + new Vector2(0, -TargetingCardHeightPx * 0.5f);
         }
 
-        /// <summary>Called every frame by the app; drives hover glow + the arrow.</summary>
+        private void AddTargetingCaption(string caption, Vector2 cardCentre)
+        {
+            var label = UiKit.CreateText(_targetingCardHost, caption, 22,
+                TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f));
+            label.raycastTarget = false;
+            var labelRect = (RectTransform)label.transform;
+            labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRect.pivot = new Vector2(0.5f, 0f);
+            labelRect.sizeDelta = new Vector2(760f, 34f);
+            labelRect.anchoredPosition = cardCentre + new Vector2(0, TargetingCardHeightPx * 0.5f + 12f);
+        }
+
+        /// <summary>Call every frame: drives the hover ring and the arrow.</summary>
         public void TickEquipTargeting(Vector2 screenPosition)
         {
             if (_targetingPick == null)
@@ -193,8 +191,6 @@ namespace LemonadeWars.Unity
             _targetingHover = hover;
             _targetingHoverAny = any;
 
-            // Glow and arrow are rebuilt from the LIVE cell position: the real board
-            // is the target surface now, and it can scroll under the overlay.
             UiKit.Clear(_targetingCopiesHost);
             UiKit.Clear(_targetingArrowHost);
             if (any)
@@ -204,17 +200,8 @@ namespace LemonadeWars.Unity
                     if (Equals(id, hover))
                     {
                         var cardFrame = cell.Find("Card") as RectTransform ?? cell;
-                        Vector2 local = _targetingRoot.InverseTransformPoint(
-                            cardFrame.TransformPoint(cardFrame.rect.center));
-                        UiKit.CreateGlow(_targetingCopiesHost,
-                            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
-                            cardFrame.rect.width + AimGlowPx, cardFrame.rect.height + AimGlowPx, DropGlowHot);
-
-                        var world = cell.TransformPoint(
-                            new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0));
-                        UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
-                            (Vector2)_targetingRoot.InverseTransformPoint(world),
-                            UiKit.ButtonColor);
+                        RingAndPointAt(cardFrame, cell.TransformPoint(
+                            new Vector3(cell.rect.center.x, cell.rect.yMax - 16f, 0)));
                         break;
                     }
                 }
@@ -237,8 +224,7 @@ namespace LemonadeWars.Unity
             {
                 if (glow != null)
                 {
-                    // Only the card under the pointer rings (re-asserted every tick: a
-                    // re-render rebuilds the cells with their rings off).
+                    // Every tick: a re-render rebuilds the cells with their rings off.
                     glow.SetActive(hover == id);
                 }
             }
@@ -259,22 +245,27 @@ namespace LemonadeWars.Unity
             {
                 if (id == hover.Value)
                 {
-                    Vector2 local = _targetingRoot.InverseTransformPoint(
-                        strip.TransformPoint(strip.rect.center));
-                    UiKit.CreateGlow(_targetingCopiesHost,
-                        new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
-                        strip.rect.width + AimGlowPx, strip.rect.height + AimGlowPx, DropGlowHot);
-                    var world = strip.TransformPoint(
-                        new Vector3(strip.rect.center.x, strip.rect.yMax, 0));
-                    UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
-                        (Vector2)_targetingRoot.InverseTransformPoint(world),
-                        UiKit.ButtonColor);
+                    RingAndPointAt(strip, strip.TransformPoint(
+                        new Vector3(strip.rect.center.x, strip.rect.yMax, 0)));
                     break;
                 }
             }
         }
 
-        /// <summary>Dismiss the targeting layer without invoking pick or cancel.</summary>
+        /// <summary>Built from the target's live position: the board can scroll under the overlay.</summary>
+        private void RingAndPointAt(RectTransform ringed, Vector3 arrowTipWorld)
+        {
+            Vector2 local = _targetingRoot.InverseTransformPoint(
+                ringed.TransformPoint(ringed.rect.center));
+            UiKit.CreateGlow(_targetingCopiesHost,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), local,
+                ringed.rect.width + AimGlowPx, ringed.rect.height + AimGlowPx, DropGlowHot);
+            UiKit.DrawArrow(_targetingArrowHost, _targetingCardBottom,
+                (Vector2)_targetingRoot.InverseTransformPoint(arrowTipWorld),
+                UiKit.ButtonColor);
+        }
+
+        /// <summary>Dismisses the layer without invoking pick or cancel.</summary>
         private void EndEquipTargeting()
         {
             if (_targetingEquipValid != null)

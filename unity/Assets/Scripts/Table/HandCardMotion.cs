@@ -3,8 +3,8 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Eases a hand card toward its target height — the rise-on-hover, sink-on-exit
-    /// motion. Exponential smoothing: fast start, soft landing.
+    /// Eases a hand card toward its target height (rise on hover, sink on exit) by
+    /// exponential smoothing: fast start, soft landing.
     /// </summary>
     public sealed class HandCardMotion : MonoBehaviour
     {

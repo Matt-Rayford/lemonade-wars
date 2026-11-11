@@ -7,12 +7,10 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// Selling assets off your own board, on the table: a card stages itself beside
-    /// your bar (the Rummage Sale you are playing, or the Timeout you must pay for),
-    /// your tucked Black Market cards — and stands, when the fine allows — become
-    /// pickable, each pick slaps onto the staged card's pile (click a piled card to
-    /// send it back), and the message strip totals the sale until you press Sell.
-    /// The engine action only happens then.
+    /// Selling assets off your own board, on the table. A card stages itself beside your
+    /// bar (the Rummage Sale being played, or the Timeout being paid for); your tucked
+    /// Black Market cards, and stands when a fine allows, become pickable; each pick joins
+    /// the staged card's pile; the strip totals the sale. Nothing reaches the engine until Sell.
     /// </summary>
     public sealed partial class LemonadeWarsApp
     {
@@ -38,8 +36,8 @@ namespace LemonadeWars.Unity
         }
 
         private AssetSaleFlow _sale;
-        /// <summary>A play the viewer staged on the table BEFORE submitting it: the
-        /// LemonCardPlayed that follows must not stage it a second time.</summary>
+        /// <summary>Staged on the table BEFORE its play was submitted: the LemonCardPlayed
+        /// that follows must not stage it a second time.</summary>
         private string _preStagedDefId;
 
         private bool IsRummageSale(PlayLemonCard play) =>
@@ -119,7 +117,7 @@ namespace LemonadeWars.Unity
 
         private void BeginAssetSale(AssetSaleFlow flow, ISet<int> equippedIds, ISet<int> standIds)
         {
-            _sale = flow; // before the snap home: its render must find the sale already on
+            _sale = flow; // must precede ShowOwnBoard(): its render has to find the sale already on
             ShowOwnBoard();
             _stagedAttacker = _session.Seat;
             _playTheatre.Begin(_art.Lemon(flow.StagedDefId), flow.StagedDefId, _session.Seat, -1);
@@ -229,11 +227,8 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>
-        /// The strip during a sale: what to do until something is picked, then the Sell
-        /// button with the count and the total (held dark while a fine is still short),
-        /// and the way out when there is one.
-        /// </summary>
+        /// <summary>An instruction until something is picked, then the Sell button with count and
+        /// total (held dark while a fine is still short), plus Cancel when the sale has a way out.</summary>
         private void RenderSaleStrip()
         {
             _tableMessage.text = "";

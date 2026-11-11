@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>Tiny anchored-position tween for UI elements; self-disables when done.</summary>
+    /// <summary>Anchored-position tween for UI elements outside layout groups; self-disables when done.</summary>
     public sealed class UiTween : MonoBehaviour
     {
         private Vector2 _start;
@@ -11,7 +11,6 @@ namespace LemonadeWars.Unity
         private float _duration;
         private RectTransform _rect;
 
-        /// <summary>Ease the element's anchoredPosition to a target (layout-safe for non-layout children).</summary>
         public static void SlideTo(RectTransform rectTransform, Vector2 targetAnchored, float duration = 0.15f)
         {
             var tween = rectTransform.gameObject.GetComponent<UiTween>();
@@ -30,8 +29,8 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             _elapsed += Time.deltaTime;
-            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_elapsed / _duration));
-            _rect.anchoredPosition = Vector2.Lerp(_start, _target, k);
+            float easedProgress = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_elapsed / _duration));
+            _rect.anchoredPosition = Vector2.Lerp(_start, _target, easedProgress);
             if (_elapsed >= _duration)
             {
                 _rect.anchoredPosition = _target;

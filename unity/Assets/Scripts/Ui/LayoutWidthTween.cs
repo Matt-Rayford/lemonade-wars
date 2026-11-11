@@ -2,11 +2,8 @@ using UnityEngine;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>
-    /// Eases a LayoutElement's preferredWidth (SmoothStep in-out) — the insertion-gap
-    /// effect that slides neighboring cards aside inside a layout group. Optionally
-    /// destroys its GameObject when it finishes closing to width 0.
-    /// </summary>
+    /// <summary>Eases a LayoutElement's preferredWidth (SmoothStep in-out): the insertion gap
+    /// that slides neighboring cards aside inside a layout group.</summary>
     public sealed class LayoutWidthTween : MonoBehaviour
     {
         private UnityEngine.UI.LayoutElement _element;
@@ -16,6 +13,7 @@ namespace LemonadeWars.Unity
         private float _duration = 0.18f;
         private bool _destroyAtZero;
 
+        /// <param name="destroyAtZero">Destroy the GameObject once it has closed to width 0.</param>
         public void SetTarget(float target, float duration = 0.18f, bool destroyAtZero = false)
         {
             if (_element == null)
@@ -33,8 +31,8 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             _elapsed += Time.deltaTime;
-            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_elapsed / _duration));
-            _element.preferredWidth = Mathf.Lerp(_from, _target, k);
+            float easedProgress = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_elapsed / _duration));
+            _element.preferredWidth = Mathf.Lerp(_from, _target, easedProgress);
             if (_elapsed >= _duration)
             {
                 _element.preferredWidth = _target;

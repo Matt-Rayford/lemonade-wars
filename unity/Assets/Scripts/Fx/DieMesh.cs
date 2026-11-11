@@ -4,7 +4,7 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The die's geometry and skin: a 24-vertex cube whose faces map onto a code-drawn
+    /// The die's geometry and skin: a rounded cube whose faces map onto a code-drawn
     /// pip atlas, plus the soft contact-shadow quad that sits under it. Opposite faces
     /// sum to 7, like a real die.
     /// </summary>
@@ -20,7 +20,7 @@ namespace LemonadeWars.Unity
 
         public static Vector3 NormalOf(int value) => FaceNormals[System.Array.IndexOf(FaceValues, value)];
 
-        /// <summary>The value on top of a die in the given rotation (the face closest to straight up).</summary>
+        /// <summary>The face closest to straight up.</summary>
         public static int ValueUp(Quaternion rotation) => FaceValues[UpFaceIndex(rotation)];
 
         public static int UpFaceIndex(Quaternion rotation)
@@ -44,10 +44,8 @@ namespace LemonadeWars.Unity
             Vector3.Dot(rotation * FaceNormals[UpFaceIndex(rotation)], Vector3.up) > 0.97f;
 
         /// <summary>
-        /// The cube with its edges and corners rounded off: each face is a grid whose
-        /// points are pushed onto a rounded box, with the true rounded-box normal, so
-        /// the bevels shade smoothly. Grid points crowd toward the edges, where the
-        /// curvature is. UVs stay the flat face's, so the pips keep their place.
+        /// Each face is a grid pushed onto a rounded box with the true rounded-box normal, so the
+        /// bevels shade smoothly. UVs stay the flat face's, so the pips keep their place.
         /// </summary>
         public static Mesh BuildRoundedCube(float cornerRadius, int segmentsPerFace)
         {
@@ -60,12 +58,12 @@ namespace LemonadeWars.Unity
 
             for (int face = 0; face < 6; face++)
             {
-                var n = FaceNormals[face];
-                var u = Mathf.Abs(n.y) > 0.5f ? Vector3.right : Vector3.Cross(Vector3.up, n);
-                var w = Vector3.Cross(n, u);
+                var faceNormal = FaceNormals[face];
+                var tangent = Mathf.Abs(faceNormal.y) > 0.5f ? Vector3.right : Vector3.Cross(Vector3.up, faceNormal);
+                var bitangent = Vector3.Cross(faceNormal, tangent);
                 int tile = FaceValues[face] - 1;
-                float x0 = (tile % 3) / 3f;
-                float y0 = (tile / 3) / 2f;
+                float tileU = (tile % 3) / 3f;
+                float tileV = (tile / 3) / 2f;
                 int baseIndex = vertices.Count;
 
                 for (int i = 0; i < pointsPerSide; i++)
@@ -74,7 +72,7 @@ namespace LemonadeWars.Unity
                     for (int j = 0; j < pointsPerSide; j++)
                     {
                         float y = EdgeWeightedCoordinate(j, segmentsPerFace);
-                        var flat = n * 0.5f + u * x + w * y;
+                        var flat = faceNormal * 0.5f + tangent * x + bitangent * y;
                         var core = new Vector3(
                             Mathf.Clamp(flat.x, -coreHalf, coreHalf),
                             Mathf.Clamp(flat.y, -coreHalf, coreHalf),
@@ -82,22 +80,10 @@ namespace LemonadeWars.Unity
                         var normal = (flat - core).normalized;
                         vertices.Add(core + normal * cornerRadius);
                         normals.Add(normal);
-                        uv.Add(new Vector2(x0 + (x + 0.5f) / 3f, y0 + (y + 0.5f) / 2f));
+                        uv.Add(new Vector2(tileU + (x + 0.5f) / 3f, tileV + (y + 0.5f) / 2f));
                     }
                 }
-
-                for (int i = 0; i < segmentsPerFace; i++)
-                {
-                    for (int j = 0; j < segmentsPerFace; j++)
-                    {
-                        int a = baseIndex + i * pointsPerSide + j;
-                        int b = a + 1;
-                        int c = a + pointsPerSide + 1;
-                        int d = a + pointsPerSide;
-                        triangles.Add(a); triangles.Add(c); triangles.Add(b);
-                        triangles.Add(a); triangles.Add(d); triangles.Add(c);
-                    }
-                }
+                AddGridTriangles(triangles, baseIndex, segmentsPerFace);
             }
 
             var mesh = new Mesh();
@@ -107,6 +93,23 @@ namespace LemonadeWars.Unity
             mesh.SetTriangles(triangles, 0);
             mesh.RecalculateBounds();
             return mesh;
+        }
+
+        private static void AddGridTriangles(List<int> triangles, int baseIndex, int segmentsPerSide)
+        {
+            int pointsPerSide = segmentsPerSide + 1;
+            for (int i = 0; i < segmentsPerSide; i++)
+            {
+                for (int j = 0; j < segmentsPerSide; j++)
+                {
+                    int a = baseIndex + i * pointsPerSide + j;
+                    int b = a + 1;
+                    int c = a + pointsPerSide + 1;
+                    int d = a + pointsPerSide;
+                    triangles.Add(a); triangles.Add(c); triangles.Add(b);
+                    triangles.Add(a); triangles.Add(d); triangles.Add(c);
+                }
+            }
         }
 
         /// <summary>Grid coordinate in [-0.5, 0.5], denser near the ends where the bevel curves.</summary>
@@ -158,9 +161,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Draw the six faces into one atlas: plain lemonade-yellow tiles (the lit,
-        /// rounded mesh draws its own edges) with anti-aliased dark pips in the
-        /// standard layouts.
+        /// The six faces in one atlas: plain lemonade-yellow tiles (the lit, rounded mesh
+        /// draws its own edges) with anti-aliased dark pips.
         /// </summary>
         public static Texture2D BuildPipAtlas()
         {
@@ -168,27 +170,7 @@ namespace LemonadeWars.Unity
             const float pipRadius = 13f;
             var faceColor = new Color(0.98f, 0.85f, 0.22f);
             var pipColor = new Color(0.14f, 0.11f, 0.05f);
-
-            const float lo = 0.26f, mid = 0.5f, hi = 0.74f;
-            var pips = new Vector2[7][];
-            pips[1] = new[] { new Vector2(mid, mid) };
-            pips[2] = new[] { new Vector2(lo, hi), new Vector2(hi, lo) };
-            pips[3] = new[] { new Vector2(lo, hi), new Vector2(mid, mid), new Vector2(hi, lo) };
-            pips[4] = new[]
-            {
-                new Vector2(lo, lo), new Vector2(lo, hi),
-                new Vector2(hi, lo), new Vector2(hi, hi),
-            };
-            pips[5] = new[]
-            {
-                new Vector2(lo, lo), new Vector2(lo, hi), new Vector2(mid, mid),
-                new Vector2(hi, lo), new Vector2(hi, hi),
-            };
-            pips[6] = new[]
-            {
-                new Vector2(lo, lo), new Vector2(lo, mid), new Vector2(lo, hi),
-                new Vector2(hi, lo), new Vector2(hi, mid), new Vector2(hi, hi),
-            };
+            var pips = StandardPipLayouts();
 
             var texture = new Texture2D(3 * tileSize, 2 * tileSize, TextureFormat.RGBA32, false);
             var pixels = new Color[texture.width * texture.height];
@@ -219,6 +201,32 @@ namespace LemonadeWars.Unity
             texture.SetPixels(pixels);
             texture.Apply();
             return texture;
+        }
+
+        /// <summary>Pip centres per face value, as fractions of a tile; index 0 is unused.</summary>
+        private static Vector2[][] StandardPipLayouts()
+        {
+            const float lo = 0.26f, mid = 0.5f, hi = 0.74f;
+            var pips = new Vector2[7][];
+            pips[1] = new[] { new Vector2(mid, mid) };
+            pips[2] = new[] { new Vector2(lo, hi), new Vector2(hi, lo) };
+            pips[3] = new[] { new Vector2(lo, hi), new Vector2(mid, mid), new Vector2(hi, lo) };
+            pips[4] = new[]
+            {
+                new Vector2(lo, lo), new Vector2(lo, hi),
+                new Vector2(hi, lo), new Vector2(hi, hi),
+            };
+            pips[5] = new[]
+            {
+                new Vector2(lo, lo), new Vector2(lo, hi), new Vector2(mid, mid),
+                new Vector2(hi, lo), new Vector2(hi, hi),
+            };
+            pips[6] = new[]
+            {
+                new Vector2(lo, lo), new Vector2(lo, mid), new Vector2(lo, hi),
+                new Vector2(hi, lo), new Vector2(hi, mid), new Vector2(hi, hi),
+            };
+            return pips;
         }
     }
 }

@@ -12,9 +12,9 @@ namespace LemonadeWars.Unity
         public System.Action<int, int?> Dropped;
         /// <summary>Supply stands dropped on a cell still insert at the previewed position.</summary>
         public System.Action<string> SupplyDropped;
-        /// <summary>Bragging Rights dropped here (the VP column cell).</summary>
+        /// <summary>Only the VP column cell listens for this.</summary>
         public System.Action BraggingDropped;
-        /// <summary>Fires while a drag hovers this cell (true) or leaves it (false).</summary>
+        /// <summary>True while a drag hovers this cell, false once it leaves.</summary>
         public System.Action<int?, bool> HoverChanged;
 
         public void OnDrop(PointerEventData eventData)

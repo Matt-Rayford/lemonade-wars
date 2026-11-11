@@ -5,13 +5,12 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     // Asset picking on your live board (Rummage Sale, a Timeout fine you must sell
-    // for): your tucked Black Market cards and, when allowed, your stands become
-    // pickable — the hovered one rings yellow, a click sends it to the staged pile
-    // (the app moves it), and a picked asset dims in place until it comes back.
-    // Picks are keyed: an equipped card by its instance id, a stand by StandKey.
+    // for): tucked Black Market cards and, when allowed, stands ring yellow on hover,
+    // and a click hands the asset to the app, which moves it to the staged pile. A
+    // picked asset dims in place until it comes back.
     public sealed partial class TableView
     {
-        /// <summary>Stand instance ids live in the same key space as card ids, offset past any card.</summary>
+        /// <summary>A pick is keyed by a card's instance id, or by a stand's id offset past any card id.</summary>
         public const int StandKeyOffset = 1 << 20;
         public static int StandKey(int standInstanceId) => standInstanceId + StandKeyOffset;
         public static bool IsStandKey(int key) => key >= StandKeyOffset;
@@ -25,8 +24,7 @@ namespace LemonadeWars.Unity
         public System.Action<int> OnRummagePick;
         /// <summary>Esc or a click-off: the app decides whether its sale can be torn down.</summary>
         public System.Action OnRummageCancel;
-        /// <summary>True while something else owns the pointer (the staged pile fanned
-        /// out over the board): no board asset hovers or takes the click under it.</summary>
+        /// <summary>True while the fanned staged pile owns the pointer: without it a click on the pile also fired on the asset under it.</summary>
         public System.Func<bool> RummagePointerCovered;
 
         private ISet<int> _rummageValid;
@@ -69,7 +67,7 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>World centre of a pickable asset: a tucked card's strip, or a stand's card; null once it is off the board.</summary>
+        /// <summary>World centre of a pickable asset (a tucked card's strip, or a stand's card); null once it is off the board.</summary>
         public Vector3? RummagePickWorld(int key)
         {
             if (!IsStandKey(key))
@@ -100,7 +98,10 @@ namespace LemonadeWars.Unity
             return null;
         }
 
-        /// <summary>Called every frame by the app: re-asserts the rings and dims (cells are rebuilt on every render) and takes the click.</summary>
+        /// <summary>
+        /// Call every frame: takes the click, and re-asserts the rings and dims, which
+        /// every render rebuilds switched off.
+        /// </summary>
         public void TickRummagePick(Vector2 screenPosition)
         {
             if (_rummageValid == null)
@@ -108,6 +109,17 @@ namespace LemonadeWars.Unity
                 return;
             }
             bool covered = RummagePointerCovered?.Invoke() == true;
+            int? hover = RefreshRummageCards(screenPosition, covered);
+            hover = RefreshRummageStands(screenPosition, covered, hover);
+            if (hover is int clicked && Input.GetMouseButtonDown(0))
+            {
+                OnRummagePick?.Invoke(clicked);
+            }
+        }
+
+        /// <returns>The hovered pickable card's key, if any.</returns>
+        private int? RefreshRummageCards(Vector2 screenPosition, bool covered)
+        {
             int? hover = null;
             foreach (var (id, strip, glow) in _equipCells)
             {
@@ -128,11 +140,14 @@ namespace LemonadeWars.Unity
                     glow.GetComponent<Image>().color = RummageGlowColor;
                     glow.SetActive(hovered);
                 }
-                if (strip.parent is RectTransform card && card.GetComponent<RawImage>() is RawImage face)
-                {
-                    face.color = picked ? PickedCardTint : Color.white;
-                }
+                TintTuckedCard(strip, picked ? PickedCardTint : Color.white);
             }
+            return hover;
+        }
+
+        /// <returns>The hovered pickable stand's key, or the card already hovered: only one asset hovers.</returns>
+        private int? RefreshRummageStands(Vector2 screenPosition, bool covered, int? hover)
+        {
             foreach (var (id, cell, _) in _dropCells)
             {
                 if (!(id is int standId) || cell == null)
@@ -151,10 +166,7 @@ namespace LemonadeWars.Unity
                 LightStandGlow(standId, hovered);
                 TintStandCard(cell, picked ? PickedCardTint : Color.white);
             }
-            if (hover is int clicked && Input.GetMouseButtonDown(0))
-            {
-                OnRummagePick?.Invoke(clicked);
-            }
+            return hover;
         }
 
         private void LightStandGlow(int standId, bool on)
@@ -178,6 +190,15 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private static void TintTuckedCard(RectTransform strip, Color tint)
+        {
+            if (strip != null && strip.parent is RectTransform card &&
+                card.GetComponent<RawImage>() is RawImage face)
+            {
+                face.color = tint;
+            }
+        }
+
         private static void RestoreEquipCell(RectTransform strip, GameObject glow)
         {
             if (glow != null)
@@ -185,11 +206,7 @@ namespace LemonadeWars.Unity
                 glow.GetComponent<Image>().color = AttackGlowColor;
                 glow.SetActive(false);
             }
-            if (strip != null && strip.parent is RectTransform card &&
-                card.GetComponent<RawImage>() is RawImage face)
-            {
-                face.color = Color.white;
-            }
+            TintTuckedCard(strip, Color.white);
         }
     }
 }

@@ -11,6 +11,14 @@ namespace LemonadeWars.Unity
     // as the "pick a card out of a pile" surface for effects.
     public sealed partial class TableView
     {
+        /// <summary>Reading size, the same scale as the Lemon Lord picker at game setup.</summary>
+        private const float DiscardCardWidthPx = 280f;
+        private const float DiscardCardHeightPx = 392f;
+        private const float DiscardSelectGlowPx = 52f;
+        private const float DiscardEdgeScrollZone = 0.2f;
+        private const float DiscardEdgeScrollPxPerSecond = 900f;
+        private static readonly Color DiscardBackButtonColor = new Color(0.15f, 0.18f, 0.25f, 0.96f);
+
         private RectTransform _discardOverlay;
         private RectTransform _discardGrid;
         private ScrollRect _discardScrollRect;
@@ -21,9 +29,8 @@ namespace LemonadeWars.Unity
         private System.Action<int> _discardOnTake;
 
         /// <summary>
-        /// True while the grid is up in PICK mode (serving a guided take flow) — the
-        /// modal pipeline must stand down, or every pacing revision rebuilds the
-        /// "Play X" prompt over the player mid-pick. Browsing (no take) doesn't count.
+        /// True while the grid is up to pick from (browsing does not count): the modal
+        /// pipeline must stand down, or each pacing revision rebuilds its prompt over the pick.
         /// </summary>
         public bool DiscardPickerOpen =>
             _discardOverlay.gameObject.activeSelf && _discardOnTake != null;
@@ -33,14 +40,11 @@ namespace LemonadeWars.Unity
         private readonly Dictionary<int, GameObject> _discardSelectGlows =
             new Dictionary<int, GameObject>();
 
-        /// <summary>
-        /// Full-screen discard browser: dim backdrop, title, and a vertically scrolling
-        /// grid of cards bounded to the center band. Click anywhere off a card to close.
-        /// </summary>
+        /// <summary>A click anywhere off a card closes the viewer.</summary>
         private void BuildDiscardViewer()
         {
             // On the canvas root, not the table: the HUD's message strip is built after
-            // the table and would otherwise sit on top of the dimming, undimmed.
+            // the table and would otherwise sit above the dimming, undimmed.
             _discardOverlay = UiKit.CreatePanel(_canvasRoot, "DiscardOverlay", new Color(0, 0, 0, 0.82f));
             UiKit.Anchor(_discardOverlay, Vector2.zero, Vector2.one);
             UiKit.AddClick(_discardOverlay.gameObject, CloseDiscardViewer);
@@ -52,8 +56,17 @@ namespace LemonadeWars.Unity
             _discardTitle.raycastTarget = false;
             UiKit.AddTextShadow(_discardTitle);
 
-            // Transparent-but-raycastable scroll surface: the wheel works anywhere in
-            // the band, and a click between cards still closes the viewer.
+            BuildDiscardScrollGrid();
+            BuildDiscardTakeButton();
+            BuildDiscardBackButton();
+
+            _discardOverlay.gameObject.SetActive(false);
+        }
+
+        private void BuildDiscardScrollGrid()
+        {
+            // Transparent but raycastable: the wheel works anywhere in the band, and a
+            // click between cards still closes the viewer.
             var scrollGo = new GameObject("Scroll", typeof(RectTransform), typeof(ScrollRect), typeof(Image));
             scrollGo.transform.SetParent(_discardOverlay, false);
             UiKit.Anchor((RectTransform)scrollGo.transform, new Vector2(0.21f, 0.02f), new Vector2(0.79f, 0.89f));
@@ -61,8 +74,7 @@ namespace LemonadeWars.Unity
             UiKit.AddClick(scrollGo, CloseDiscardViewer);
             var scroll = scrollGo.GetComponent<ScrollRect>();
             scroll.horizontal = false;
-            // Raw wheel deltas are tiny (~0.1/tick): the default sensitivity of 1
-            // crawls. ~50px per tick moves a meaningful slice of a 392px card row.
+            // Raw wheel deltas are tiny (~0.1 per tick), so the default sensitivity of 1 crawls.
             scroll.scrollSensitivity = 50f;
 
             var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
@@ -78,12 +90,10 @@ namespace LemonadeWars.Unity
             content.anchorMax = new Vector2(1, 1);
             content.pivot = new Vector2(0.5f, 1);
             content.sizeDelta = Vector2.zero; // default is (100,100): +100px width overflow
-            // Reading size — same scale as the Lemon Lord picker at game setup.
             var grid = contentGo.GetComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(280, 392);
+            grid.cellSize = new Vector2(DiscardCardWidthPx, DiscardCardHeightPx);
             grid.spacing = new Vector2(18, 18);
-            // Generous side padding: edge cards keep their rounded corners and glow
-            // clear of the viewport mask instead of getting shaved off.
+            // Side padding keeps edge cards' rounded corners and glow clear of the viewport mask.
             grid.padding = new RectOffset(20, 20, 12, 12);
             grid.childAlignment = TextAnchor.UpperCenter;
             contentGo.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -92,22 +102,14 @@ namespace LemonadeWars.Unity
             scroll.content = content;
             _discardGrid = content;
             _discardScrollRect = scroll;
+        }
 
-            // Bottom-center: "TAKE <CARD>" — only exists while a pick is required.
-            var buttonGo = new GameObject("TakeButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
-            buttonGo.transform.SetParent(_discardOverlay, false);
-            var buttonRect = (RectTransform)buttonGo.transform;
-            buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(0.5f, 0f);
-            buttonRect.pivot = new Vector2(0.5f, 0f);
-            buttonRect.sizeDelta = new Vector2(440f, 58f);
-            buttonRect.anchoredPosition = new Vector2(0, 26f);
+        /// <summary>Bottom-centre "TAKE CARD NAME": shown only once a card is selected.</summary>
+        private void BuildDiscardTakeButton()
+        {
+            var buttonGo = BuildDiscardButtonPill("TakeButton", new Vector2(0.5f, 0f),
+                new Vector2(440f, 58f), new Vector2(0, 26f), UiKit.ButtonColor);
             var buttonImage = buttonGo.GetComponent<Image>();
-            buttonImage.sprite = UiSprites.RoundedRect;
-            buttonImage.type = Image.Type.Sliced;
-            buttonImage.color = UiKit.ButtonColor;
-            var buttonShadow = buttonGo.GetComponent<Shadow>();
-            buttonShadow.effectColor = new Color(0, 0, 0, 0.5f);
-            buttonShadow.effectDistance = new Vector2(0, -4f);
             _discardTakeLabel = UiKit.CreateText(buttonGo.transform, "", 24,
                 TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
             _discardTakeLabel.raycastTarget = false;
@@ -115,50 +117,63 @@ namespace LemonadeWars.Unity
             UiKit.AddHover(buttonGo,
                 () => buttonImage.color = new Color(1f, 0.92f, 0.35f),
                 () => buttonImage.color = UiKit.ButtonColor);
-            UiKit.AddClick(buttonGo, () =>
-            {
-                var onTake = _discardOnTake;
-                int? picked = _discardSelectedId;
-                CloseDiscardViewer();
-                if (onTake != null && picked is int id)
-                {
-                    onTake(id);
-                }
-            });
+            UiKit.AddClick(buttonGo, TakeSelectedDiscardCard);
             _discardTakeButton = buttonGo;
+        }
 
-            // Bottom-left: BACK — only for multi-step flows (e.g. Finders Keepers,
-            // returning to the victim choice).
-            var backGo = new GameObject("BackButton", typeof(RectTransform), typeof(Image), typeof(Shadow));
-            backGo.transform.SetParent(_discardOverlay, false);
-            var backRect = (RectTransform)backGo.transform;
-            backRect.anchorMin = backRect.anchorMax = new Vector2(0f, 0f);
-            backRect.pivot = new Vector2(0f, 0f);
-            backRect.sizeDelta = new Vector2(180f, 58f);
-            backRect.anchoredPosition = new Vector2(30f, 26f);
+        /// <summary>Bottom-left BACK: only for multi-step flows (Finders Keepers returning to its victim choice).</summary>
+        private void BuildDiscardBackButton()
+        {
+            var backGo = BuildDiscardButtonPill("BackButton", new Vector2(0f, 0f),
+                new Vector2(180f, 58f), new Vector2(30f, 26f), DiscardBackButtonColor);
             var backImage = backGo.GetComponent<Image>();
-            backImage.sprite = UiSprites.RoundedRect;
-            backImage.type = Image.Type.Sliced;
-            backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f);
-            var backShadow = backGo.GetComponent<Shadow>();
-            backShadow.effectColor = new Color(0, 0, 0, 0.5f);
-            backShadow.effectDistance = new Vector2(0, -4f);
             var backLabel = UiKit.CreateText(backGo.transform, "BACK", 22,
                 TextAnchor.MiddleCenter, new Color(0.96f, 0.96f, 0.92f));
             backLabel.raycastTarget = false;
             UiKit.Anchor((RectTransform)backLabel.transform, Vector2.zero, Vector2.one);
             UiKit.AddHover(backGo,
                 () => backImage.color = new Color(0.22f, 0.26f, 0.35f, 0.96f),
-                () => backImage.color = new Color(0.15f, 0.18f, 0.25f, 0.96f));
-            UiKit.AddClick(backGo, () =>
-            {
-                var back = _discardOnBack;
-                CloseDiscardViewer();
-                back?.Invoke();
-            });
+                () => backImage.color = DiscardBackButtonColor);
+            UiKit.AddClick(backGo, LeaveDiscardPickerBackwards);
             _discardBackButton = backGo;
+        }
 
-            _discardOverlay.gameObject.SetActive(false);
+        private GameObject BuildDiscardButtonPill(string name, Vector2 bottomAnchor, Vector2 size,
+            Vector2 position, Color color)
+        {
+            var pillGo = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Shadow));
+            pillGo.transform.SetParent(_discardOverlay, false);
+            var rect = (RectTransform)pillGo.transform;
+            rect.anchorMin = rect.anchorMax = bottomAnchor;
+            rect.pivot = bottomAnchor;
+            rect.sizeDelta = size;
+            rect.anchoredPosition = position;
+            var image = pillGo.GetComponent<Image>();
+            image.sprite = UiSprites.RoundedRect;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            var shadow = pillGo.GetComponent<Shadow>();
+            shadow.effectColor = new Color(0, 0, 0, 0.5f);
+            shadow.effectDistance = new Vector2(0, -4f);
+            return pillGo;
+        }
+
+        private void TakeSelectedDiscardCard()
+        {
+            var onTake = _discardOnTake;
+            int? picked = _discardSelectedId;
+            CloseDiscardViewer();
+            if (onTake != null && picked is int id)
+            {
+                onTake(id);
+            }
+        }
+
+        private void LeaveDiscardPickerBackwards()
+        {
+            var back = _discardOnBack;
+            CloseDiscardViewer();
+            back?.Invoke();
         }
 
         /// <summary>Browse a discard pile (no selection, no button).</summary>
@@ -170,7 +185,7 @@ namespace LemonadeWars.Unity
             ShowDiscardOverlay();
         }
 
-        /// <summary>Raised to the top of the canvas every time: everything built since (HUD strip, theatre) goes under its dim.</summary>
+        /// <summary>Raised to the top of the canvas every time, so everything built since (HUD strip, theatre) goes under its dim.</summary>
         private void ShowDiscardOverlay()
         {
             _discardOverlay.SetAsLastSibling();
@@ -178,11 +193,10 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Pick a card out of a pile (Reduce and Reuse, Reverse Engineer, an opponent's
-        /// board...): click a card to select it, then confirm with the action button.
-        /// Clicking off a card cancels — nothing has been submitted yet at that point.
-        /// The verb names what confirming DOES: taking and trashing are not the same.
+        /// Pick a card out of a pile: click one to select it, then confirm with the action
+        /// button. A click off the cards cancels; nothing has been submitted by then.
         /// </summary>
+        /// <param name="verb">Names what confirming does: taking and trashing are not the same.</param>
         public void OpenDiscardPicker(string title, IReadOnlyList<PlayerView.CardInfo> cards,
             bool blackMarket, System.Func<PlayerView.CardInfo, string> nameOf,
             System.Action<int> onTake, System.Action onBack = null, string verb = "TAKE",
@@ -213,34 +227,24 @@ namespace LemonadeWars.Unity
                     ? _art.BlackMarket(card.DefId, card.Shape ?? Shape.Square)
                     : _art.Lemon(card.DefId);
 
-                // Wrapper cell: the selection glow must sit OUTSIDE the card's rounded
-                // mask, or it would be clipped to the card shape.
+                // The glow sits in a wrapper cell, outside the card's rounded mask, which would clip it.
                 var cellGo = new GameObject("DiscardCell", typeof(RectTransform));
                 cellGo.transform.SetParent(_discardGrid, false);
                 var cell = (RectTransform)cellGo.transform;
                 var glow = UiKit.CreateGlow(cell, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    Vector2.zero, 280 + 52, 392 + 52, DropGlowHot);
-                var image = UiKit.CreateCardImage(cell, texture, 280, 392);
+                    Vector2.zero, DiscardCardWidthPx + DiscardSelectGlowPx,
+                    DiscardCardHeightPx + DiscardSelectGlowPx, DropGlowHot);
+                var image = UiKit.CreateCardImage(cell, texture, DiscardCardWidthPx, DiscardCardHeightPx);
                 UiKit.Anchor((RectTransform)image.transform.parent, Vector2.zero, Vector2.one);
 
                 _preview.Attach(image.gameObject, texture);
 
-                // The pile always shows every copy (players count it); a copy with no
-                // legal take right now stays visible but dimmed, with the reason on it.
                 string reason = disabledReason?.Invoke(card);
                 if (reason != null)
                 {
-                    image.color = new Color(0.5f, 0.5f, 0.5f, 1f);
-                    var reasonBar = UiKit.CreatePanel(cell, "DisabledReason",
-                        new Color(0f, 0f, 0f, 0.72f));
-                    UiKit.Anchor(reasonBar, new Vector2(0f, 0.42f), new Vector2(1f, 0.56f));
-                    reasonBar.GetComponent<Image>().raycastTarget = false;
-                    var reasonText = UiKit.CreateText(reasonBar, reason, 20,
-                        TextAnchor.MiddleCenter, Color.white);
-                    UiKit.Anchor((RectTransform)reasonText.transform, Vector2.zero, Vector2.one);
-                    continue;
+                    DimDiscardCardWithReason(cell, image, reason);
                 }
-                if (nameOf != null)
+                else if (nameOf != null)
                 {
                     int instanceId = card.InstanceId;
                     string takeName = nameOf(card);
@@ -248,6 +252,19 @@ namespace LemonadeWars.Unity
                     UiKit.AddClick(image.gameObject, () => SelectDiscardCard(instanceId, takeName));
                 }
             }
+        }
+
+        /// <summary>The pile shows every copy (players count it); one with no legal take stays visible, dimmed.</summary>
+        private static void DimDiscardCardWithReason(RectTransform cell, RawImage image, string reason)
+        {
+            image.color = new Color(0.5f, 0.5f, 0.5f, 1f);
+            var reasonBar = UiKit.CreatePanel(cell, "DisabledReason",
+                new Color(0f, 0f, 0f, 0.72f));
+            UiKit.Anchor(reasonBar, new Vector2(0f, 0.42f), new Vector2(1f, 0.56f));
+            reasonBar.GetComponent<Image>().raycastTarget = false;
+            var reasonText = UiKit.CreateText(reasonBar, reason, 20,
+                TextAnchor.MiddleCenter, Color.white);
+            UiKit.Anchor((RectTransform)reasonText.transform, Vector2.zero, Vector2.one);
         }
 
         private void SelectDiscardCard(int instanceId, string name)
@@ -262,8 +279,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Hover-based scrolling for the discard browser/picker: the top and bottom 20%
-        /// of the screen glide the grid, faster nearer the edge. Call every frame.
+        /// Call every frame: with the viewer open, the top and bottom 20% of the screen
+        /// glide the grid, faster nearer the edge.
         /// </summary>
         public void TickDiscardScroll(Vector2 screenPosition)
         {
@@ -274,18 +291,17 @@ namespace LemonadeWars.Unity
             float scrollable = _discardGrid.rect.height - _discardScrollRect.viewport.rect.height;
             if (scrollable <= 1f)
             {
-                return; // everything fits, nothing to scroll
+                return;
             }
             float fraction = screenPosition.y / Mathf.Max(1f, Screen.height);
-            const float zone = 0.2f;
             float direction = 0f;
-            if (fraction > 1f - zone)
+            if (fraction > 1f - DiscardEdgeScrollZone)
             {
-                direction = Mathf.InverseLerp(1f - zone, 1f, fraction);
+                direction = Mathf.InverseLerp(1f - DiscardEdgeScrollZone, 1f, fraction);
             }
-            else if (fraction < zone)
+            else if (fraction < DiscardEdgeScrollZone)
             {
-                direction = -Mathf.InverseLerp(zone, 0f, fraction);
+                direction = -Mathf.InverseLerp(DiscardEdgeScrollZone, 0f, fraction);
             }
             if (direction == 0f)
             {
@@ -293,7 +309,7 @@ namespace LemonadeWars.Unity
             }
             _discardScrollRect.verticalNormalizedPosition = Mathf.Clamp01(
                 _discardScrollRect.verticalNormalizedPosition +
-                direction * 900f * Time.deltaTime / scrollable);
+                direction * DiscardEdgeScrollPxPerSecond * Time.deltaTime / scrollable);
         }
 
         private void CloseDiscardViewer()

@@ -28,19 +28,20 @@ namespace LemonadeWars.Unity
             }
         }
 
+        private const float CardAspect = 0.714f; // width / height of the card art
         private static readonly Color ButtonIdle = new Color(0.15f, 0.18f, 0.25f, 0.96f);
         private static readonly Color TextIdle = new Color(0.96f, 0.96f, 0.92f);
-        /// <summary>De-emphasized option text (the Cancel row).</summary>
+        /// <summary>The Cancel row's de-emphasized text.</summary>
         private static readonly Color TextMuted = new Color(0.75f, 0.75f, 0.75f);
 
         private readonly CardPreview _preview;
         private readonly ModalBackdrop _backdrop;
         private readonly TMP_Text _title;
         private readonly RectTransform _root;
-        private readonly RectTransform _cardStrip;
-        private readonly RectTransform _optionList;
         private readonly RectTransform _bodyHost;
-        private readonly RectTransform _optionScroll;
+        private RectTransform _cardStrip;
+        private RectTransform _optionList;
+        private RectTransform _optionScroll;
         private RectTransform _cancelHost;
         private TMP_Text _moreHint;
 
@@ -57,47 +58,13 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_root, Vector2.zero, Vector2.one);
             _backdrop = new ModalBackdrop(_root, host);
 
-            // Floating title with a drop shadow — no bar.
             _title = UiKit.CreateText(_root, "", 36, TextAnchor.MiddleCenter, Color.white);
             UiKit.Anchor((RectTransform)_title.transform,
                 new Vector2(0.04f, 0.87f), new Vector2(0.96f, 0.98f));
             UiKit.AddTextShadow(_title);
 
-            // The card(s) in question, centered on the blur.
-            var stripHost = UiKit.CreatePanel(_root, "Cards", new Color(0, 0, 0, 0));
-            stripHost.GetComponent<Image>().raycastTarget = false;
-            UiKit.Anchor(stripHost, new Vector2(0.10f, 0.44f), new Vector2(0.90f, 0.87f));
-            var rowGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-            rowGo.transform.SetParent(stripHost, false);
-            UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
-            var rowLayout = rowGo.GetComponent<HorizontalLayoutGroup>();
-            rowLayout.spacing = 16;
-            rowLayout.childAlignment = TextAnchor.MiddleCenter;
-            rowLayout.childForceExpandWidth = false;
-            rowLayout.childForceExpandHeight = false;
-            rowLayout.childControlWidth = true;
-            rowLayout.childControlHeight = true;
-            _cardStrip = (RectTransform)rowGo.transform;
-
-            // Options flow in a centered column below the card. The scroll area stops
-            // short of the bottom: Cancel lives OUTSIDE it, pinned and always visible,
-            // so a flooded option list can never hide the way out.
-            var listHost = UiKit.CreatePanel(_root, "Options", new Color(0, 0, 0, 0));
-            UiKit.Anchor(listHost, new Vector2(0.27f, 0.03f), new Vector2(0.73f, 0.44f));
-            var scrollHost = UiKit.CreatePanel(listHost, "OptionScroll", new Color(0, 0, 0, 0));
-            UiKit.Anchor(scrollHost, new Vector2(0, 0.17f), new Vector2(1, 1));
-            _optionScroll = scrollHost;
-            _optionList = UiKit.CreateScrollList(scrollHost);
-            _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
-
-            _moreHint = UiKit.CreateText(listHost, "scroll for more options", 13,
-                TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f, 0.9f), body: true);
-            _moreHint.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_moreHint.transform, new Vector2(0, 0.155f), new Vector2(1, 0.21f));
-            UiKit.AddTextShadow(_moreHint);
-
-            _cancelHost = UiKit.CreatePanel(listHost, "CancelRow", new Color(0, 0, 0, 0));
-            UiKit.Anchor(_cancelHost, new Vector2(0, 0), new Vector2(1, 0.14f));
+            BuildCardStrip();
+            BuildOptionColumn();
 
             // A caller-built body (the scoreboard) takes the whole middle, above the footer.
             _bodyHost = UiKit.CreatePanel(_root, "Body", new Color(0, 0, 0, 0));
@@ -121,68 +88,28 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// Show a prompt. Pass showCancel for optional (contextual) menus; pass
-        /// <paramref name="footer"/> instead for a row of named exits side by side
-        /// (the end-game "Return to Board | Leave Game"). Esc dismisses either way.
+        /// Pass showCancel for optional (contextual) menus; pass <paramref name="footer"/>
+        /// instead for a row of named exits side by side. Esc dismisses either.
         /// </summary>
         public void Show(string title, IReadOnlyList<Texture2D> cards,
             IReadOnlyList<Option> options, bool showCancel, IReadOnlyList<Option> footer = null)
         {
             IsOpen = true;
             _title.text = title;
+            // ShowBody recolours the title and hides the option scroll: every plain prompt resets both.
             _title.color = Color.white;
-
             _optionScroll.gameObject.SetActive(true);
             UiKit.Clear(_bodyHost);
-            UiKit.Clear(_cardStrip);
-            if (cards != null && cards.Count > 0)
-            {
-                // Size cards to fit the strip, generous when there are few.
-                float width = Mathf.Min(240f, (1500f - (cards.Count - 1) * 16f) / cards.Count);
-                float height = width / 0.714f;
-                foreach (var texture in cards)
-                {
-                    if (texture != null)
-                    {
-                        UiKit.CreateCardImage(_cardStrip, texture, width, height);
-                    }
-                }
-            }
+            ShowCards(cards);
 
             UiKit.Clear(_optionList);
             UiKit.Clear(_cancelHost);
             IsCancelable = showCancel || footer != null;
-            // Big lists compress so more choices fit before scrolling starts.
-            bool compact = options.Count > 8;
-            foreach (var option in options)
-            {
-                if (option.OnPick == null)
-                {
-                    // No action = pure information (the end-game score rows): a plain
-                    // line, not a button pretending it does something.
-                    AddStaticRow(_optionList, option.Label, compact);
-                    continue;
-                }
-                AddOptionButton(_optionList, option.Label, option.OnPick,
-                    emphasized: true, option.Card, compact);
-            }
+            AddOptionRows(options);
             _moreHint.gameObject.SetActive(options.Count > 9);
             if (footer != null)
             {
-                var rowGo = new GameObject("FooterRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-                rowGo.transform.SetParent(_cancelHost, false);
-                UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
-                var row = rowGo.GetComponent<HorizontalLayoutGroup>();
-                row.spacing = 12;
-                row.childControlWidth = true;
-                row.childControlHeight = true;
-                row.childForceExpandWidth = true;
-                row.childForceExpandHeight = true;
-                foreach (var exit in footer)
-                {
-                    AddOptionButton((RectTransform)rowGo.transform, exit.Label, exit.OnPick,
-                        emphasized: true, null, compact: false);
-                }
+                AddFooterRow(footer);
             }
             else if (showCancel)
             {
@@ -203,7 +130,105 @@ namespace LemonadeWars.Unity
             _backdrop.Hide();
         }
 
-        /// <summary>Read-only line in the option column — same footprint, no chrome.</summary>
+        // ------------------------------------------------------------ chrome
+
+        private void BuildCardStrip()
+        {
+            var stripHost = UiKit.CreatePanel(_root, "Cards", new Color(0, 0, 0, 0));
+            stripHost.GetComponent<Image>().raycastTarget = false;
+            UiKit.Anchor(stripHost, new Vector2(0.10f, 0.44f), new Vector2(0.90f, 0.87f));
+            var rowGo = new GameObject("CardRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            rowGo.transform.SetParent(stripHost, false);
+            UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
+            var rowLayout = rowGo.GetComponent<HorizontalLayoutGroup>();
+            rowLayout.spacing = 16;
+            rowLayout.childAlignment = TextAnchor.MiddleCenter;
+            rowLayout.childForceExpandWidth = false;
+            rowLayout.childForceExpandHeight = false;
+            rowLayout.childControlWidth = true;
+            rowLayout.childControlHeight = true;
+            _cardStrip = (RectTransform)rowGo.transform;
+        }
+
+        /// <summary>
+        /// Cancel is pinned OUTSIDE the option scroll area, so a flooded option list can
+        /// never hide the way out.
+        /// </summary>
+        private void BuildOptionColumn()
+        {
+            var listHost = UiKit.CreatePanel(_root, "Options", new Color(0, 0, 0, 0));
+            UiKit.Anchor(listHost, new Vector2(0.27f, 0.03f), new Vector2(0.73f, 0.44f));
+            var scrollHost = UiKit.CreatePanel(listHost, "OptionScroll", new Color(0, 0, 0, 0));
+            UiKit.Anchor(scrollHost, new Vector2(0, 0.17f), new Vector2(1, 1));
+            _optionScroll = scrollHost;
+            _optionList = UiKit.CreateScrollList(scrollHost);
+            _optionList.GetComponent<VerticalLayoutGroup>().spacing = 8;
+
+            _moreHint = UiKit.CreateText(listHost, "scroll for more options", 13,
+                TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.55f, 0.9f), body: true);
+            _moreHint.raycastTarget = false;
+            UiKit.Anchor((RectTransform)_moreHint.transform, new Vector2(0, 0.155f), new Vector2(1, 0.21f));
+            UiKit.AddTextShadow(_moreHint);
+
+            _cancelHost = UiKit.CreatePanel(listHost, "CancelRow", new Color(0, 0, 0, 0));
+            UiKit.Anchor(_cancelHost, new Vector2(0, 0), new Vector2(1, 0.14f));
+        }
+
+        // ----------------------------------------------------------- content
+
+        private void ShowCards(IReadOnlyList<Texture2D> cards)
+        {
+            UiKit.Clear(_cardStrip);
+            if (cards != null && cards.Count > 0)
+            {
+                // Size cards to fit the strip, generous when there are few.
+                float width = Mathf.Min(240f, (1500f - (cards.Count - 1) * 16f) / cards.Count);
+                float height = width / CardAspect;
+                foreach (var texture in cards)
+                {
+                    if (texture != null)
+                    {
+                        UiKit.CreateCardImage(_cardStrip, texture, width, height);
+                    }
+                }
+            }
+        }
+
+        private void AddOptionRows(IReadOnlyList<Option> options)
+        {
+            // Big lists compress so more choices fit before scrolling starts.
+            bool compact = options.Count > 8;
+            foreach (var option in options)
+            {
+                if (option.OnPick == null)
+                {
+                    // No action = pure information: a plain line, not a button pretending it does something.
+                    AddStaticRow(_optionList, option.Label, compact);
+                    continue;
+                }
+                AddOptionButton(_optionList, option.Label, option.OnPick,
+                    emphasized: true, option.Card, compact);
+            }
+        }
+
+        private void AddFooterRow(IReadOnlyList<Option> footer)
+        {
+            var rowGo = new GameObject("FooterRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            rowGo.transform.SetParent(_cancelHost, false);
+            UiKit.Anchor((RectTransform)rowGo.transform, Vector2.zero, Vector2.one);
+            var row = rowGo.GetComponent<HorizontalLayoutGroup>();
+            row.spacing = 12;
+            row.childControlWidth = true;
+            row.childControlHeight = true;
+            row.childForceExpandWidth = true;
+            row.childForceExpandHeight = true;
+            foreach (var exit in footer)
+            {
+                AddOptionButton((RectTransform)rowGo.transform, exit.Label, exit.OnPick,
+                    emphasized: true, null, compact: false);
+            }
+        }
+
         private static void AddStaticRow(RectTransform parent, string label, bool compact)
         {
             var go = new GameObject("StaticRow", typeof(RectTransform), typeof(LayoutElement));
@@ -217,7 +242,6 @@ namespace LemonadeWars.Unity
                 new Vector2(12, 2), new Vector2(-12, -2));
         }
 
-        /// <summary>Dark rounded button that turns lemonade-yellow on hover.</summary>
         private GameObject AddOptionButton(RectTransform parent, string label, System.Action onPick,
             bool emphasized, Texture2D card, bool compact)
         {
@@ -238,19 +262,7 @@ namespace LemonadeWars.Unity
 
             if (card != null)
             {
-                // Mini card on the right edge; Alt/Cmd over the button blows it up so
-                // the option's rules text is always one keypress away.
-                var thumbGo = new GameObject("CardThumb", typeof(RectTransform), typeof(RawImage));
-                thumbGo.transform.SetParent(go.transform, false);
-                var thumbRect = (RectTransform)thumbGo.transform;
-                thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
-                thumbRect.pivot = new Vector2(1f, 0.5f);
-                thumbRect.sizeDelta = compact ? new Vector2(22f, 30f) : new Vector2(28f, 39f);
-                thumbRect.anchoredPosition = new Vector2(-8f, 0);
-                var thumbImage = thumbGo.GetComponent<RawImage>();
-                thumbImage.texture = card;
-                thumbImage.raycastTarget = false;
-                _preview?.Attach(go, card);
+                AddCardThumbnail(go, card, compact);
             }
 
             UiKit.AddHover(go,
@@ -270,6 +282,22 @@ namespace LemonadeWars.Unity
                 onPick?.Invoke();
             });
             return go;
+        }
+
+        /// <summary>Mini card on the button's right edge; Alt/Cmd over the button blows it up to read its rules text.</summary>
+        private void AddCardThumbnail(GameObject optionButton, Texture2D card, bool compact)
+        {
+            var thumbGo = new GameObject("CardThumb", typeof(RectTransform), typeof(RawImage));
+            thumbGo.transform.SetParent(optionButton.transform, false);
+            var thumbRect = (RectTransform)thumbGo.transform;
+            thumbRect.anchorMin = thumbRect.anchorMax = new Vector2(1f, 0.5f);
+            thumbRect.pivot = new Vector2(1f, 0.5f);
+            thumbRect.sizeDelta = compact ? new Vector2(22f, 30f) : new Vector2(28f, 39f);
+            thumbRect.anchoredPosition = new Vector2(-8f, 0);
+            var thumbImage = thumbGo.GetComponent<RawImage>();
+            thumbImage.texture = card;
+            thumbImage.raycastTarget = false;
+            _preview?.Attach(optionButton, card);
         }
     }
 }

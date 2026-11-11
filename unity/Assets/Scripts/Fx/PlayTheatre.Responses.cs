@@ -18,7 +18,6 @@ namespace LemonadeWars.Unity
         /// <summary>Fanned cards step this much of a card width apart: the badge and the left strip of each stay visible.</summary>
         private const float SpreadStepFraction = 0.7f;
         private const float SpreadSeconds = 0.18f;
-
         private const float PileReturnSeconds = 0.3f;
 
         private sealed class StagedResponse
@@ -42,31 +41,25 @@ namespace LemonadeWars.Unity
         /// <summary>0 = piled where slapped, 1 = fanned out for reading.</summary>
         private float _spreadBlend;
 
+        private bool IsPileOpen => _phase == Phase.Arriving || _phase == Phase.Holding;
+
+        /// <summary>Covers the landing and the breath after it.</summary>
+        private bool IsSlapping => Time.time < _slapUntil;
+
         /// <summary>
-        /// A reaction played at the staged card, by anyone (the viewer included): it
-        /// slaps down on top of the pile from the responder's bar. Ignored when nothing
-        /// is staged — the caller shows a reveal instead.
+        /// A reaction played at the staged card, by anyone (the viewer included). False when
+        /// nothing is staged to land on, so the caller shows a reveal instead.
         /// </summary>
         public bool AddResponse(Texture2D art, string defId, int responderId)
         {
             var bar = _barWorld(responderId);
-            bool pileOpen = _phase == Phase.Arriving || _phase == Phase.Holding;
-            if (!pileOpen || art == null || bar == null)
+            if (!IsPileOpen || art == null || bar == null)
             {
-                return false; // nothing on the table to land on (or it is already leaving)
+                return false;
             }
             var chip = BuildChip(art);
-            PinPlayerBadge(chip, responderId, remember: false);
-            chip.SetAsLastSibling();
-            float turnDegrees = Random.Range(-ResponseTurnDegrees, ResponseTurnDegrees);
-            chip.localEulerAngles = new Vector3(0, 0, turnDegrees);
-            var motion = chip.gameObject.AddComponent<SlapMotion>();
-            motion.From = Local(bar.Value);
-            // Where the staged card IS, not where it was sent: the pile sits on the card.
-            motion.To = _chip.anchoredPosition + new Vector2(
-                Random.Range(-ResponseScatterPx, ResponseScatterPx),
-                Random.Range(-ResponseScatterPx, ResponseScatterPx));
-            chip.anchoredPosition = motion.From;
+            PinPlayerBadge(chip, responderId, isStagedPlay: false);
+            var motion = SlapOntoPile(chip, Local(bar.Value), out float turnDegrees);
             _responses.Add(new StagedResponse
             {
                 Chip = chip,
@@ -80,27 +73,17 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// The viewer's own pick slapped onto the staged play from a spot on the
-        /// board (a Rummage Sale card leaving its stand): no badge, clickable, and
-        /// keyed so it can be sent back. False when nothing is staged to land on.
+        /// The viewer's own pick slapped on from a spot on the board (a Rummage Sale card leaving its stand):
+        /// no badge, clickable, and keyed so it can be sent back. False when nothing is staged to land on.
         /// </summary>
         public bool AddPileCard(Texture2D art, int key, Vector3 fromWorld)
         {
-            bool pileOpen = _phase == Phase.Arriving || _phase == Phase.Holding;
-            if (!pileOpen || art == null)
+            if (!IsPileOpen || art == null)
             {
                 return false;
             }
             var chip = BuildChip(art);
-            chip.SetAsLastSibling();
-            float turnDegrees = Random.Range(-ResponseTurnDegrees, ResponseTurnDegrees);
-            chip.localEulerAngles = new Vector3(0, 0, turnDegrees);
-            var motion = chip.gameObject.AddComponent<SlapMotion>();
-            motion.From = Local(fromWorld);
-            motion.To = _chip.anchoredPosition + new Vector2(
-                Random.Range(-ResponseScatterPx, ResponseScatterPx),
-                Random.Range(-ResponseScatterPx, ResponseScatterPx));
-            chip.anchoredPosition = motion.From;
+            var motion = SlapOntoPile(chip, Local(fromWorld), out float turnDegrees);
             // The art is the raycast target (and already relays hover for the
             // magnifier), so the click handler must sit on it, not on the frame.
             UiKit.AddClick(chip.GetComponentInChildren<RawImage>().gameObject,
@@ -117,7 +100,7 @@ namespace LemonadeWars.Unity
             return true;
         }
 
-        /// <summary>A keyed pile card goes back where it came from, straightening as it flies.</summary>
+        /// <param name="toWorld">Where the card flies home to; null removes it on the spot.</param>
         public void ReturnPileCard(int key, Vector3? toWorld)
         {
             for (int i = _responses.Count - 1; i >= 0; i--)
@@ -137,22 +120,11 @@ namespace LemonadeWars.Unity
                     Object.Destroy(response.Chip.gameObject);
                     return;
                 }
-                _preview.Hide();
-                Object.Destroy(response.Motion);
-                response.Chip.localEulerAngles = Vector3.zero;
-                response.Chip.GetComponent<CanvasGroup>().blocksRaycasts = false;
-                var flight = response.Chip.gameObject.AddComponent<FlightMotion>();
-                flight.From = response.Chip.anchoredPosition;
-                flight.To = Local(toWorld.Value);
-                flight.Duration = PileReturnSeconds;
-                flight.ArcHeight = 0f;
-                flight.VisibleWhileWaiting = true;
-                flight.FadeOutFrom = 0.7f;
+                FlyPileCardHome(response, toWorld.Value);
                 return;
             }
         }
 
-        /// <summary>Every keyed card flies home (the sale was called off).</summary>
         public void ReturnAllPileCards(System.Func<int, Vector3?> homeWorld)
         {
             foreach (var key in _responses.Where(r => r.Key >= 0).Select(r => r.Key).ToList())
@@ -162,9 +134,8 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// A reaction that has resolved while the play under it lives on (the Tantrum
-        /// that stopped another Tantrum, a Tag that moved the attack) is spent: it
-        /// fades off the pile after its landing beat, leaving the card open again.
+        /// A reaction that resolved while the play under it lives on (a Tantrum that stopped a Tantrum, a Tag
+        /// that moved the attack) is spent: it fades off the pile after its landing beat.
         /// </summary>
         public void SettleResponse(int ownerId, string defId)
         {
@@ -175,23 +146,6 @@ namespace LemonadeWars.Unity
                 {
                     response.FadeWhenSettled = true;
                     return;
-                }
-            }
-        }
-
-        private void FadeSettledResponses()
-        {
-            if (Slapping)
-            {
-                return; // the landing and its breath belong to the card
-            }
-            for (int i = _responses.Count - 1; i >= 0; i--)
-            {
-                var response = _responses[i];
-                if (response.FadeWhenSettled && response.Motion != null && response.Motion.Landed)
-                {
-                    response.Motion.BeginFade();
-                    _responses.RemoveAt(i);
                 }
             }
         }
@@ -211,13 +165,73 @@ namespace LemonadeWars.Unity
             }
         }
 
-        /// <summary>True while a reaction is still coming down.</summary>
-        private bool Slapping => Time.time < _slapUntil;
+        public bool PointerOverPile()
+        {
+            Vector2 pointer = Input.mousePosition;
+            if (_chip != null && RectTransformUtility.RectangleContainsScreenPoint(_chip, pointer))
+            {
+                return true;
+            }
+            foreach (var response in _responses)
+            {
+                if (response.Chip != null && RectTransformUtility.RectangleContainsScreenPoint(response.Chip, pointer))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private SlapMotion SlapOntoPile(RectTransform chip, Vector2 from, out float turnDegrees)
+        {
+            chip.SetAsLastSibling();
+            turnDegrees = Random.Range(-ResponseTurnDegrees, ResponseTurnDegrees);
+            chip.localEulerAngles = new Vector3(0, 0, turnDegrees);
+            var motion = chip.gameObject.AddComponent<SlapMotion>();
+            motion.From = from;
+            // Where the staged card IS, not where it was sent: the pile sits on the card.
+            motion.To = _chip.anchoredPosition + new Vector2(
+                Random.Range(-ResponseScatterPx, ResponseScatterPx),
+                Random.Range(-ResponseScatterPx, ResponseScatterPx));
+            chip.anchoredPosition = motion.From;
+            return motion;
+        }
+
+        private void FlyPileCardHome(StagedResponse response, Vector3 toWorld)
+        {
+            _preview.Hide();
+            Object.Destroy(response.Motion);
+            response.Chip.localEulerAngles = Vector3.zero;
+            response.Chip.GetComponent<CanvasGroup>().blocksRaycasts = false;
+            var flight = response.Chip.gameObject.AddComponent<FlightMotion>();
+            flight.From = response.Chip.anchoredPosition;
+            flight.To = Local(toWorld);
+            flight.Duration = PileReturnSeconds;
+            flight.ArcHeight = 0f;
+            flight.VisibleWhileWaiting = true;
+            flight.FadeOutFrom = 0.7f;
+        }
+
+        private void FadeSettledResponses()
+        {
+            if (IsSlapping)
+            {
+                return; // the landing and its breath belong to the card
+            }
+            for (int i = _responses.Count - 1; i >= 0; i--)
+            {
+                var response = _responses[i];
+                if (response.FadeWhenSettled && response.Motion != null && response.Motion.Landed)
+                {
+                    response.Motion.BeginFade();
+                    _responses.RemoveAt(i);
+                }
+            }
+        }
 
         /// <summary>
-        /// Fan the pile out while the pointer rests on any card of it (the staged
-        /// play included), and let it fall back into its slapped mess otherwise.
-        /// Only landed cards are placed here; one still slapping down is the slap's.
+        /// Fans the pile out while the pointer rests on any card of it (the staged play included).
+        /// Only landed cards are placed here; one still slapping down belongs to its slap.
         /// </summary>
         private void TickSpread()
         {
@@ -237,32 +251,12 @@ namespace LemonadeWars.Unity
                 response.Chip.anchoredPosition = Vector2.Lerp(response.Motion.To, fanned, eased);
                 response.Chip.localEulerAngles = new Vector3(0, 0, Mathf.Lerp(response.TurnDegrees, 0f, eased));
             }
-            // A stolen card beside the play stays put: the fan is slapped on later, so
-            // it simply draws over the loot until it folds back.
-        }
-
-        /// <summary>The pointer rests on the staged card or anything piled on it (fanned or not).</summary>
-        public bool PointerOverPile()
-        {
-            Vector2 pointer = Input.mousePosition;
-            if (_chip != null && RectTransformUtility.RectangleContainsScreenPoint(_chip, pointer))
-            {
-                return true;
-            }
-            foreach (var response in _responses)
-            {
-                if (response.Chip != null && RectTransformUtility.RectangleContainsScreenPoint(response.Chip, pointer))
-                {
-                    return true;
-                }
-            }
-            return false;
+            // Loot staged beside the play stays put: the fan simply draws over it until it folds back.
         }
 
         /// <summary>
-        /// The staged play is leaving: whatever was thrown at it fades where it fell.
-        /// Returns true when there was a pile to fade — the card under it waits for
-        /// that fade before moving, or it slides out from under the pile mid-fade.
+        /// The staged play is leaving: whatever was thrown at it fades where it fell. True when there was a
+        /// pile to fade; the card under it waits for that, or it slides out from under the pile mid-fade.
         /// </summary>
         private bool FadeResponses()
         {

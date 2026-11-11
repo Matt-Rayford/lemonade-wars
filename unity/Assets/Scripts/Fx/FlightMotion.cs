@@ -10,7 +10,6 @@ namespace LemonadeWars.Unity
         public float Delay;
         public float Duration = 0.55f;
         public float ArcHeight = 110f;
-        /// <summary>Scale on arrival (1 = unchanged) — claim flights land smaller.</summary>
         public float EndScale = 1f;
         /// <summary>Sit visible at From through the delay (a card waiting on the shelf) instead of hidden.</summary>
         public bool VisibleWhileWaiting;
@@ -18,8 +17,7 @@ namespace LemonadeWars.Unity
         public float FadeOutFrom = 1f;
         /// <summary>Stay put at To this long after arriving, so whatever replaces the card underneath is drawn before it goes.</summary>
         public float LingerAfterArrivalSeconds;
-        /// <summary>Fires once when the delay elapses and the flight actually begins —
-        /// late-bind To here if the layout may have moved during the delay.</summary>
+        /// <summary>Fires once when the delay elapses; late-bind To here if the layout may have moved meanwhile.</summary>
         public System.Action OnStart;
         public System.Action OnArrive;
 
@@ -39,8 +37,8 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             _elapsed += Time.deltaTime;
-            float t = (_elapsed - Delay) / Duration;
-            if (t < 0f)
+            float progress = (_elapsed - Delay) / Duration;
+            if (progress < 0f)
             {
                 if (VisibleWhileWaiting)
                 {
@@ -55,7 +53,7 @@ namespace LemonadeWars.Unity
                 _started = true;
                 OnStart?.Invoke();
             }
-            if (t >= 1f)
+            if (progress >= 1f)
             {
                 _rect.anchoredPosition = To;
                 transform.localScale = Vector3.one * EndScale;
@@ -65,11 +63,13 @@ namespace LemonadeWars.Unity
                 Destroy(gameObject, LingerAfterArrivalSeconds);
                 return;
             }
-            float fadeOut = FadeOutFrom >= 1f ? 1f : 1f - Mathf.Clamp01((t - FadeOutFrom) / (1f - FadeOutFrom));
-            _group.alpha = Mathf.Min(VisibleWhileWaiting ? 1f : Mathf.Clamp01(t * 6f), fadeOut);
-            float eased = t * t * (3f - 2f * t);
+            float fadeOut = FadeOutFrom >= 1f
+                ? 1f
+                : 1f - Mathf.Clamp01((progress - FadeOutFrom) / (1f - FadeOutFrom));
+            _group.alpha = Mathf.Min(VisibleWhileWaiting ? 1f : Mathf.Clamp01(progress * 6f), fadeOut);
+            float eased = progress * progress * (3f - 2f * progress);
             var position = Vector2.Lerp(From, To, eased);
-            position.y += ArcHeight * 4f * t * (1f - t);
+            position.y += ArcHeight * 4f * progress * (1f - progress);
             _rect.anchoredPosition = position;
             transform.localScale = Vector3.one * Mathf.Lerp(1f, EndScale, eased);
         }

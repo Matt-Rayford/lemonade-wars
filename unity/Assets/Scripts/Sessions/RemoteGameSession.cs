@@ -14,10 +14,10 @@ using Newtonsoft.Json.Linq;
 
 namespace LemonadeWars.Unity
 {
-    /// <summary>Networked play against the Lemonade Wars server.</summary>
     public sealed class RemoteGameSession : IGameSession
     {
         private const float AutoplaySeconds = 0.4f;
+        private const int MaxLogLines = 18;
 
         private readonly ClientWebSocket _socket = new ClientWebSocket();
         private readonly ConcurrentQueue<JObject> _inbox = new ConcurrentQueue<JObject>();
@@ -33,11 +33,10 @@ namespace LemonadeWars.Unity
         public string ConnectionError { get; private set; } = "";
         public bool Connected => _socket.State == WebSocketState.Open;
 
-        /// <summary>Durable public id from the server's welcome; empty pre-hello.</summary>
+        /// <summary>Durable public id from the server's welcome; empty before hello.</summary>
         public string PlayerId { get; private set; } = "";
-        /// <summary>My Games snapshot from the latest welcome/games message.</summary>
         public List<GameSummary> GamesList { get; private set; } = new List<GameSummary>();
-        /// <summary>A game you're not watching needs you; payload is its room code.</summary>
+        /// <summary>A game you're not watching needs you; the payload is its room code.</summary>
         public event Action<string> TurnAlert;
 
         public PlayerView View { get; private set; }
@@ -114,11 +113,8 @@ namespace LemonadeWars.Unity
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 
-        /// <summary>
-        /// Deliberate exit: tells the server to free the seat (a dropped socket keeps
-        /// it for a token rejoin), and closes only once that message is on the wire —
-        /// Dispose cancels in-flight sends, so the order matters.
-        /// </summary>
+        /// <summary>Tells the server to free the seat (a dropped socket keeps it for a token rejoin).
+        /// Closes only once that message is on the wire: Dispose cancels in-flight sends.</summary>
         public void Leave()
         {
             byte[] payload = Encoding.UTF8.GetBytes(
@@ -126,7 +122,6 @@ namespace LemonadeWars.Unity
             _ = SendPayloadAsync(payload).ContinueWith(_ => Dispose());
         }
 
-        /// <summary>The viewer's own ready flag, from the latest room snapshot.</summary>
         public bool MyReady =>
             Room.Seats.FirstOrDefault(s => s.Seat == Room.YourSeat)?.Ready == true;
 
@@ -163,80 +158,92 @@ namespace LemonadeWars.Unity
             switch ((string)message["type"])
             {
                 case MessageType.Room:
-                {
-                    var room = message.ToObject<RoomMessage>(_serializer);
-                    Room.Code = room.Code;
-                    Room.YourSeat = room.YourSeat;
-                    Room.Token = room.Token;
-                    Room.Started = room.Started;
-                    Room.Speed = room.Speed;
-                    Room.Seats = room.Seats;
-                    Revision++;
-                    RoomChanged?.Invoke();
+                    HandleRoom(message);
                     break;
-                }
                 case MessageType.Update:
-                {
-                    if (message["view"] is JObject viewJson)
-                    {
-                        View = viewJson.ToObject<PlayerView>(_serializer);
-                    }
-                    var moves = new List<GameAction>();
-                    _labels.Clear();
-                    if (message["moves"] is JArray movesJson)
-                    {
-                        foreach (var entry in movesJson.OfType<JObject>())
-                        {
-                            if (entry["action"] is JObject actionJson)
-                            {
-                                var action = WireCodec.DecodeAction(actionJson);
-                                moves.Add(action);
-                                _labels[action] = (string)entry["label"] ?? "";
-                            }
-                        }
-                    }
-                    Moves = moves;
-                    if (message["events"] is JArray events)
-                    {
-                        foreach (var entry in events.OfType<JObject>())
-                        {
-                            AddLog((string)entry["label"] ?? "");
-                            var decoded = WireCodec.DecodeEvent(entry);
-                            if (decoded != null)
-                            {
-                                EventEmitted?.Invoke(decoded);
-                            }
-                        }
-                    }
-                    Revision++;
+                    HandleUpdate(message);
                     break;
-                }
                 case MessageType.Welcome:
-                {
                     PlayerId = (string)message["playerId"] ?? "";
                     GamesList = ParseGames(message);
                     Revision++;
                     break;
-                }
                 case MessageType.Games:
-                {
                     GamesList = ParseGames(message);
                     Revision++;
                     break;
-                }
                 case MessageType.TurnAlert:
-                {
-                    string code = (string)message["code"] ?? "";
-                    if (code.Length > 0)
-                    {
-                        TurnAlert?.Invoke(code);
-                    }
+                    HandleTurnAlert(message);
                     break;
-                }
                 case MessageType.Error:
                     AddLog("! " + (string)message["message"]);
                     Revision++;
                     break;
+            }
+        }
+
+        private void HandleRoom(JObject message)
+        {
+            var room = message.ToObject<RoomMessage>(_serializer);
+            Room.Code = room.Code;
+            Room.YourSeat = room.YourSeat;
+            Room.Token = room.Token;
+            Room.Started = room.Started;
+            Room.Speed = room.Speed;
+            Room.Seats = room.Seats;
+            Revision++;
+            RoomChanged?.Invoke();
+        }
+
+        /// <summary>The view and moves are in place before the events go out, so their handlers
+        /// read the post-action state.</summary>
+        private void HandleUpdate(JObject message)
+        {
+            if (message["view"] is JObject viewJson)
+            {
+                View = viewJson.ToObject<PlayerView>(_serializer);
+            }
+            Moves = DecodeLabelledMoves(message);
+            if (message["events"] is JArray events)
+            {
+                foreach (var entry in events.OfType<JObject>())
+                {
+                    AddLog((string)entry["label"] ?? "");
+                    var decoded = WireCodec.DecodeEvent(entry);
+                    if (decoded != null)
+                    {
+                        EventEmitted?.Invoke(decoded);
+                    }
+                }
+            }
+            Revision++;
+        }
+
+        private List<GameAction> DecodeLabelledMoves(JObject message)
+        {
+            var moves = new List<GameAction>();
+            _labels.Clear();
+            if (message["moves"] is JArray movesJson)
+            {
+                foreach (var entry in movesJson.OfType<JObject>())
+                {
+                    if (entry["action"] is JObject actionJson)
+                    {
+                        var action = WireCodec.DecodeAction(actionJson);
+                        moves.Add(action);
+                        _labels[action] = (string)entry["label"] ?? "";
+                    }
+                }
+            }
+            return moves;
+        }
+
+        private void HandleTurnAlert(JObject message)
+        {
+            string code = (string)message["code"] ?? "";
+            if (code.Length > 0)
+            {
+                TurnAlert?.Invoke(code);
             }
         }
 
@@ -294,7 +301,7 @@ namespace LemonadeWars.Unity
                 return;
             }
             _log.Add(line);
-            if (_log.Count > 18)
+            if (_log.Count > MaxLogLines)
             {
                 _log.RemoveAt(0);
             }

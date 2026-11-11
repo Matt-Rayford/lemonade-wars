@@ -33,10 +33,10 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(dim, Vector2.zero, Vector2.one);
         }
 
-        /// <summary>Capture + blur the current frame, then activate the overlay root.</summary>
+        /// <summary>The overlay root activates next frame, once the finished frame has been captured and blurred.</summary>
         public void Reveal(GameObject overlayRoot)
         {
-            _host.StartCoroutine(Run(++_token, overlayRoot));
+            _host.StartCoroutine(CaptureThenReveal(++_token, overlayRoot));
         }
 
         public void Hide()
@@ -45,7 +45,7 @@ namespace LemonadeWars.Unity
             Release();
         }
 
-        private IEnumerator Run(int token, GameObject overlayRoot)
+        private IEnumerator CaptureThenReveal(int token, GameObject overlayRoot)
         {
             yield return new WaitForEndOfFrame(); // let the current frame finish rendering
             if (token != _token)
@@ -53,11 +53,8 @@ namespace LemonadeWars.Unity
                 yield break; // closed (or reopened) while waiting
             }
 
-            // The capture/blur is decoration; the ACTIVATION below is load-bearing.
-            // Owners mark themselves open the moment Reveal is called, so a capture
-            // hiccup (editor Game-view resizes love to break CaptureScreenshot) must
-            // degrade to a plain dark backdrop — never to an invisible-open modal
-            // that soft-locks the whole table behind it.
+            // Owners are already marked open, so a failed capture must degrade to a plain
+            // dark backdrop: skipping the activation below would soft-lock the table.
             try
             {
                 Release();
@@ -91,11 +88,11 @@ namespace LemonadeWars.Unity
             {
                 return null;
             }
-            int w = source.width;
-            int h = source.height;
-            var quarter = RenderTexture.GetTemporary(w / 4, h / 4);
-            var eighth = RenderTexture.GetTemporary(w / 8, h / 8);
-            var sixteenth = RenderTexture.GetTemporary(w / 16, h / 16);
+            int width = source.width;
+            int height = source.height;
+            var quarter = RenderTexture.GetTemporary(width / 4, height / 4);
+            var eighth = RenderTexture.GetTemporary(width / 8, height / 8);
+            var sixteenth = RenderTexture.GetTemporary(width / 16, height / 16);
             Graphics.Blit(source, quarter);
             Graphics.Blit(quarter, eighth);
             Graphics.Blit(eighth, sixteenth);

@@ -7,24 +7,30 @@ namespace LemonadeWars.Unity
     /// frozen-state console dump.</summary>
     public sealed partial class LemonadeWarsApp
     {
+        private const float WedgedEffectSeconds = 8f;
+        /// <summary>A fresh modal legitimately takes a frame or two to appear.</summary>
+        private const float StuckGraceSeconds = 2f;
+
         private float _stuckSince = -1f;
         private float _fxBusySince = -1f;
         private int _fxBlocksSeen = -1;
 
         /// <summary>
-        /// Self-healing for the soft-lock family: when the player is owed a modal but
-        /// nothing is on screen (or an overlay is open-but-invisible, or the effects
-        /// queue has been "busy" implausibly long), log exactly what was seen and
-        /// force the presentation machinery to recover. The game state is always
-        /// fine underneath — these locks are pure presentation, so healing is safe.
+        /// Soft-locks are pure presentation (the game state underneath is always fine),
+        /// so when one is seen it is logged and the presentation machinery is reset.
         /// </summary>
         private void TickPresentationWatchdog()
         {
-            // Effects stuck: blocking theatre should advance every ~2s on its own.
-            // Measure PROGRESS, not total time — a big exchange (attack, tag,
-            // retarget, steals) legitimately chains theatre well past 8s, and the old
-            // total-time check cleared it mid-show. Only a single effect that sits
-            // for 8s without a new one starting is actually wedged.
+            ClearWedgedEffect();
+            HealStuckPresentation();
+        }
+
+        /// <summary>
+        /// Measures PROGRESS, not total time: a big exchange legitimately chains theatre
+        /// well past the limit. Only one effect sitting that long without a new one starting is wedged.
+        /// </summary>
+        private void ClearWedgedEffect()
+        {
             if (_fx.IsBusy)
             {
                 if (_fxBusySince < 0f || _fx.BlocksStarted != _fxBlocksSeen)
@@ -32,12 +38,12 @@ namespace LemonadeWars.Unity
                     _fxBusySince = Time.time;
                     _fxBlocksSeen = _fx.BlocksStarted;
                 }
-                else if (Time.time - _fxBusySince > 8f)
+                else if (Time.time - _fxBusySince > WedgedEffectSeconds)
                 {
                     Debug.LogWarning("[LW] watchdog: one effect busy >8s — clearing. " + _fx.DebugState());
                     _fx.Clear();
                     _playTheatre.Clear();
-            _playTheatre.Clear();
+                    _playTheatre.Clear();
                     _fxBusySince = -1f;
                 }
             }
@@ -45,20 +51,15 @@ namespace LemonadeWars.Unity
             {
                 _fxBusySince = -1f;
             }
+        }
 
+        /// <summary>The player is owed a modal but nothing is on screen, or an overlay is open but invisible.</summary>
+        private void HealStuckPresentation()
+        {
             var groups = CurrentGroups();
             bool blocked = _turnBanner.IsOpen || _dice.IsBusy || _fx.IsBusy || _playTheatre.IsBusy;
             bool modalDue = groups != null && groups.IsModal && groups.ModalMoves.Count > 0;
-            // Table-live surfaces answer a modal without a modal: the message-strip
-            // buttons (reactions, the Timeout fine, Rummage Sale), a held card, the
-            // aim layers and the discard browser all count as the modal being shown.
-            bool modalVisible = (_prompt.IsOpen && _prompt.RootVisible) ||
-                                (_picker.IsOpen && _picker.RootVisible) ||
-                                _table.PlayerPickActive ||
-                                _reaction.IsOpen ||
-                                _tableActionHost.childCount > 0 ||
-                                _table.StickyDragActive || _table.EquipTargetingActive ||
-                                _table.DiscardPickerOpen || _table.RummagePickActive;
+            bool modalVisible = IsModalAnswerableOnScreen();
             bool bannerGhost = _turnBanner.IsOpen && !_turnBanner.RootVisible;
             bool overlayGhost = (_prompt.IsOpen && !_prompt.RootVisible) ||
                                 (_picker.IsOpen && !_picker.RootVisible);
@@ -73,9 +74,9 @@ namespace LemonadeWars.Unity
                 _stuckSince = Time.time;
                 return;
             }
-            if (Time.time - _stuckSince < 2f)
+            if (Time.time - _stuckSince < StuckGraceSeconds)
             {
-                return; // a fresh modal legitimately takes a frame or two
+                return;
             }
             _stuckSince = -1f;
             Debug.LogWarning("[LW] watchdog: presentation stuck — healing. " +
@@ -96,30 +97,43 @@ namespace LemonadeWars.Unity
             _renderedRevision = -1; // full re-render; MaybeShowModal runs fresh
         }
 
-        /// <summary>[D]: dump every presentation gate to the console — the frozen-state
-        /// forensics kit. Each line names a layer that can silently block the table.</summary>
+        /// <summary>
+        /// Table-live surfaces answer a modal without a modal: the message-strip buttons
+        /// (reactions, the Timeout fine, Rummage Sale), a held card, the aim layers and the discard browser.
+        /// </summary>
+        private bool IsModalAnswerableOnScreen() =>
+            (_prompt.IsOpen && _prompt.RootVisible) ||
+            (_picker.IsOpen && _picker.RootVisible) ||
+            _table.PlayerPickActive ||
+            _reaction.IsOpen ||
+            _tableActionHost.childCount > 0 ||
+            _table.StickyDragActive || _table.EquipTargetingActive ||
+            _table.DiscardPickerOpen || _table.RummagePickActive;
+
+        /// <summary>[D]: dumps every presentation gate to the console. Each line names a
+        /// layer that can silently block the table.</summary>
         private void DumpDebugState()
         {
             var groups = CurrentGroups();
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"revision={_session.Revision} rendered={_renderedRevision} " +
+            var dump = new System.Text.StringBuilder();
+            dump.AppendLine($"revision={_session.Revision} rendered={_renderedRevision} " +
                 $"modalRev={_modalRevision} wasMyTurn={_wasMyTurn} autoplay={_session.HumanAutoplay}");
-            sb.AppendLine($"banner: open={_turnBanner.IsOpen} visible={_turnBanner.RootVisible}");
-            sb.AppendLine($"prompt: open={_prompt.IsOpen} visible={_prompt.RootVisible}   " +
+            dump.AppendLine($"banner: open={_turnBanner.IsOpen} visible={_turnBanner.RootVisible}");
+            dump.AppendLine($"prompt: open={_prompt.IsOpen} visible={_prompt.RootVisible}   " +
                 $"picker: open={_picker.IsOpen} visible={_picker.RootVisible}");
-            sb.AppendLine($"dice: busy={_dice.IsBusy}   fx: {_fx.DebugState()}");
-            sb.AppendLine($"groups: isModal={groups?.IsModal} modal={groups?.ModalMoves.Count} " +
+            dump.AppendLine($"dice: busy={_dice.IsBusy}   fx: {_fx.DebugState()}");
+            dump.AppendLine($"groups: isModal={groups?.IsModal} modal={groups?.ModalMoves.Count} " +
                 $"bar={groups?.BarMoves.Count} hand={groups?.HandMoves.Count} " +
                 $"supply={groups?.SupplyMoves.Count} market={groups?.MarketMoves.Count}");
-            sb.AppendLine($"moves({_session.Moves.Count}): " + string.Join(" | ",
+            dump.AppendLine($"moves({_session.Moves.Count}): " + string.Join(" | ",
                 _session.Moves.Take(8).Select(m => _session.LabelFor(m))));
             if (View != null)
             {
-                sb.AppendLine($"view: stage={View.Stage} phase={View.Phase} " +
+                dump.AppendLine($"view: stage={View.Stage} phase={View.Phase} " +
                     $"active={View.ActivePlayer} decisions=[{string.Join(",", View.MyDecisions.Select(d => d.Kind))}] " +
                     $"awaiting=[{string.Join(",", View.AwaitingResponse)}]");
             }
-            Debug.Log("[LW DUMP]\n" + sb);
+            Debug.Log("[LW DUMP]\n" + dump);
         }
     }
 }

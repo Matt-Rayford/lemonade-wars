@@ -3,14 +3,12 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // Dashed-outline drawing shared by the hand's draw slot and the board's empty
-    // VP placeholder.
+    // Dashed outlines, shared by the hand's draw slot and the board's empty VP placeholder.
     public sealed partial class TableView
     {
         /// <summary>
-        /// Dashed outline matching the cards' rounded-corner geometry: dashes walk the
-        /// full rounded-rect path (corners included) at an even spacing computed to fit
-        /// the perimeter exactly, each rotated to its local tangent.
+        /// Dashes walk the whole rounded-rect path, corners included, each turned to its
+        /// local tangent, at an even spacing fitted to the perimeter.
         /// </summary>
         private static void AddDashedRoundedOutline(RectTransform host, float width,
             float height, float radius, Color color)
@@ -19,74 +17,75 @@ namespace LemonadeWars.Unity
             const float dashLength = 13f;
             const float targetSpacing = 24f; // dash + gap, before fitting
 
-            // Straight-edge lengths on the dash centerline.
-            float straightW = width - 2f * radius;
-            float straightH = height - 2f * radius;
+            float straightWidth = width - 2f * radius;
+            float straightHeight = height - 2f * radius;
             float arc = radius * Mathf.PI / 2f;
-            float perimeter = 2f * (straightW + straightH) + 4f * arc;
+            float perimeter = 2f * (straightWidth + straightHeight) + 4f * arc;
             int count = Mathf.Max(8, Mathf.RoundToInt(perimeter / targetSpacing));
             float step = perimeter / count;
 
             for (int i = 0; i < count; i++)
             {
-                var (position, angle) = PointOnRoundedRect(i * step, straightW, straightH, radius);
+                var (position, angle) = PointOnRoundedRect(i * step, straightWidth, straightHeight, radius);
                 AddDash(host, position, new Vector2(dashLength, thickness), color, angle);
             }
         }
 
-        /// <summary>Position + tangent angle at the given distance along a clockwise rounded
-        /// rect (starting at the top edge's left end), centered on the origin.</summary>
+        /// <summary>
+        /// Position and tangent angle at a distance along a clockwise rounded rect centred
+        /// on the origin, starting at the left end of its top edge.
+        /// </summary>
         private static (Vector2 Position, float Angle) PointOnRoundedRect(
-            float distance, float straightW, float straightH, float radius)
+            float distance, float straightWidth, float straightHeight, float radius)
         {
             float arc = radius * Mathf.PI / 2f;
-            float hw = straightW / 2f;
-            float hh = straightH / 2f;
+            float halfWidth = straightWidth / 2f;
+            float halfHeight = straightHeight / 2f;
 
-            (Vector2, float) OnArc(Vector2 center, float startDegrees, float t)
+            (Vector2, float) OnArc(Vector2 center, float startDegrees, float progress)
             {
-                float theta = startDegrees - 90f * t;
+                float theta = startDegrees - 90f * progress;
                 var direction = new Vector2(
                     Mathf.Cos(theta * Mathf.Deg2Rad), Mathf.Sin(theta * Mathf.Deg2Rad));
                 return (center + radius * direction, theta - 90f);
             }
 
-            if (distance < straightW) // top edge, left to right
+            if (distance < straightWidth) // top edge, left to right
             {
-                return (new Vector2(-hw + distance, hh + radius), 0f);
+                return (new Vector2(-halfWidth + distance, halfHeight + radius), 0f);
             }
-            distance -= straightW;
+            distance -= straightWidth;
             if (distance < arc)
             {
-                return OnArc(new Vector2(hw, hh), 90f, distance / arc);
+                return OnArc(new Vector2(halfWidth, halfHeight), 90f, distance / arc);
             }
             distance -= arc;
-            if (distance < straightH) // right edge, downward
+            if (distance < straightHeight) // right edge, downward
             {
-                return (new Vector2(hw + radius, hh - distance), 90f);
+                return (new Vector2(halfWidth + radius, halfHeight - distance), 90f);
             }
-            distance -= straightH;
+            distance -= straightHeight;
             if (distance < arc)
             {
-                return OnArc(new Vector2(hw, -hh), 0f, distance / arc);
+                return OnArc(new Vector2(halfWidth, -halfHeight), 0f, distance / arc);
             }
             distance -= arc;
-            if (distance < straightW) // bottom edge, right to left
+            if (distance < straightWidth) // bottom edge, right to left
             {
-                return (new Vector2(hw - distance, -hh - radius), 0f);
+                return (new Vector2(halfWidth - distance, -halfHeight - radius), 0f);
             }
-            distance -= straightW;
+            distance -= straightWidth;
             if (distance < arc)
             {
-                return OnArc(new Vector2(-hw, -hh), -90f, distance / arc);
+                return OnArc(new Vector2(-halfWidth, -halfHeight), -90f, distance / arc);
             }
             distance -= arc;
-            if (distance < straightH) // left edge, upward
+            if (distance < straightHeight) // left edge, upward
             {
-                return (new Vector2(-hw - radius, -hh + distance), 90f);
+                return (new Vector2(-halfWidth - radius, -halfHeight + distance), 90f);
             }
-            distance -= straightH;
-            return OnArc(new Vector2(-hw, hh), 180f, Mathf.Clamp01(distance / arc));
+            distance -= straightHeight;
+            return OnArc(new Vector2(-halfWidth, halfHeight), 180f, Mathf.Clamp01(distance / arc));
         }
 
         private static void AddDash(RectTransform host, Vector2 position, Vector2 size,

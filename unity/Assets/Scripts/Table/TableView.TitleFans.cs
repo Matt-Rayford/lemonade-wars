@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
@@ -10,44 +11,33 @@ namespace LemonadeWars.Unity
     // the claim-reveal flights aim at.
     public sealed partial class TableView
     {
+        private const float TitleFanCardWidthPx = 190f;
+        private const float TitleFanCardHeightPx = 266f;
+        /// <summary>How much of a title card shows above the screen's bottom edge at rest.</summary>
+        private const float TitleFanPeekPx = 158f;
+        private const float TitleFanRestY = TitleFanPeekPx - TitleFanCardHeightPx;
+        private const float TitleFanRaisedY = 12f;
+        /// <summary>Neighbouring cards overlap to this share of a card's width, or tighter when the zone is narrow.</summary>
+        private const float TitleFanMaxSpacingFraction = 0.72f;
+
         private RectTransform _lordHost;
         private RectTransform _dibsHost;
-        // Last-rendered fingerprints for the skip of unchanged rebuilds — same reason
-        // as the hand's _handSignature: rebuilding a hovered fan drops the raise.
+        // An unchanged fan is not rebuilt: rebuilding a hovered fan drops the raise.
         private string _dibsSignature;
         private string _lordSignature;
 
-        /// <summary>While true, the Whiniest Baby card stays OUT of the lord fan even
-        /// though the view says we hold it — set for the span of the claim reveal's
-        /// flight, lifted when the card lands (see LemonadeWarsApp).</summary>
+        /// <summary>While true, the Whiniest Baby card stays OUT of the lord fan and the player bars even
+        /// though the view says it is held: the app sets it for the span of the claim reveal's flight.</summary>
         public bool SuppressWhiniestBaby;
         /// <summary>Spoiled Rotten's twin of SuppressWhiniestBaby.</summary>
         public bool SuppressSpoiledRotten;
-        /// <summary>Whether the rendered fan currently includes the baby card — the
-        /// Spoiled Rotten flight lands one slot further right when it does.</summary>
+        /// <summary>The Spoiled Rotten flight lands one slot further right while the baby is in the fan.</summary>
         private bool _lordFanHasBaby;
 
-        /// <summary>
-        /// First Dibs titles: overlapped peek cards, bottom-left. Unclaimed titles from
-        /// the row first, then claimed ones wearing their claimant's name chip.
-        /// </summary>
+        /// <summary>Unclaimed titles from the row first, then claimed ones wearing their claimant's name.</summary>
         private void RenderFirstDibs(PlayerView view)
         {
-            var entries = new List<(string TitleId, string ClaimedBy)>();
-            foreach (string titleId in view.FirstDibsRow)
-            {
-                entries.Add((titleId, null));
-            }
-            foreach (var player in view.Players)
-            {
-                foreach (string claimed in player.FirstDibsClaimed)
-                {
-                    entries.Add((claimed, player.Name));
-                }
-            }
-
-            // Same skip as the hand: don't tear down a hovered fan over a re-render
-            // that changed nothing here.
+            var entries = FirstDibsEntries(view);
             string signature = Mathf.RoundToInt(_dibsHost.rect.width) + "|" +
                 string.Join(",", entries.Select(e => e.TitleId + ":" + e.ClaimedBy));
             if (signature == _dibsSignature)
@@ -62,81 +52,56 @@ namespace LemonadeWars.Unity
                 return;
             }
 
-            const float width = 190f;
-            const float height = 266f;
-            const float raisedY = 12f;
-            const float peek = 158f;
-
             float available = _dibsHost.rect.width;
             if (available < 10f)
             {
-                available = 390f;
+                available = 390f; // first-frame fallback before canvas layout settles
             }
-            // The zone is narrow: compress overlap as needed, hover-raise keeps it readable.
-            float spacing = entries.Count > 1
-                ? Mathf.Min(width * 0.72f, (available - width) / (entries.Count - 1))
-                : 0f;
-            float startX = -(width + spacing * (entries.Count - 1)) / 2f + width / 2f;
+            float spacing = TitleFanSpacing(entries.Count, available);
+            float startX = TitleFanStartX(entries.Count, spacing);
 
             for (int i = 0; i < entries.Count; i++)
             {
                 var (titleId, claimedBy) = entries[i];
                 var texture = _art.Title(titleId);
-
-                var image = UiKit.CreateCardImage(_dibsHost, texture, width, height);
-                var frame = (RectTransform)image.transform.parent;
-                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
-                frame.pivot = new Vector2(0.5f, 0f);
-                frame.sizeDelta = new Vector2(width, height);
-                float restY = peek - height;
-                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
-                var motion = frame.gameObject.AddComponent<HandCardMotion>();
-                motion.TargetY = restY;
-
+                var card = AddTitleFanCard(_dibsHost, texture, startX + i * spacing);
                 if (claimedBy != null)
                 {
-                    var chip = UiKit.CreatePanel(frame, "ClaimChip", UiKit.ButtonColor);
-                    UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-                    chip.sizeDelta = new Vector2(width - 40f, 24f);
-                    chip.anchoredPosition = new Vector2(0, -24f);
-                    var chipText = UiKit.CreateText(chip, claimedBy.ToUpperInvariant(), 13,
-                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
-                    UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+                    AddTitleFanChip(card.Frame, "ClaimChip", claimedBy.ToUpperInvariant(),
+                        TitleFanCardWidthPx - 40f, fontSize: 13, bodyFont: true);
                 }
-
-                int sibling = i;
-                UiKit.AddHover(image.gameObject,
-                    () =>
-                    {
-                        frame.SetAsLastSibling();
-                        motion.TargetY = raisedY;
-                    },
-                    () =>
-                    {
-                        frame.SetSiblingIndex(sibling);
-                        motion.TargetY = restY;
-                    });
-                _preview.Attach(image.gameObject, texture);
+                RaiseTitleFanCardOnHover(card.Image, card.Frame, card.Motion, restingSiblingIndex: i);
+                _preview.Attach(card.Image.gameObject, texture);
             }
         }
 
-        /// <summary>
-        /// Your two secret Lemon Lord titles: overlapped peek cards, bottom-right.
-        /// The Whiniest Baby card joins on the LEFT while you hold it — a card in your
-        /// zone beats a line of status text for "you are the baby".
-        /// </summary>
+        private static List<(string TitleId, string ClaimedBy)> FirstDibsEntries(PlayerView view)
+        {
+            var entries = new List<(string TitleId, string ClaimedBy)>();
+            foreach (string titleId in view.FirstDibsRow)
+            {
+                entries.Add((titleId, null));
+            }
+            foreach (var player in view.Players)
+            {
+                foreach (string claimed in player.FirstDibsClaimed)
+                {
+                    entries.Add((claimed, player.Name));
+                }
+            }
+            return entries;
+        }
+
+        /// <summary>Your two secret Lemon Lords, with the Whiniest Baby and Spoiled Rotten cards joining
+        /// on the LEFT while you hold them.</summary>
         private void RenderLords(PlayerView view)
         {
-            // Suppressed while a claim reveal is mid-flight: the table renders the
-            // instant the state changes, but the card should only exist in the fan
-            // once the animation has delivered it (the app lifts this on arrival).
-            bool baby = view.WhiniestBabyHolder == view.ViewerId && !SuppressWhiniestBaby;
-            bool rotten = view.SpoiledRottenHolder == view.ViewerId && !SuppressSpoiledRotten;
-            _lordFanHasBaby = baby;
+            // A special title joins the fan only once its claim animation has delivered it.
+            bool hasBaby = view.WhiniestBabyHolder == view.ViewerId && !SuppressWhiniestBaby;
+            bool hasRotten = view.SpoiledRottenHolder == view.ViewerId && !SuppressSpoiledRotten;
+            _lordFanHasBaby = hasBaby;
 
-            // Same skip as the hand: don't tear down a hovered fan over a re-render
-            // that changed nothing here.
-            string signature = (baby ? "baby|" : "|") + (rotten ? "rotten|" : "|") +
+            string signature = (hasBaby ? "baby|" : "|") + (hasRotten ? "rotten|" : "|") +
                 string.Join(",", view.LemonLordStatus.Select(l => l.TitleId + ":" + l.Met));
             if (signature == _lordSignature)
             {
@@ -145,13 +110,12 @@ namespace LemonadeWars.Unity
             _lordSignature = signature;
 
             UiKit.Clear(_lordHost);
-            // Special titles first (left), the secret lords after: (art, lord-or-null).
             var cards = new List<(Texture2D Texture, PlayerView.LordStatus Lord)>();
-            if (baby)
+            if (hasBaby)
             {
                 cards.Add((_art.WhiniestBaby(), null));
             }
-            if (rotten)
+            if (hasRotten)
             {
                 cards.Add((_art.SpoiledRotten(), null));
             }
@@ -162,72 +126,85 @@ namespace LemonadeWars.Unity
                 return;
             }
 
-            const float width = 190f;
-            const float height = 266f;
-            const float raisedY = 12f;
-            const float peek = 158f;
             float spacing = LordSpacing(count);
-            float startX = -(width + spacing * (count - 1)) / 2f + width / 2f;
+            float startX = TitleFanStartX(count, spacing);
 
             for (int i = 0; i < count; i++)
             {
                 var (texture, lord) = cards[i];
-
-                var image = UiKit.CreateCardImage(_lordHost, texture, width, height);
-                var frame = (RectTransform)image.transform.parent;
-                frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
-                frame.pivot = new Vector2(0.5f, 0f);
-                frame.sizeDelta = new Vector2(width, height);
-                float restY = peek - height;
-                frame.anchoredPosition = new Vector2(startX + i * spacing, restY);
-                var motion = frame.gameObject.AddComponent<HandCardMotion>();
-                motion.TargetY = restY;
-
+                var card = AddTitleFanCard(_lordHost, texture, startX + i * spacing);
                 if (lord != null && lord.Met)
                 {
-                    var chip = UiKit.CreatePanel(frame, "MetChip", UiKit.ButtonColor);
-                    UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-                    chip.sizeDelta = new Vector2(74f, 24f);
-                    chip.anchoredPosition = new Vector2(0, -24f);
-                    var chipText = UiKit.CreateText(chip, "MET!", 14,
-                        TextAnchor.MiddleCenter, UiKit.ButtonTextColor);
-                    UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+                    AddTitleFanChip(card.Frame, "MetChip", "MET!", 74f, fontSize: 14, bodyFont: false);
                 }
-
-                int sibling = i;
-                UiKit.AddHover(image.gameObject,
-                    () =>
-                    {
-                        frame.SetAsLastSibling();
-                        motion.TargetY = raisedY;
-                    },
-                    () =>
-                    {
-                        frame.SetSiblingIndex(sibling);
-                        motion.TargetY = restY;
-                    });
-                _preview.Attach(image.gameObject, texture);
+                RaiseTitleFanCardOnHover(card.Image, card.Frame, card.Motion, restingSiblingIndex: i);
+                _preview.Attach(card.Image.gameObject, texture);
             }
         }
 
-        /// <summary>
-        /// Card overlap in the lord fan: the usual hand overlap while the zone has
-        /// room, compressing (like First Dibs) once a third card — the Whiniest Baby —
-        /// would spill past the screen edge. The margin keeps a sliver of table
-        /// visible on the right.
-        /// </summary>
+        private static (RawImage Image, RectTransform Frame, HandCardMotion Motion) AddTitleFanCard(
+            RectTransform host, Texture2D texture, float x)
+        {
+            var image = UiKit.CreateCardImage(host, texture, TitleFanCardWidthPx, TitleFanCardHeightPx);
+            var frame = (RectTransform)image.transform.parent;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0f);
+            frame.pivot = new Vector2(0.5f, 0f);
+            frame.sizeDelta = new Vector2(TitleFanCardWidthPx, TitleFanCardHeightPx);
+            frame.anchoredPosition = new Vector2(x, TitleFanRestY);
+            var motion = frame.gameObject.AddComponent<HandCardMotion>();
+            motion.TargetY = TitleFanRestY;
+            return (image, frame, motion);
+        }
+
+        private static void AddTitleFanChip(RectTransform cardFrame, string chipName, string label,
+            float widthPx, int fontSize, bool bodyFont)
+        {
+            var chip = UiKit.CreatePanel(cardFrame, chipName, UiKit.ButtonColor);
+            UiKit.Anchor(chip, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            chip.sizeDelta = new Vector2(widthPx, 24f);
+            chip.anchoredPosition = new Vector2(0, -24f);
+            var chipText = UiKit.CreateText(chip, label, fontSize,
+                TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: bodyFont);
+            UiKit.Anchor((RectTransform)chipText.transform, Vector2.zero, Vector2.one);
+        }
+
+        private static void RaiseTitleFanCardOnHover(RawImage image, RectTransform frame,
+            HandCardMotion motion, int restingSiblingIndex)
+        {
+            UiKit.AddHover(image.gameObject,
+                () =>
+                {
+                    frame.SetAsLastSibling();
+                    motion.TargetY = TitleFanRaisedY;
+                },
+                () =>
+                {
+                    frame.SetSiblingIndex(restingSiblingIndex);
+                    motion.TargetY = TitleFanRestY;
+                });
+        }
+
+        private static float TitleFanSpacing(int count, float availableWidth) =>
+            count > 1
+                ? Mathf.Min(TitleFanCardWidthPx * TitleFanMaxSpacingFraction,
+                    (availableWidth - TitleFanCardWidthPx) / (count - 1))
+                : 0f;
+
+        /// <summary>The first card's centre, with the fan centred on its host.</summary>
+        private static float TitleFanStartX(int count, float spacing) =>
+            -(TitleFanCardWidthPx + spacing * (count - 1)) / 2f + TitleFanCardWidthPx / 2f;
+
+        /// <summary>The lord fan compresses once a third card would spill past the screen edge; the margin
+        /// keeps a sliver of table visible on the right.</summary>
         private float LordSpacing(int count)
         {
-            const float width = 190f;
             const float margin = 24f;
             float available = _lordHost.rect.width - margin;
             if (available < 10f)
             {
                 available = 380f; // first-frame fallback before canvas layout settles
             }
-            return count > 1
-                ? Mathf.Min(width * 0.72f, (available - width) / (count - 1))
-                : 0f;
+            return TitleFanSpacing(count, available);
         }
 
         /// <summary>The baby joins the fan LEFT-MOST.</summary>
@@ -236,23 +213,16 @@ namespace LemonadeWars.Unity
         /// <summary>Spoiled Rotten lands after the baby when the baby is in the fan.</summary>
         public Vector3 SpoiledRottenLandingWorld() => LordLandingWorld(_lordFanHasBaby ? 1 : 0);
 
-        /// <summary>
-        /// World position of a slot in the lord fan as it will be AFTER the flying
-        /// card is added (the fan hides an in-flight card, so the current children
-        /// don't include it yet). Mirrors RenderLords' layout math.
-        /// </summary>
+        /// <summary>A slot's world position in the lord fan as it will be AFTER the flying card is added
+        /// (the fan hides an in-flight card, so its children do not include it yet).</summary>
         private Vector3 LordLandingWorld(int slot)
         {
-            const float width = 190f;
-            const float height = 266f;
-            const float peek = 158f;
             int futureCount = _lordHost.childCount + 1;
             float spacing = LordSpacing(futureCount);
-            float startX = -(width + spacing * (futureCount - 1)) / 2f + width / 2f;
-            // Children hang from the host's bottom-center pivot; card center is half a
-            // card above its bottom-anchored rest position.
+            float startX = TitleFanStartX(futureCount, spacing);
+            // Cards hang from the host's bottom-centre pivot: a card's centre is half a card above its rest position.
             return _lordHost.TransformPoint(
-                new Vector3(startX + slot * spacing, peek - height + height / 2f, 0));
+                new Vector3(startX + slot * spacing, TitleFanRestY + TitleFanCardHeightPx / 2f, 0));
         }
     }
 }

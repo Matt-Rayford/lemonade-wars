@@ -5,6 +5,8 @@ namespace LemonadeWars.Unity
     /// <summary>Rise, linger, fade, self-destruct. Optional start delay for stacks.</summary>
     public sealed class FloaterMotion : MonoBehaviour
     {
+        private const float FadeInSeconds = 0.15f;
+
         public float Delay;
         public float RiseSpeed = 55f;
         public float FadeStart = 0.75f;
@@ -25,16 +27,16 @@ namespace LemonadeWars.Unity
         private void Update()
         {
             _elapsed += Time.deltaTime;
-            float t = _elapsed - Delay;
-            if (t < 0f)
+            float age = _elapsed - Delay;
+            if (age < 0f)
             {
                 return;
             }
-            _group.alpha = t < 0.15f
-                ? t / 0.15f
-                : 1f - Mathf.Clamp01((t - FadeStart) / (Lifetime - FadeStart));
+            _group.alpha = age < FadeInSeconds
+                ? age / FadeInSeconds
+                : 1f - Mathf.Clamp01((age - FadeStart) / (Lifetime - FadeStart));
             _rect.anchoredPosition += new Vector2(0, RiseSpeed * Time.deltaTime);
-            if (t >= Lifetime)
+            if (age >= Lifetime)
             {
                 Destroy(gameObject);
             }

@@ -79,10 +79,7 @@ namespace LemonadeWars.Unity
             return "Stand";
         }
 
-        /// <summary>
-        /// What a die is being thrown for, in plain words — null for the ordinary end-of-turn
-        /// sale, which needs no label. Callers append it only when there is something to say.
-        /// </summary>
+        /// <summary>Null for the ordinary end-of-turn sale, which needs no label.</summary>
         private static string RollPurposeName(RollPurpose? purpose)
         {
             switch (purpose)
@@ -116,28 +113,26 @@ namespace LemonadeWars.Unity
                 .ToList();
         }
 
-        /// <summary>
-        /// The card an option would play, so response buttons ("Respond with Tantrum")
-        /// can show what the card actually does. Null for card-less moves (Pass, buys).
-        /// </summary>
+        /// <summary>The card an option would play, so its button can show what the card does.
+        /// Null for card-less moves (Pass, buys).</summary>
         private Texture2D ArtForMove(GameAction move)
         {
             switch (move)
             {
-                case RespondToWindow respond when respond.EquippedInstanceId is int eq:
-                    return EquippedArt(eq);
+                case RespondToWindow respond when respond.EquippedInstanceId is int equippedId:
+                    return EquippedArt(equippedId);
                 case RespondToWindow respond:
                     return HandArt(respond.CardInstanceId);
                 case UseTurnAbility ability:
                     return EquippedArt(ability.EquippedInstanceId);
+                // Replace variants differ only by which of YOUR cards gets trashed: show
+                // that card, not the (identical) incoming one.
                 case PlayLemonCard play when play.EquipReplaceInstanceId is int replaced:
-                    // Replace variants differ only by which of YOUR cards gets
-                    // trashed: show that card, not the (identical) incoming one.
                     return EquippedArt(replaced);
                 case BuyBlackMarket buy when buy.ReplaceInstanceId is int replaced:
                     return EquippedArt(replaced);
+                // Steal variants: show the LOOT, not the (identical) attack card.
                 case PlayLemonCard play when play.TargetEquippedInstanceId is int loot:
-                    // Steal variants: show the LOOT, not the (identical) attack card.
                     return EquippedArt(loot);
                 case PlayLemonCard play:
                     return HandArt(play.CardInstanceId);
@@ -187,13 +182,12 @@ namespace LemonadeWars.Unity
             return null;
         }
 
-        /// <summary>The seat whose turf/stand carries this equipped instance.</summary>
         private int FindEquipOwner(int equippedInstanceId)
         {
             foreach (var player in View.Players)
             {
                 if (player.TurfEquipped.Any(c => c.InstanceId == equippedInstanceId) ||
-                    player.Stands.Any(st => st.Equipped.Any(c => c.InstanceId == equippedInstanceId)))
+                    player.Stands.Any(stand => stand.Equipped.Any(c => c.InstanceId == equippedInstanceId)))
                 {
                     return player.PlayerId;
                 }

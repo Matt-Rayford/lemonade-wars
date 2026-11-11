@@ -3,10 +3,9 @@ using UnityEngine;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The waiting hourglass on a rival's badge: swells from 50% to 65% of the badge
-    /// and back, then spins a full turn (360° in-plane) in half a second, forever. Phase is
-    /// taken from wall-clock time, not component age — player bars rebuild on every
-    /// revision, and restarting the loop each time would stutter it.
+    /// The waiting hourglass on a rival's badge: swells and settles, then spins a full
+    /// turn, forever. Phase comes from wall-clock time, not component age: player bars
+    /// rebuild on every revision, and restarting the loop each time would stutter it.
     /// </summary>
     public sealed class HourglassMotion : MonoBehaviour
     {
