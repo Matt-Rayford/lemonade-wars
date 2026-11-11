@@ -93,7 +93,17 @@ namespace LemonadeWars.Unity
             _logExpanded = !_logExpanded;
             _logExpandedPanel.gameObject.SetActive(_logExpanded);
             _logToggleHint.text = _logExpanded ? "–" : "+";
+            EndBoardBandAtOpenLog();
             RenderLog();
+        }
+
+        /// <summary>
+        /// The open log would cover the board's last stands, so the band stops at the log's edge:
+        /// the row fades out there and edge-scrolls (see TickBoardScroll) to reach what is past it.
+        /// </summary>
+        private void EndBoardBandAtOpenLog()
+        {
+            _boardPanel.anchorMax = new Vector2(_logExpanded ? LogLeft : BoardRight, BoardTop);
         }
 
         /// <param name="lines">Oldest first.</param>
