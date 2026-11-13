@@ -138,8 +138,13 @@ public sealed class ClientSession
                 await SendErrorIfAnyAsync(
                     room.RemoveBot(room.SeatIndexOf(_connection), (int?)message["seat"] ?? -1));
                 break;
+            case MessageType.SetFirstDibsMode when room != null:
+                await SendErrorIfAnyAsync(
+                    room.SetFirstDibsMode(room.SeatIndexOf(_connection), (string?)message["mode"]));
+                break;
             case MessageType.StartGame when room != null:
-                await SendErrorIfAnyAsync(room.Start(room.SeatIndexOf(_connection)));
+                await SendErrorIfAnyAsync(
+                    room.Start(room.SeatIndexOf(_connection), HandPickedFirstDibs(message)));
                 break;
             case MessageType.Action when room != null:
                 if (message["action"] is JObject actionJson)
@@ -230,6 +235,12 @@ public sealed class ClientSession
         _room?.Leave(_connection);
         _room = null;
     }
+
+    /// <summary>Null when start_game names no row. Anything that is not a title id becomes one no card has, for the room to refuse.</summary>
+    private static List<string>? HandPickedFirstDibs(JObject startMessage) =>
+        (startMessage["firstDibs"] as JArray)?
+            .Select(id => id.Type == JTokenType.String ? (string)id! : "")
+            .ToList();
 
     private static bool TryParseJson(string text, out JObject message)
     {

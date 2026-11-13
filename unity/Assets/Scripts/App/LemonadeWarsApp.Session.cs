@@ -10,6 +10,8 @@ namespace LemonadeWars.Unity
     {
         private IReadOnlyList<(string Name, string Level)> _soloBots =
             new[] { ("Benny", "medium"), ("Cleo", "medium"), ("Dex", "medium") };
+        /// <summary>The last solo game's hand-picked First Dibs row, so [N] restarts with the same one; null = dealt at random.</summary>
+        private IReadOnlyList<string> _soloFirstDibs;
 
         // ------------------------------------------------------- game speed
 
@@ -44,9 +46,11 @@ namespace LemonadeWars.Unity
 
         // ------------------------------------------------- start and finish
 
-        private void StartLocalGame(IReadOnlyList<(string Name, string Level)> bots)
+        private void StartLocalGame(IReadOnlyList<(string Name, string Level)> bots,
+            IReadOnlyList<string> firstDibs)
         {
             _soloBots = bots.ToList();
+            _soloFirstDibs = firstDibs;
             var names = new List<string> { _lobby.DisplayName };
             names.AddRange(_soloBots.Select(b => b.Name));
 
@@ -55,7 +59,7 @@ namespace LemonadeWars.Unity
             _session?.Dispose();
             var localSession = new LocalGameSession(_db, names.ToArray(), 0,
                 (ulong)System.DateTime.Now.Ticks,
-                _soloBots.Select(b => b.Level).ToList());
+                _soloBots.Select(b => b.Level).ToList(), firstDibs);
             localSession.BotStepSeconds = LocalStepSeconds(PlayerPrefs.GetString(SpeedPref, "medium"));
             localSession.HoldBots = () => _dice.IsBusy || _fx.IsBusy || _turnBanner.IsOpen || _playTheatre.IsBusy;
             _session = localSession;

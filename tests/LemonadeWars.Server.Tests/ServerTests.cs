@@ -206,6 +206,48 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Contains("slow, medium, or fast", (string)refused["message"]!);
     }
 
+    [Fact]
+    public async Task TheHostHandPicksTheFirstDibsRowInManualMode()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        var room = await host.CreateRoomAsync("Host");
+        Assert.Equal("random", (string)room["firstDibsMode"]!);
+        await host.SendAsync(new { type = "add_bot" });
+        await host.NextOfTypeAsync("room");
+
+        await host.SendAsync(new { type = "set_first_dibs_mode", mode = "manual" });
+        room = await host.NextOfTypeAsync("room");
+        Assert.Equal("manual", (string)room["firstDibsMode"]!);
+
+        await host.SendAsync(new { type = "start_game" });
+        var unpicked = await host.NextOfTypeAsync("error");
+        Assert.Contains("Choose the First Dibs cards", (string)unpicked["message"]!);
+
+        // Two players put three cards up; two is a row for nobody.
+        await host.SendAsync(new { type = "start_game", firstDibs = new[] { "balanced-set", "big-earner" } });
+        var tooFew = await host.NextOfTypeAsync("error");
+        Assert.Contains("needs 3 First Dibs cards", (string)tooFew["message"]!);
+
+        string[] picked = { "shopaholic", "balanced-set", "expander" };
+        await host.SendAsync(new { type = "start_game", firstDibs = picked });
+        var update = await host.NextOfTypeAsync("update");
+        Assert.Equal(picked, update["view"]!["firstDibsRow"]!.Select(id => (string)id!));
+    }
+
+    [Fact]
+    public async Task ARowSentInRandomModeIsIgnored()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.CreateRoomAsync("Host");
+        await host.SendAsync(new { type = "add_bot" });
+        await host.NextOfTypeAsync("room");
+
+        // Not even a valid row: in random mode it is never looked at.
+        await host.SendAsync(new { type = "start_game", firstDibs = new[] { "balanced-set" } });
+        var update = await host.NextOfTypeAsync("update");
+        Assert.Equal(3, ((JArray)update["view"]!["firstDibsRow"]!).Count);
+    }
+
     // ------------------------------------------------- reclaiming a seat
 
     [Fact]

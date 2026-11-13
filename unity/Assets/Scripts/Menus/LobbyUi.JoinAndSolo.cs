@@ -1,4 +1,5 @@
 using System.Linq;
+using LemonadeWars.Engine.Core;
 using TMPro;
 using UnityEngine;
 
@@ -60,13 +61,16 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_soloRoot, Vector2.zero, Vector2.one);
             CreateScreenTitle(_soloRoot, "PLAY VS BOTS");
 
-            _soloSeatList = CreateSeatList(_soloRoot, new Vector2(0.32f, 0.18f), new Vector2(0.68f, 0.72f));
-
-            var soloActions = CreateButtonRow(_soloRoot, "SoloActions",
-                new Vector2(0.30f, 0.05f), new Vector2(0.70f, 0.13f));
+            float stackTopPx = 0f;
+            var soloActions = CreateButtonRow(_soloRoot, "SoloActions", Vector2.zero, Vector2.one);
+            StackOnBaseline(soloActions, MenuButtonHeightPx, ref stackTopPx);
             UiKit.CreateButton(soloActions, "Back", 20, () => ShowMenu(""));
-            UiKit.CreateButton(soloActions, "Start game", 20,
-                () => OnStartSolo?.Invoke(_soloBots.ToList()));
+            UiKit.CreateButton(soloActions, "Start game", 20, StartSoloOrPickFirstDibs);
+            _soloDibsModeRow = StackChoiceRow(_soloRoot, "FIRST DIBS", ref stackTopPx);
+
+            _soloSeatList = CreateSeatList(_soloRoot,
+                new Vector2(0.32f, StackBaseline), new Vector2(0.68f, 0.72f));
+            _soloSeatList.offsetMin = new Vector2(0f, stackTopPx);
             _soloRoot.gameObject.SetActive(false);
         }
 
@@ -74,6 +78,24 @@ namespace LemonadeWars.Unity
         {
             ActivateOnly(_soloRoot);
             RefreshSoloSeats();
+            ShowFirstDibsModes(_soloDibsModeRow, _soloPicksFirstDibs, isManual =>
+            {
+                _soloPicksFirstDibs = isManual;
+                ShowSoloSetup();
+            });
+        }
+
+        private void StartSoloOrPickFirstDibs()
+        {
+            var bots = _soloBots.ToList();
+            if (!_soloPicksFirstDibs)
+            {
+                OnStartSolo?.Invoke(bots, null);
+                return;
+            }
+            int playerCount = bots.Count + 1;
+            ShowFirstDibsPicker(Game.FirstDibsRowSize(playerCount),
+                picked => OnStartSolo?.Invoke(bots, picked), ShowSoloSetup);
         }
 
         private void RefreshSoloSeats()

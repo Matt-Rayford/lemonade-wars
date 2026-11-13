@@ -267,6 +267,7 @@ public sealed partial class Room
                 Started = started,
                 Speed = BotSpeed,
                 ActionTimerSeconds = ActionTimerSeconds,
+                FirstDibsMode = FirstDibsMode,
                 Seats = seats.Select(s => new SeatInfo
                 {
                     Seat = s.Index,

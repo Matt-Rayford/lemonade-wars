@@ -212,7 +212,7 @@ namespace LemonadeWars.Unity
             // keystrokes, and "n" must not restart the game mid-word.
             if (Input.GetKeyDown(KeyCode.N) && !_rulebook.IsOpen && _session is LocalGameSession)
             {
-                StartLocalGame(_soloBots);
+                StartLocalGame(_soloBots, _soloFirstDibs);
             }
             if (Input.GetKeyDown(KeyCode.B) && !_rulebook.IsOpen && _session != null)
             {

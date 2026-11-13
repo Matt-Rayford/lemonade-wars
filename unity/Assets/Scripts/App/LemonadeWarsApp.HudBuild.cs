@@ -125,6 +125,10 @@ namespace LemonadeWars.Unity
             _lobby = new LobbyUi(root, LoadConfiguredServerUrl(),
                 PlayerPrefs.GetString("lw_name", "Player"));
             _lobby.OnStartSolo = StartLocalGame;
+            _lobby.Preview = _preview;
+            _lobby.FirstDibsCards = () => _db.FirstDibsTitles
+                .Select(title => (title.Id, _art.Title(title.Id))).ToList();
+            _lobby.OnSetFirstDibsMode = mode => _remote?.SetFirstDibsMode(mode);
             _lobby.OnSaveSettings = name =>
             {
                 PlayerPrefs.SetString("lw_name", name);
@@ -139,7 +143,7 @@ namespace LemonadeWars.Unity
             _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
             _lobby.OnSetBotLevel = (seat, level) => _remote?.SetBotLevel(seat, level);
             _lobby.OnSetActionTimer = seconds => _remote?.SetActionTimer(seconds);
-            _lobby.OnStart = () => _remote?.StartGame();
+            _lobby.OnStart = StartOnlineGame;
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");
             StartCoroutine(ServerStatusLoop());
