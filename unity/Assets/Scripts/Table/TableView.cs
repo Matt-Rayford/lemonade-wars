@@ -76,6 +76,7 @@ namespace LemonadeWars.Unity
             _tantrumIcon = LoadIcon("Tantrum.png");
             _hourglassIcon = LoadIcon("Hourglass.png");
             _pinnedTagIcon = LoadIcon("PriceTag.png");
+            _actionLogIcon = LoadIcon("ActionLog.png");
             Build(canvasRoot);
         }
 

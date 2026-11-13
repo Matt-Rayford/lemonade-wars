@@ -84,7 +84,7 @@ namespace LemonadeWars.Unity
             {
                 int index = i;
                 // The last remaining bot cannot be removed: 2 players minimum.
-                AddSeatRow(_soloSeatList, $"{i + 2}. {_soloBots[i].Name} (bot)",
+                AddSeatRow(_soloSeatList, $"{i + 2}. {_soloBots[i].Name}",
                     _soloBots.Count > 1
                         ? () =>
                         {

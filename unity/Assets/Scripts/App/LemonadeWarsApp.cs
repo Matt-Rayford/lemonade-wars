@@ -53,6 +53,7 @@ namespace LemonadeWars.Unity
 
         private LobbyUi _lobby;
         private TableView _table;
+        private GameCursor _cursor;
         private Prompt _prompt;
         private CardPicker _picker;
         private CardPreview _preview;
@@ -88,10 +89,12 @@ namespace LemonadeWars.Unity
             _db = CardDatabase.Load(Path.Combine(Application.streamingAssetsPath, "game-data"));
             _art = new CardArt(Application.streamingAssetsPath);
             BuildHud();
+            _cursor = new GameCursor(() => _table.StickyDragActive);
         }
 
         private void Update()
         {
+            _cursor.Tick();
             TickPendingConnection();
 
             // Mid-game connection loss: back to menu; the saved token allows Resume.
@@ -141,6 +144,7 @@ namespace LemonadeWars.Unity
             _table.TickPlayerPick(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
+            _table.TickActionLog();
             _table.TickDiscardScroll(Input.mousePosition);
             _picker.Tick(Input.mousePosition);
         }

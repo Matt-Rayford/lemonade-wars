@@ -52,6 +52,30 @@ namespace LemonadeWars.Unity
             go.transform.SetAsFirstSibling();
         }
 
+        /// <summary>
+        /// Black-ink line art from the icons folder as a white mask: ink becomes opaque white, paper
+        /// (white or clear) becomes clear. A tint then paints the ink any colour exactly, and light
+        /// details inside the ink (a robot's eyes) read as holes. Null if the file is missing.
+        /// </summary>
+        public static Texture2D LoadInkIconAsMask(string fileName)
+        {
+            var icon = LoadTextureSharp(Path.Combine(Application.streamingAssetsPath, "icons", fileName));
+            if (icon == null)
+            {
+                return null;
+            }
+            var pixels = icon.GetPixels32();
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                var pixel = pixels[i];
+                float inkiness = 1f - (pixel.r + pixel.g + pixel.b) / (3f * 255f);
+                pixels[i] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(pixel.a * inkiness));
+            }
+            icon.SetPixels32(pixels);
+            icon.Apply(updateMipmaps: true);
+            return icon;
+        }
+
         /// <summary>Unity's box-filtered auto-mips smear minified card text: when tools/make_mips.py
         /// has packed Lanczos levels into a sibling `name.mips.ext`, those replace them.</summary>
         /// <returns>Null if the image is missing.</returns>

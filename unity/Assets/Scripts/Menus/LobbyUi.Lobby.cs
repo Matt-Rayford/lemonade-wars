@@ -44,7 +44,7 @@ namespace LemonadeWars.Unity
             foreach (var seat in room.Seats)
             {
                 // Readiness is the row's dot and "you" its yellow rim, so the label spells out neither.
-                string label = $"{seat.Seat + 1}. {seat.Name}" +
+                string label = $"{seat.Seat + 1}. {WithoutLegacyBotSuffix(seat.Name)}" +
                     (seat.IsBot || seat.Connected ? "" : "  (disconnected)");
                 int seatIndex = seat.Seat;
                 string level = seat.IsBot ? (string.IsNullOrEmpty(seat.BotLevel) ? "medium" : seat.BotLevel) : null;

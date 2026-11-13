@@ -99,7 +99,7 @@ public sealed partial class Room
             _seats.Add(new Seat
             {
                 Index = _seats.Count,
-                Name = BotNames[_seats.Count % BotNames.Length] + " (bot)",
+                Name = BotNames[_seats.Count % BotNames.Length],
                 IsBot = true,
                 Ready = true,
                 BotLevel = BotFactory.Normalize(level),

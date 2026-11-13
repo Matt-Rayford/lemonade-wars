@@ -21,10 +21,16 @@ namespace LemonadeWars.Unity
         private void WireHandCardDrag(GameObject cardFace, int cardId, bool isPlayable)
         {
             var drag = cardFace.AddComponent<DragRelay>();
+            drag.CanStartDrag = () => isPlayable && _attackCardId < 0 && CanAimFromHand(cardId);
             drag.Began = BeginHandCardDrag;
             drag.Moved = position => MoveHandCardDrag(cardId, isPlayable, position);
             drag.Ended = _ => EndHandCardDrag(cardId, isPlayable);
         }
+
+        /// <summary>Dragging a hand card off the fan only does something for cards that aim: at a player, or at the shelf.</summary>
+        private bool CanAimFromHand(int cardId) =>
+            (MarketTargetsFor?.Invoke(cardId)?.Count ?? 0) > 0 ||
+            (AttackTargetsFor?.Invoke(cardId)?.Count ?? 0) > 0;
 
         private void BeginHandCardDrag(Vector2 position)
         {
