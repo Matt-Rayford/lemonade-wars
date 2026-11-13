@@ -1,3 +1,4 @@
+using LemonadeWars.Protocol;
 using TMPro;
 using UnityEngine;
 
@@ -5,29 +6,47 @@ namespace LemonadeWars.Unity
 {
     public sealed partial class LobbyUi
     {
+        private const float LobbyStatusHeightPx = 36f;
+        /// <summary>Higher than the other screens' titles: this one has the most to fit under it.</summary>
+        private const float LobbyTitleBottom = 0.85f;
+        private const float LobbyTitleTop = 0.95f;
+        private const float LobbySeatsTop = 0.83f;
+
+        /// <summary>Bottom to top: Start Game, Back / Ready Up, the action timer, First Dibs, the status line, the seats.</summary>
         private void BuildLobby(RectTransform canvasRoot)
         {
             _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", UiKit.TableColor);
             UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
             _lobbyTitle = CreateScreenTitle(_lobbyRoot, "");
+            UiKit.Anchor((RectTransform)_lobbyTitle.transform,
+                new Vector2(0, LobbyTitleBottom), new Vector2(1, LobbyTitleTop));
 
-            _lobbySeatList = CreateSeatList(_lobbyRoot, new Vector2(0.30f, 0.40f), new Vector2(0.70f, 0.72f));
-            BuildActionTimerPicker(_lobbyRoot);
+            float stackTopPx = 0f;
+            _hostControls = CreateButtonRow(_lobbyRoot, "HostControls", Vector2.zero, Vector2.one);
+            StackOnBaseline(_hostControls, MenuButtonHeightPx, ref stackTopPx);
+            UiKit.CreateButton(_hostControls, "Start game", 20, () => OnStart?.Invoke());
 
-            var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls",
-                new Vector2(0.30f, 0.145f), new Vector2(0.70f, 0.225f));
+            var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls", Vector2.zero, Vector2.one);
+            StackOnBaseline(everyoneControls, MenuButtonHeightPx, ref stackTopPx);
             UiKit.CreateButton(everyoneControls, "Back", 20, () => OnLeave?.Invoke());
             var readyButton = UiKit.CreateButton(everyoneControls,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<TMP_Text>();
 
-            _hostControls = CreateButtonRow(_lobbyRoot, "LobbyControls",
-                new Vector2(0.3f, 0.05f), new Vector2(0.7f, 0.13f));
-            UiKit.CreateButton(_hostControls, "Start game", 20, () => OnStart?.Invoke());
+            _timerChoiceRow = StackChoiceRow(_lobbyRoot, "ACTION TIMER", ref stackTopPx);
+            _lobbyDibsModeRow = StackChoiceRow(_lobbyRoot, "FIRST DIBS", ref stackTopPx);
 
             _lobbyStatus = UiKit.CreateText(_lobbyRoot, "", 18,
                 TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
-            UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.355f), new Vector2(0.9f, 0.395f));
+            var statusRect = (RectTransform)_lobbyStatus.transform;
+            StackOnBaseline(statusRect, LobbyStatusHeightPx, ref stackTopPx);
+            // Wider than the buttons: a connection error can be a long sentence.
+            statusRect.anchorMin = new Vector2(0.1f, StackBaseline);
+            statusRect.anchorMax = new Vector2(0.9f, StackBaseline);
+
+            _lobbySeatList = CreateSeatList(_lobbyRoot,
+                new Vector2(StackLeft, StackBaseline), new Vector2(StackRight, LobbySeatsTop));
+            _lobbySeatList.offsetMin = new Vector2(0f, stackTopPx);
         }
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
@@ -65,6 +84,9 @@ namespace LemonadeWars.Unity
             }
 
             ShowActionTimerChoices(room.ActionTimerSeconds, isHost);
+            ShowFirstDibsModes(_lobbyDibsModeRow, room.FirstDibsMode == FirstDibsModes.Manual,
+                isHost ? isManual => OnSetFirstDibsMode?.Invoke(
+                    isManual ? FirstDibsModes.Manual : FirstDibsModes.Random) : (System.Action<bool>)null);
             _readyLabel.text = myReady ? "UNREADY" : "READY UP";
             _lobbyStatus.text = status ?? "";
             _hostControls.gameObject.SetActive(isHost);

@@ -4,10 +4,17 @@ using UnityEngine.UI;
 
 namespace LemonadeWars.Unity
 {
-    // The two discard piles at the head of the shelf, and the chips that sit on a shelf
-    // card's bottom edge (the Lemon pile's DRAW chip, the Bragging Rights price).
+    // The two piles at the head of the shelf (each card back stands for its deck and, on a
+    // click, its discards), and the chips that sit on a shelf card's bottom edge (the Lemon
+    // pile's DRAW chip, the Bragging Rights price).
     public sealed partial class TableView
     {
+        private const int DeckCountFontSize = 20;
+        private const float DeckCountHeightPx = 24f;
+        /// <summary>Below the card's bottom edge, clear of the DRAW chip's 2px overhang.</summary>
+        private const float DeckCountDropPx = 5f;
+        private static readonly Color DeckCountColor = new Color(0.86f, 0.86f, 0.90f);
+
         /// <summary>Shows its count on hover; click to browse.</summary>
         private void BuildDiscardPile(PlayerView view, bool blackMarket)
         {
@@ -46,6 +53,22 @@ namespace LemonadeWars.Unity
                 _lemonPileAnchor = frame;
                 BuildDrawChip(frame);
             }
+            AddDeckCount(frame, blackMarket ? view.BlackMarketDeckCount : view.LemonDeckCount);
+        }
+
+        /// <summary>How many cards are left to draw, under the pile on the bare table.</summary>
+        private static void AddDeckCount(RectTransform pileFrame, int cardsLeft)
+        {
+            var count = UiKit.CreateText(pileFrame, cardsLeft.ToString(), DeckCountFontSize,
+                TextAnchor.MiddleCenter, DeckCountColor);
+            count.raycastTarget = false;
+            UiKit.AddTextShadow(count);
+            var countRect = (RectTransform)count.transform;
+            countRect.anchorMin = new Vector2(0f, 0f);
+            countRect.anchorMax = new Vector2(1f, 0f);
+            countRect.pivot = new Vector2(0.5f, 1f);
+            countRect.offsetMin = new Vector2(0f, -DeckCountDropPx - DeckCountHeightPx);
+            countRect.offsetMax = new Vector2(0f, -DeckCountDropPx);
         }
 
         /// <summary>A full-width chip on a card's bottom edge, its bottom corners tracing the card's rounding: a mask

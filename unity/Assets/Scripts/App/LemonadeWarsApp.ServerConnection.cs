@@ -1,5 +1,7 @@
 using System.IO;
 using System.Linq;
+using LemonadeWars.Engine.Core;
+using LemonadeWars.Protocol;
 using UnityEngine;
 
 namespace LemonadeWars.Unity
@@ -162,6 +164,39 @@ namespace LemonadeWars.Unity
             _lobby.ShowLobby(_remote.Room, $"Joining {code}...", false);
         }
 
+        /// <summary>
+        /// On manual First Dibs the host picks the row before the game is asked for. A table that
+        /// is not ready to start skips the picker: the server's refusal says what is missing.
+        /// </summary>
+        private void StartOnlineGame()
+        {
+            if (_remote == null)
+            {
+                return;
+            }
+            var room = _remote.Room;
+            bool isTableReady = room.Seats.Count >= _db.Config.MinPlayers &&
+                room.Seats.All(seat => seat.Ready || seat.Seat == room.YourSeat);
+            if (room.FirstDibsMode != FirstDibsModes.Manual || !isTableReady)
+            {
+                _remote.StartGame();
+                return;
+            }
+            _lobby.ShowFirstDibsPicker(Game.FirstDibsRowSize(room.Seats.Count),
+                picked =>
+                {
+                    _remote.StartGame(picked);
+                    ReturnToLobbyFromPicker();
+                },
+                ReturnToLobbyFromPicker);
+        }
+
+        private void ReturnToLobbyFromPicker()
+        {
+            _lobbyRevision = -1; // TickLobby redraws the lobby, with whatever the server said since
+            _lobby.ShowLobby(_remote.Room, "", _remote.MyReady);
+        }
+
         /// <summary>Remember enough to resume this room after a crash or redeploy.</summary>
         private void SaveResume()
         {
@@ -191,6 +226,12 @@ namespace LemonadeWars.Unity
                 return;
             }
             _lobbyRevision = _remote.Revision;
+            if (_lobby.FirstDibsPickerOpen)
+            {
+                // The host is mid-pick: redrawing the lobby would close the picker under them.
+                _lobby.SetFirstDibsNeeded(Game.FirstDibsRowSize(_remote.Room.Seats.Count));
+                return;
+            }
             if (_pendingListOnly && _remote.Room.YourSeat < 0)
             {
                 // Browsing My Games: keep rendering the list until a room is picked.

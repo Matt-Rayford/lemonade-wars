@@ -9,14 +9,24 @@ namespace LemonadeWars.Engine.Core
     {
         // ------------------------------------------------------ table setup
 
+        /// <summary>How many First Dibs titles a game of that many players puts up for grabs.</summary>
+        public static int FirstDibsRowSize(int playerCount) => playerCount + 1;
+
         /// <summary>Runs automatic setup up to the Lemon Lord keep-2 choice.</summary>
-        public static Game Create(CardDatabase db, IReadOnlyList<string> playerNames, ulong seed)
+        /// <param name="firstDibsTitleIds">The First Dibs row, hand-picked; null deals it at random.</param>
+        public static Game Create(CardDatabase db, IReadOnlyList<string> playerNames, ulong seed,
+            IReadOnlyList<string>? firstDibsTitleIds = null)
         {
             var config = db.Config;
             if (playerNames.Count < config.MinPlayers || playerNames.Count > config.MaxPlayers)
             {
                 throw new ArgumentException(
                     $"Player count must be {config.MinPlayers}-{config.MaxPlayers}, got {playerNames.Count}.");
+            }
+
+            if (firstDibsTitleIds != null)
+            {
+                RequireValidFirstDibsRow(db, firstDibsTitleIds, playerNames.Count);
             }
 
             var state = new GameState();
@@ -29,7 +39,7 @@ namespace LemonadeWars.Engine.Core
             game.BuildBlackMarketDeck();
             game.BuildStandSupply();
             game.DealTurfs();
-            game.DealFirstDibsRow();
+            game.DealFirstDibsRow(firstDibsTitleIds);
             game.RefillMarket();
             game.ChooseFirstPlayer();
             game.DealStartingHands();
@@ -116,12 +126,33 @@ namespace LemonadeWars.Engine.Core
             }
         }
 
-        private void DealFirstDibsRow()
+        private static void RequireValidFirstDibsRow(CardDatabase db, IReadOnlyList<string> titleIds,
+            int playerCount)
+        {
+            int rowSize = FirstDibsRowSize(playerCount);
+            if (titleIds.Count != rowSize)
+            {
+                throw new ArgumentException(
+                    $"A {playerCount}-player game needs {rowSize} First Dibs cards, got {titleIds.Count}.");
+            }
+            if (titleIds.Distinct().Count() != titleIds.Count)
+            {
+                throw new ArgumentException("Each First Dibs card can only be chosen once.");
+            }
+            string? unknownId = titleIds.FirstOrDefault(id => db.FirstDibsTitles.All(title => title.Id != id));
+            if (unknownId != null)
+            {
+                throw new ArgumentException($"'{unknownId}' is not a First Dibs card.");
+            }
+        }
+
+        private void DealFirstDibsRow(IReadOnlyList<string>? handPicked)
         {
             var titleIds = Db.FirstDibsTitles.Select(t => t.Id).ToList();
+            // Shuffled even when the row is hand-picked: every later setup step then draws
+            // the same numbers from the seed either way.
             _rng.Shuffle(titleIds);
-            int rowSize = State.Players.Count + 1;
-            State.FirstDibsRow.AddRange(titleIds.Take(rowSize));
+            State.FirstDibsRow.AddRange(handPicked ?? titleIds.Take(FirstDibsRowSize(State.Players.Count)));
         }
 
         /// <summary>

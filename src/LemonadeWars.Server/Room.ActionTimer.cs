@@ -29,9 +29,7 @@ public sealed partial class Room
     /// <summary>Seconds an awaited player has per action; <see cref="NoActionTimer"/> = no limit.</summary>
     public int ActionTimerSeconds { get; private set; } = DefaultActionTimerSeconds;
 
-    /// <summary>A lone human among bots keeps nobody waiting, so they play untimed whatever the setting.</summary>
-    private bool IsOnActionTimer =>
-        ActionTimerSeconds != NoActionTimer && _seats.Count(seat => !seat.IsBot) > 1;
+    private bool IsOnActionTimer => ActionTimerSeconds != NoActionTimer;
 
     public string SetActionTimer(int requestingSeat, int seconds)
     {

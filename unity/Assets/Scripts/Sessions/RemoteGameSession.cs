@@ -114,8 +114,11 @@ namespace LemonadeWars.Unity
             Send(new { type = "set_bot_level", seat, level });
         public void SetSpeed(string speed) => Send(new { type = "set_speed", speed });
         public void SetActionTimer(int seconds) => Send(new { type = "set_action_timer", seconds });
+        public void SetFirstDibsMode(string mode) => Send(new { type = "set_first_dibs_mode", mode });
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
-        public void StartGame() => Send(new { type = "start_game" });
+        /// <param name="firstDibs">The host's hand-picked First Dibs row, for a room on manual; null otherwise.</param>
+        public void StartGame(IReadOnlyList<string> firstDibs = null) =>
+            Send(new { type = "start_game", firstDibs });
 
         /// <summary>Tells the server to free the seat (a dropped socket keeps it for a token rejoin).
         /// Closes only once that message is on the wire: Dispose cancels in-flight sends.</summary>
@@ -229,6 +232,7 @@ namespace LemonadeWars.Unity
             Room.Started = room.Started;
             Room.Speed = room.Speed;
             Room.ActionTimerSeconds = room.ActionTimerSeconds;
+            Room.FirstDibsMode = room.FirstDibsMode;
             Room.Seats = room.Seats;
             Revision++;
             RoomChanged?.Invoke();

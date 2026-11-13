@@ -38,11 +38,12 @@ namespace LemonadeWars.Unity
         public Func<bool> HoldBots;
         public event Action<GameEvent> EventEmitted;
 
+        /// <param name="firstDibsTitleIds">The First Dibs row, hand-picked; null deals it at random.</param>
         public LocalGameSession(CardDatabase db, string[] names, int humanSeat, ulong seed,
-            IReadOnlyList<string> botLevels = null)
+            IReadOnlyList<string> botLevels = null, IReadOnlyList<string> firstDibsTitleIds = null)
         {
             Seat = humanSeat;
-            _game = Game.Create(db, names, seed);
+            _game = Game.Create(db, names, seed, firstDibsTitleIds);
             int botIndex = 0;
             for (int i = 0; i < names.Length; i++)
             {

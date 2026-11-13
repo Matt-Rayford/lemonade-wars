@@ -34,7 +34,13 @@ public sealed partial class Room
             string[] names = room.RestoreSeats(header);
             // Logs from before the action timer belong to games that started without one.
             room.ActionTimerSeconds = (int?)header["actionTimerSeconds"] ?? NoActionTimer;
-            room._game = Game.Create(db, names, ulong.Parse((string)header["seed"]!));
+            // Only a hand-picked row is logged; a dealt one comes back out of the seed.
+            var handPickedFirstDibs = (header["firstDibs"] as JArray)?.Select(id => (string)id!).ToList();
+            if (handPickedFirstDibs != null)
+            {
+                room.FirstDibsMode = FirstDibsModes.Manual;
+            }
+            room._game = Game.Create(db, names, ulong.Parse((string)header["seed"]!), handPickedFirstDibs);
             foreach (string actionLine in lines.Skip(1))
             {
                 room._game.Apply(WireCodec.DecodeAction(JObject.Parse(actionLine)));
@@ -89,19 +95,21 @@ public sealed partial class Room
         {
             return;
         }
-        var header = new JObject
+        var fields = new JObject
         {
-            ["header"] = new JObject
-            {
-                ["seed"] = seed.ToString(),
-                ["names"] = new JArray(_seats.Select(s => s.Name)),
-                ["bots"] = new JArray(_seats.Select(s => s.IsBot)),
-                ["tokens"] = new JArray(_seats.Select(s => s.Token)),
-                ["players"] = new JArray(_seats.Select(s => s.PlayerId ?? "")),
-                ["botLevels"] = new JArray(_seats.Select(s => s.BotLevel)),
-                ["actionTimerSeconds"] = ActionTimerSeconds,
-            },
+            ["seed"] = seed.ToString(),
+            ["names"] = new JArray(_seats.Select(s => s.Name)),
+            ["bots"] = new JArray(_seats.Select(s => s.IsBot)),
+            ["tokens"] = new JArray(_seats.Select(s => s.Token)),
+            ["players"] = new JArray(_seats.Select(s => s.PlayerId ?? "")),
+            ["botLevels"] = new JArray(_seats.Select(s => s.BotLevel)),
+            ["actionTimerSeconds"] = ActionTimerSeconds,
         };
+        if (FirstDibsMode == FirstDibsModes.Manual)
+        {
+            fields["firstDibs"] = new JArray(_game!.State.FirstDibsRow);
+        }
+        var header = new JObject { ["header"] = fields };
         AppendLine(header.ToString(Newtonsoft.Json.Formatting.None));
     }
 

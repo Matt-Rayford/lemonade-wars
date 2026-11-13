@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using LemonadeWars.Engine.Ai;
 using LemonadeWars.Engine.Core;
+using LemonadeWars.Protocol;
 
 namespace LemonadeWars.Server;
 
@@ -15,6 +16,9 @@ public sealed partial class Room
     /// <summary>Room-wide bot pacing: "slow" / "medium" / "fast".</summary>
     public string BotSpeed { get; private set; } = "medium";
     private int _botDelayOverrideMs = NoBotDelayOverride;
+
+    /// <summary>A <see cref="FirstDibsModes"/> value: dealt at random, or hand-picked by the host as they start the game.</summary>
+    public string FirstDibsMode { get; private set; } = FirstDibsModes.Random;
 
     public Seat? Join(string name, string? token, string? playerId, Connection connection,
         out string error)
@@ -146,6 +150,30 @@ public sealed partial class Room
         return "";
     }
 
+    public string SetFirstDibsMode(int requestingSeat, string? mode)
+    {
+        List<Seat> toNotify;
+        lock (_sync)
+        {
+            if (requestingSeat != 0)
+            {
+                return "Only the host can change how First Dibs are chosen.";
+            }
+            if (_game != null)
+            {
+                return "The game already started.";
+            }
+            if (mode != FirstDibsModes.Random && mode != FirstDibsModes.Manual)
+            {
+                return "First Dibs must be random or manual.";
+            }
+            FirstDibsMode = mode;
+            toNotify = _seats.ToList();
+        }
+        BroadcastRoom(toNotify);
+        return "";
+    }
+
     public string SetBotLevel(int requestingSeat, int botSeat, string? level)
     {
         List<Seat> toNotify;
@@ -225,7 +253,8 @@ public sealed partial class Room
         BroadcastRoom(toNotify);
     }
 
-    public string Start(int requestingSeat)
+    /// <param name="handPickedFirstDibs">The host's First Dibs row; only read, and then required, in manual mode.</param>
+    public string Start(int requestingSeat, IReadOnlyList<string>? handPickedFirstDibs = null)
     {
         lock (_sync)
         {
@@ -248,8 +277,21 @@ public sealed partial class Room
                 return "Not All Players Are Ready";
             }
 
+            bool isHandPicked = FirstDibsMode == FirstDibsModes.Manual;
+            if (isHandPicked && handPickedFirstDibs == null)
+            {
+                return "Choose the First Dibs cards first.";
+            }
             ulong seed = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8));
-            _game = Game.Create(_db, _seats.Select(s => s.Name).ToArray(), seed);
+            try
+            {
+                _game = Game.Create(_db, _seats.Select(s => s.Name).ToArray(), seed,
+                    isHandPicked ? handPickedFirstDibs : null);
+            }
+            catch (ArgumentException e)
+            {
+                return e.Message; // the picked row does not fit this table
+            }
             foreach (var seat in _seats.Where(s => s.IsBot))
             {
                 _bots[seat.Index] = BotFactory.Create(seat.BotLevel,

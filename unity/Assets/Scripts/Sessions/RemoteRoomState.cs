@@ -15,5 +15,7 @@ namespace LemonadeWars.Unity
         public string Speed = "medium";
         /// <summary>Seconds an awaited player has per action, server-confirmed; 0 = no limit.</summary>
         public int ActionTimerSeconds = 60;
+        /// <summary>A FirstDibsModes value, server-confirmed.</summary>
+        public string FirstDibsMode = FirstDibsModes.Random;
     }
 }

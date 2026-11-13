@@ -12,7 +12,8 @@ namespace LemonadeWars.Unity
     public sealed partial class LobbyUi
     {
         public System.Action OnRulebook;
-        public System.Action<IReadOnlyList<(string Name, string Level)>> OnStartSolo;
+        /// <summary>The bots, then the hand-picked First Dibs row (null = dealt at random).</summary>
+        public System.Action<IReadOnlyList<(string Name, string Level)>, IReadOnlyList<string>> OnStartSolo;
         public System.Action<string, string> OnHost;          // serverUrl, name
         public System.Action<string, string, string> OnJoin;  // serverUrl, name, code
         public System.Action<string, string> OnMyGames;        // serverUrl, name
@@ -22,6 +23,7 @@ namespace LemonadeWars.Unity
         public System.Action<int> OnRemoveBotSeat;             // seat index
         public System.Action<int, string> OnSetBotLevel;       // seat index, level
         public System.Action<int> OnSetActionTimer;            // seconds; 0 = no limit
+        public System.Action<string> OnSetFirstDibsMode;       // a FirstDibsModes value
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;
@@ -39,6 +41,13 @@ namespace LemonadeWars.Unity
 
         private static readonly string[] BotNames = { "Benny", "Cleo", "Dex", "Squeezy" };
         private const int MaxSeats = 5;
+        /// <summary>The air between neighbouring menu buttons, side by side or stacked.</summary>
+        private const float ButtonGapPx = 14f;
+        private const float MenuButtonHeightPx = 70f;
+        /// <summary>The screen-height fraction that stacked controls stand on, and the band they span.</summary>
+        private const float StackBaseline = 0.05f;
+        private const float StackLeft = 0.30f;
+        private const float StackRight = 0.70f;
         private static readonly Color ReadyGreen = new Color(0.45f, 0.85f, 0.45f);
         private static readonly Color NotReadyRed = new Color(0.90f, 0.32f, 0.32f);
 
@@ -76,6 +85,7 @@ namespace LemonadeWars.Unity
             BuildSoloSetup(canvasRoot);
             BuildMyGames(canvasRoot);
             BuildLobby(canvasRoot);
+            BuildFirstDibsPicker(canvasRoot);
 
             // The table's own backdrop, so the pre-game screens feel like the same world.
             foreach (var root in AllScreens)
@@ -92,7 +102,7 @@ namespace LemonadeWars.Unity
         }
 
         private RectTransform[] AllScreens =>
-            new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot };
+            new[] { _menuRoot, _lobbyRoot, _settingsRoot, _soloRoot, _joinRoot, _gamesRoot, _dibsPickRoot };
 
         private void ActivateOnly(RectTransform target)
         {
@@ -110,6 +120,20 @@ namespace LemonadeWars.Unity
                 TextAnchor.MiddleCenter, UiKit.ButtonColor);
             UiKit.Anchor((RectTransform)title.transform, new Vector2(0, 0.74f), new Vector2(1, 0.92f));
             return title;
+        }
+
+        /// <summary>
+        /// Places a row on top of the controls stacked so far, in pixels up from the baseline, and
+        /// raises <paramref name="stackTopPx"/> past it with the gap included: every row keeps its
+        /// height and the same air around it at any window shape.
+        /// </summary>
+        private static void StackOnBaseline(RectTransform row, float heightPx, ref float stackTopPx)
+        {
+            row.anchorMin = new Vector2(StackLeft, StackBaseline);
+            row.anchorMax = new Vector2(StackRight, StackBaseline);
+            row.offsetMin = new Vector2(0f, stackTopPx);
+            row.offsetMax = new Vector2(0f, stackTopPx + heightPx);
+            stackTopPx += heightPx + ButtonGapPx;
         }
 
         private static Transform CreateButtonColumn(RectTransform parent, string name,
@@ -134,7 +158,7 @@ namespace LemonadeWars.Unity
             go.transform.SetParent(parent, false);
             UiKit.Anchor((RectTransform)go.transform, anchorMin, anchorMax);
             var layout = go.GetComponent<HorizontalLayoutGroup>();
-            layout.spacing = 14;
+            layout.spacing = ButtonGapPx;
             layout.childForceExpandWidth = true;
             layout.childForceExpandHeight = true;
             layout.childControlWidth = true;

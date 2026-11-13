@@ -99,7 +99,7 @@ public class ActionTimerTests
     }
 
     [Fact]
-    public async Task ALoneHumanAmongBotsPlaysUntimed()
+    public async Task AHostAloneWithBotsIsTimedToo()
     {
         using var factory = StartServer();
         await using var host = await TestClient.ConnectAsync(factory);
@@ -110,7 +110,11 @@ public class ActionTimerTests
 
         var update = await host.NextAsync(m => (string?)m["type"] == "update" &&
             m["moves"] is JArray moves && moves.Count > 0);
-        Assert.Empty((JArray)update["clocks"]!);
+        Assert.Equal(0, (int)update["clocks"]!.Single()["seat"]!);
+
+        // Unanswered, the host's Lemon Lord choice is made for them like anyone else's.
+        await host.NextAsync(m => (string?)m["type"] == "update" &&
+            m["events"]!.Any(e => (string?)e["$type"] == "ActionTimerExpired"));
     }
 
     /// <summary>Returns the host's first update of the game, which awaits both seats' Lemon Lord choices.</summary>

@@ -15,6 +15,7 @@ namespace LemonadeWars.Protocol
         public const string SetBotLevel = "set_bot_level";
         public const string SetSpeed = "set_speed";
         public const string SetActionTimer = "set_action_timer";
+        public const string SetFirstDibsMode = "set_first_dibs_mode";
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";
@@ -32,6 +33,14 @@ namespace LemonadeWars.Protocol
         public const string TurnAlert = "turn_alert";
         public const string ActionClocks = "action_clocks";
         public const string Error = "error";
+    }
+
+    /// <summary>How a room's First Dibs row is chosen.</summary>
+    public static class FirstDibsModes
+    {
+        public const string Random = "random";
+        /// <summary>The host picks the row; their start_game carries it as "firstDibs".</summary>
+        public const string Manual = "manual";
     }
 
     public sealed class SeatInfo
@@ -58,6 +67,8 @@ namespace LemonadeWars.Protocol
         public string Speed { get; set; } = "medium";
         /// <summary>Seconds an awaited player has before the table acts for them; 0 = no limit.</summary>
         public int ActionTimerSeconds { get; set; }
+        /// <summary>A <see cref="FirstDibsModes"/> value.</summary>
+        public string FirstDibsMode { get; set; } = FirstDibsModes.Random;
         public List<SeatInfo> Seats { get; set; } = new List<SeatInfo>();
     }
 
