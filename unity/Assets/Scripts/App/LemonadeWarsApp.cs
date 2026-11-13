@@ -109,6 +109,7 @@ namespace LemonadeWars.Unity
             TickTurnAlertFade();
             TickGamesListRefresh();
             TickTableColor();
+            TickActionTimer();
 
             bool escConsumed = TickRulebookKeys();
 
@@ -145,6 +146,7 @@ namespace LemonadeWars.Unity
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
             _table.TickActionLog();
+            _table.TickActionCountdowns();
             _table.TickDiscardScroll(Input.mousePosition);
             _picker.Tick(Input.mousePosition);
         }

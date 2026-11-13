@@ -58,6 +58,7 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
+            _countdownPills.Clear();
             _cashIcons.Clear();
             _avatarBadges.Clear();
             int count = view.Players.Count;
@@ -100,6 +101,10 @@ namespace LemonadeWars.Unity
             if (awaited.Contains(playerId) && !isMe)
             {
                 AddWaitingHourglass(avatar);
+            }
+            if (awaited.Contains(playerId) && ActionSecondsLeft?.Invoke(playerId) != null)
+            {
+                AddCountdownPill(avatar, playerId);
             }
             AddVictoryCrowns(row, player);
             AddPlayerNameLabel(row, player.Name, playerId, isMe);

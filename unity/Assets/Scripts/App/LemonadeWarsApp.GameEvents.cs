@@ -36,6 +36,9 @@ namespace LemonadeWars.Unity
                 case CardDrawn drawn when drawn.PlayerId == _session.Seat: HandleOwnCardDrawn(drawn); break;
                 case CardDrawn rivalDraw: HandleRivalCardDrawn(rivalDraw); break;
                 case TimeoutDrawn _: HandleTimeoutDrawn(); break;
+                case ActionTimerExpired expired when expired.PlayerId == _session.Seat:
+                    HandleOwnActionTimerExpired();
+                    break;
                 case TitleClaimed title when title.PlayerId == _session.Seat: Sfx.Play(Sfx.TitleClaim); break;
                 case BraggingRightsPurchased brag: HandleBraggingRightsPurchased(brag); break;
                 case WhiniestBabyMoved baby when baby.ToPlayerId == _session.Seat: HandleWhiniestBabyClaimed(); break;

@@ -26,6 +26,16 @@ namespace LemonadeWars.Engine.Core
         public override string ToString() => $"P{PlayerId} turn started";
     }
 
+    /// <summary>
+    /// Raised by whoever hosts the table (the server's action timer), never by the rules: the
+    /// actions that follow it were made on the player's behalf.
+    /// </summary>
+    public sealed class ActionTimerExpired : GameEvent
+    {
+        public int PlayerId { get; set; }
+        public override string ToString() => $"P{PlayerId} ran out of time";
+    }
+
     public sealed class DecisionRequired : GameEvent
     {
         public int PlayerId { get; set; }

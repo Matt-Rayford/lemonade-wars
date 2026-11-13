@@ -43,6 +43,7 @@ namespace LemonadeWars.Unity
             UiKit.AddTextShadow(_tableMessage);
             var messageRect = (RectTransform)_tableMessage.transform;
             UiKit.Anchor(messageRect, new Vector2(0.21f, MessageStripBottom), new Vector2(0.79f, MessageStripTop));
+            BuildOwnCountdown(root, messageRect);
 
             // The strip doubles as the home of the big End Turn button; the words step
             // aside while it is there. Anchored off the message, so nudging one nudges both.
@@ -62,6 +63,7 @@ namespace LemonadeWars.Unity
         private void WireTableCallbacks()
         {
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
+            _table.ActionSecondsLeft = id => _remote?.ActionSecondsLeft(id);
             _table.UnshownMoney = id =>
                 (_earningsInFlight.TryGetValue(id, out int earned) ? earned : 0) - HeldSpendingOf(id);
             _table.TheatreBusy = () =>
@@ -135,6 +137,7 @@ namespace LemonadeWars.Unity
             _lobby.OnAddBot = () => _remote?.AddBot();
             _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
             _lobby.OnSetBotLevel = (seat, level) => _remote?.SetBotLevel(seat, level);
+            _lobby.OnSetActionTimer = seconds => _remote?.SetActionTimer(seconds);
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");

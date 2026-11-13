@@ -26,6 +26,9 @@ namespace LemonadeWars.Unity
         private readonly List<string> _log = new List<string>();
         private readonly Dictionary<GameAction, string> _labels = new Dictionary<GameAction, string>();
         private readonly JsonSerializer _serializer = JsonSerializer.Create(WireCodec.Settings);
+        private readonly ActionClockBoard _actionClocks = new ActionClockBoard();
+        /// <summary>The server update the viewer last reported their table settled for.</summary>
+        private int _settledReportVersion = -1;
         private float _nextAutoplay;
 
         public RemoteRoomState Room { get; } = new RemoteRoomState();
@@ -110,6 +113,7 @@ namespace LemonadeWars.Unity
         public void SetBotLevel(int seat, string level) =>
             Send(new { type = "set_bot_level", seat, level });
         public void SetSpeed(string speed) => Send(new { type = "set_speed", speed });
+        public void SetActionTimer(int seconds) => Send(new { type = "set_action_timer", seconds });
         public void SetReady(bool ready) => Send(new { type = "ready", ready });
         public void StartGame() => Send(new { type = "start_game" });
 
@@ -138,6 +142,30 @@ namespace LemonadeWars.Unity
                 ["type"] = "action",
                 ["action"] = WireCodec.EncodeAction(action),
             });
+        }
+
+        // ------------------------------------------------------ action timer
+
+        /// <summary>Null unless that seat's countdown is running.</summary>
+        public float? ActionSecondsLeft(int seat) =>
+            _actionClocks.SecondsLeft(seat, UnityEngine.Time.realtimeSinceStartup);
+
+        /// <summary>The server holds the viewer's countdown until told their table has finished playing out this update.</summary>
+        public bool OwesSettledReport =>
+            _actionClocks.IsHeldForSettling(Seat) && _settledReportVersion != _actionClocks.StateVersion;
+
+        public void ReportTableSettled()
+        {
+            _settledReportVersion = _actionClocks.StateVersion;
+            Send(new { type = "table_settled", stateVersion = _actionClocks.StateVersion });
+        }
+
+        private void HearActionClocks(JObject message)
+        {
+            var clocks = message["clocks"]?.ToObject<List<ActionClockInfo>>(_serializer)
+                ?? new List<ActionClockInfo>();
+            _actionClocks.Hear((int?)message["stateVersion"] ?? 0, clocks,
+                UnityEngine.Time.realtimeSinceStartup);
         }
 
         public void Tick()
@@ -175,6 +203,10 @@ namespace LemonadeWars.Unity
                 case MessageType.TurnAlert:
                     HandleTurnAlert(message);
                     break;
+                case MessageType.ActionClocks:
+                    HearActionClocks(message);
+                    Revision++; // the player bars wear the countdowns
+                    break;
                 case MessageType.Error:
                     AddLog("! " + (string)message["message"]);
                     Revision++;
@@ -185,11 +217,18 @@ namespace LemonadeWars.Unity
         private void HandleRoom(JObject message)
         {
             var room = message.ToObject<RoomMessage>(_serializer);
+            if (Room.Code != room.Code)
+            {
+                // Each room counts its own updates: the last room's clocks would outrank this one's.
+                _actionClocks.Clear();
+                _settledReportVersion = -1;
+            }
             Room.Code = room.Code;
             Room.YourSeat = room.YourSeat;
             Room.Token = room.Token;
             Room.Started = room.Started;
             Room.Speed = room.Speed;
+            Room.ActionTimerSeconds = room.ActionTimerSeconds;
             Room.Seats = room.Seats;
             Revision++;
             RoomChanged?.Invoke();
@@ -204,6 +243,7 @@ namespace LemonadeWars.Unity
                 View = viewJson.ToObject<PlayerView>(_serializer);
             }
             Moves = DecodeLabelledMoves(message);
+            HearActionClocks(message);
             if (message["events"] is JArray events)
             {
                 foreach (var entry in events.OfType<JObject>())

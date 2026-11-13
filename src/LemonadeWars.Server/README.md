@@ -19,6 +19,7 @@ Listens on `http://0.0.0.0:5225` (`/ws` for the game socket, `/health` for check
 | `GAME_DATA_DIR` | walk up to repo `game-data/` | Card definitions |
 | `DATA_DIR` | `<binary dir>/rooms` | Room action logs (`<CODE>.jsonl`) |
 | `BOT_DELAY_MS` | `600` | Pause between server-bot actions (0 = instant, used by tests) |
+| `ACTION_TIMER_SECOND_MS` | `1000` | How long one second of the action timer lasts; only tests shorten it |
 
 ## Persistence model
 

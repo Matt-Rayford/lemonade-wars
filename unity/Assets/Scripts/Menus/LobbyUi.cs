@@ -21,6 +21,7 @@ namespace LemonadeWars.Unity
         public System.Action OnAddBot;
         public System.Action<int> OnRemoveBotSeat;             // seat index
         public System.Action<int, string> OnSetBotLevel;       // seat index, level
+        public System.Action<int> OnSetActionTimer;            // seconds; 0 = no limit
         public System.Action OnStart;
         public System.Action<bool> OnReadyToggle;
         public System.Action OnLeave;

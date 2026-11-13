@@ -15,7 +15,7 @@ public sealed partial class Room
     /// Returns null for finished or unreadable games.
     /// </summary>
     public static Room? LoadFromFile(string code, CardDatabase db, string path, int botDelayMs,
-        Action<string, string>? turnNotifier = null)
+        Action<string, string>? turnNotifier = null, int msPerTimerSecond = 1000)
     {
         try
         {
@@ -30,8 +30,10 @@ public sealed partial class Room
                 return null;
             }
 
-            var room = new Room(code, db, path, botDelayMs, turnNotifier);
+            var room = new Room(code, db, path, botDelayMs, turnNotifier, msPerTimerSecond);
             string[] names = room.RestoreSeats(header);
+            // Logs from before the action timer belong to games that started without one.
+            room.ActionTimerSeconds = (int?)header["actionTimerSeconds"] ?? NoActionTimer;
             room._game = Game.Create(db, names, ulong.Parse((string)header["seed"]!));
             foreach (string actionLine in lines.Skip(1))
             {
@@ -97,6 +99,7 @@ public sealed partial class Room
                 ["tokens"] = new JArray(_seats.Select(s => s.Token)),
                 ["players"] = new JArray(_seats.Select(s => s.PlayerId ?? "")),
                 ["botLevels"] = new JArray(_seats.Select(s => s.BotLevel)),
+                ["actionTimerSeconds"] = ActionTimerSeconds,
             },
         };
         AppendLine(header.ToString(Newtonsoft.Json.Formatting.None));

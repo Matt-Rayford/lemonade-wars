@@ -13,5 +13,7 @@ namespace LemonadeWars.Unity
         public List<SeatInfo> Seats = new List<SeatInfo>();
         /// <summary>Room-wide bot pacing, server-confirmed: "slow" / "medium" / "fast".</summary>
         public string Speed = "medium";
+        /// <summary>Seconds an awaited player has per action, server-confirmed; 0 = no limit.</summary>
+        public int ActionTimerSeconds = 60;
     }
 }

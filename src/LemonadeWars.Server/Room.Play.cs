@@ -63,12 +63,12 @@ public sealed partial class Room
             }
         }
 
-        await BroadcastThenPumpAsync(events);
+        await BroadcastThenPumpAsync(events, actorSeat: seatIndex);
     }
 
-    private async Task BroadcastThenPumpAsync(List<GameEvent> events)
+    private async Task BroadcastThenPumpAsync(List<GameEvent> events, int actorSeat = NoActor)
     {
-        await BroadcastGameAsync(events);
+        await BroadcastGameAsync(events, actorSeat);
         await EnsureBotPumpAsync();
     }
 
@@ -163,7 +163,8 @@ public sealed partial class Room
         }
     }
 
-    private async Task BroadcastGameAsync(IReadOnlyList<GameEvent> events)
+    /// <summary><paramref name="actorSeat"/> is the human whose action this broadcast reports, if any: their action timer starts over.</summary>
+    private async Task BroadcastGameAsync(IReadOnlyList<GameEvent> events, int actorSeat = NoActor)
     {
         List<(Seat Seat, UpdateMessage Message)> outbox;
         List<(string PlayerId, string Code)> alerts;
@@ -177,6 +178,7 @@ public sealed partial class Room
             var acting = _game.ActingPlayers();
             alerts = CollectTurnAlerts(acting);
             outbox = BuildSeatUpdates(_game, events, acting);
+            SyncActionClocks(acting, actorSeat, events, outbox);
         }
         if (_turnNotifier != null)
         {
@@ -186,6 +188,7 @@ public sealed partial class Room
             }
         }
         await Task.WhenAll(outbox.Select(o => o.Seat.SendAsync(o.Message)));
+        _ = EnsureClockLoopAsync();
     }
 
     // ---- BroadcastGameAsync steps, all run with _sync held
@@ -263,6 +266,7 @@ public sealed partial class Room
                 Token = seat.Token,
                 Started = started,
                 Speed = BotSpeed,
+                ActionTimerSeconds = ActionTimerSeconds,
                 Seats = seats.Select(s => new SeatInfo
                 {
                     Seat = s.Index,

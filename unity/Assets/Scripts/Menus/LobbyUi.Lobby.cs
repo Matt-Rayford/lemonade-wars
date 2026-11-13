@@ -11,7 +11,8 @@ namespace LemonadeWars.Unity
             UiKit.Anchor(_lobbyRoot, Vector2.zero, Vector2.one);
             _lobbyTitle = CreateScreenTitle(_lobbyRoot, "");
 
-            _lobbySeatList = CreateSeatList(_lobbyRoot, new Vector2(0.30f, 0.26f), new Vector2(0.70f, 0.72f));
+            _lobbySeatList = CreateSeatList(_lobbyRoot, new Vector2(0.30f, 0.40f), new Vector2(0.70f, 0.72f));
+            BuildActionTimerPicker(_lobbyRoot);
 
             var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls",
                 new Vector2(0.30f, 0.145f), new Vector2(0.70f, 0.225f));
@@ -26,7 +27,7 @@ namespace LemonadeWars.Unity
 
             _lobbyStatus = UiKit.CreateText(_lobbyRoot, "", 18,
                 TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
-            UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.24f), new Vector2(0.9f, 0.29f));
+            UiKit.Anchor((RectTransform)_lobbyStatus.transform, new Vector2(0.1f, 0.355f), new Vector2(0.9f, 0.395f));
         }
 
         public void ShowLobby(RemoteRoomState room, string status, bool myReady)
@@ -63,6 +64,7 @@ namespace LemonadeWars.Unity
                 UiKit.CreateButton(_lobbySeatList, "+ Add bot", 18, () => OnAddBot?.Invoke());
             }
 
+            ShowActionTimerChoices(room.ActionTimerSeconds, isHost);
             _readyLabel.text = myReady ? "UNREADY" : "READY UP";
             _lobbyStatus.text = status ?? "";
             _hostControls.gameObject.SetActive(isHost);
