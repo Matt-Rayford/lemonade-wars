@@ -109,7 +109,6 @@ namespace LemonadeWars.Unity
             TickTurnAlertFade();
             TickGamesListRefresh();
             TickTableColor();
-            TickActionTimer();
 
             bool escConsumed = TickRulebookKeys();
 
@@ -120,6 +119,8 @@ namespace LemonadeWars.Unity
 
             TickGameHotkeys(escConsumed);
             TickPointerDrivenTable();
+            ReportTableSettledOnceIdle();
+            ShowClockOnTurnBanner();
             TickDice();
             // What waited on ONWARD! is queued before the render, so the decisions
             // behind it (a Timeout's discards) open after its flight, not before.

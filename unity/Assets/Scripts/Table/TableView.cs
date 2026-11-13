@@ -75,6 +75,9 @@ namespace LemonadeWars.Unity
             _cashIcon = LoadIcon("Cash.png");
             _tantrumIcon = LoadIcon("Tantrum.png");
             _hourglassIcon = LoadIcon("Hourglass.png");
+            _emptyHourglassIcon = LoadIcon("HourglassEmpty.png");
+            _upperSand = LoadIconAsSprite("HourglassSandTop.png");
+            _lowerSand = LoadIconAsSprite("HourglassSandBottom.png");
             _pinnedTagIcon = LoadIcon("PriceTag.png");
             _actionLogIcon = LoadIcon("ActionLog.png");
             Build(canvasRoot);
@@ -83,6 +86,17 @@ namespace LemonadeWars.Unity
         private static Texture2D LoadIcon(string fileName) =>
             UiKit.LoadTextureSharp(
                 Path.Combine(Application.streamingAssetsPath, "icons", fileName));
+
+        /// <summary>For images that fill progressively, which needs a sprite. Null if the file is missing.</summary>
+        private static Sprite LoadIconAsSprite(string fileName)
+        {
+            var icon = LoadIcon(fileName);
+            return icon == null
+                ? null
+                // FullRect: the default traces a tight outline of the art, slow on load and of no use to a fill.
+                : Sprite.Create(icon, new Rect(0, 0, icon.width, icon.height), new Vector2(0.5f, 0.5f),
+                    100f, 0, SpriteMeshType.FullRect);
+        }
 
         public void SetVisible(bool visible) => Root.gameObject.SetActive(visible);
 

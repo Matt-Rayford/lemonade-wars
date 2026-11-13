@@ -22,6 +22,10 @@ namespace LemonadeWars.Unity
         private readonly ModalBackdrop _backdrop;
         private readonly RectTransform _root;
         private readonly TMP_Text _subtitle;
+        private readonly TMP_Text _timeLeft;
+        private static readonly Color TimeLeftColor = new Color(0.96f, 0.96f, 0.92f);
+        private static readonly Color TimeNearlyUpColor = new Color(1f, 0.38f, 0.32f);
+        private const int NearlyUpSeconds = 10;
 
         public TurnBanner(RectTransform canvasRoot, MonoBehaviour host)
         {
@@ -42,6 +46,11 @@ namespace LemonadeWars.Unity
             UiKit.AddTextShadow(_subtitle);
 
             BuildOnwardButton();
+
+            _timeLeft = UiKit.CreateText(_root, "", 24, TextAnchor.MiddleCenter, TimeLeftColor);
+            UiKit.Anchor((RectTransform)_timeLeft.transform,
+                new Vector2(0.1f, 0.215f), new Vector2(0.9f, 0.275f));
+            UiKit.AddTextShadow(_timeLeft);
 
             _root.gameObject.SetActive(false);
         }
@@ -77,8 +86,24 @@ namespace LemonadeWars.Unity
         {
             IsOpen = true;
             _subtitle.text = subtitle ?? "";
+            _timeLeft.text = "";
             // Appears next frame, once the backdrop blur has been captured.
             _backdrop.Reveal(_root.gameObject);
+        }
+
+        /// <summary>
+        /// The banner covers the avatars and their hourglasses, and the action timer runs under
+        /// it: this is the only place the clock can be seen. Null for a turn with no clock on it.
+        /// </summary>
+        public void ShowSecondsLeft(int? seconds)
+        {
+            string shown = seconds is int left ? $"{left} seconds left" : "";
+            if (_timeLeft.text == shown)
+            {
+                return;
+            }
+            _timeLeft.text = shown;
+            _timeLeft.color = seconds <= NearlyUpSeconds ? TimeNearlyUpColor : TimeLeftColor;
         }
 
         public void Hide()

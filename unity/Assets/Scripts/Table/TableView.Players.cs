@@ -58,7 +58,7 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
-            _countdownPills.Clear();
+            _countdownGlasses.Clear();
             _cashIcons.Clear();
             _avatarBadges.Clear();
             int count = view.Players.Count;
@@ -98,13 +98,14 @@ namespace LemonadeWars.Unity
             }
             var avatar = AddPlayerAvatar(row, playerId, player.Name);
             _avatarBadges[playerId] = avatar;
-            if (awaited.Contains(playerId) && !isMe)
+            bool isAwaited = awaited.Contains(playerId);
+            if (isAwaited && ActionCountdownOf?.Invoke(playerId) != null)
+            {
+                AddCountdownGlass(avatar, playerId); // on your own avatar too: it is your clock
+            }
+            else if (isAwaited && !isMe)
             {
                 AddWaitingHourglass(avatar);
-            }
-            if (awaited.Contains(playerId) && ActionSecondsLeft?.Invoke(playerId) != null)
-            {
-                AddCountdownPill(avatar, playerId);
             }
             AddVictoryCrowns(row, player);
             AddPlayerNameLabel(row, player.Name, playerId, isMe);
@@ -159,8 +160,24 @@ namespace LemonadeWars.Unity
             return avatar;
         }
 
-        /// <summary>Greys the avatar under an hourglass while the table waits on this player; several can wait at once.</summary>
+        /// <summary>The spinning hourglass of a wait with no clock on it; several players can wait at once.</summary>
         private void AddWaitingHourglass(RectTransform avatar)
+        {
+            ShadeAvatar(avatar);
+            var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
+                typeof(HourglassMotion));
+            glassGo.transform.SetParent(avatar, false);
+            var glassRect = (RectTransform)glassGo.transform;
+            glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
+            // Half the avatar; HourglassMotion scales from here.
+            glassRect.sizeDelta = new Vector2(AvatarDiameterPx / 2f, AvatarDiameterPx / 2f);
+            var glass = glassGo.GetComponent<RawImage>();
+            glass.texture = _hourglassIcon;
+            glass.raycastTarget = false;
+        }
+
+        /// <summary>Greys the avatar so the hourglass drawn over it stands out.</summary>
+        private static void ShadeAvatar(RectTransform avatar)
         {
             var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
             shadeGo.transform.SetParent(avatar, false);
@@ -172,17 +189,6 @@ namespace LemonadeWars.Unity
             var grey = ModalBackdrop.Tint;
             shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
             shade.raycastTarget = false;
-
-            var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
-                typeof(HourglassMotion));
-            glassGo.transform.SetParent(avatar, false);
-            var glassRect = (RectTransform)glassGo.transform;
-            glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
-            // Half the avatar; HourglassMotion scales from here.
-            glassRect.sizeDelta = new Vector2(AvatarDiameterPx / 2f, AvatarDiameterPx / 2f);
-            var glass = glassGo.GetComponent<RawImage>();
-            glass.texture = _hourglassIcon;
-            glass.raycastTarget = false;
         }
 
         /// <summary>A crown per VP. Met Lemon Lords count once revealed (FinishedLords is empty until game
