@@ -53,7 +53,7 @@ namespace LemonadeWars.Unity
             {
                 return StackHeadline();
             }
-            if (View.PendingRollValue is int roll)
+            if (View.PendingRollValue is int roll && !_turnStartRollWaiting)
             {
                 string what = RollScopeName(View.PendingRollPurpose, View.PendingRollStandInstanceId)
                     ?? "Sale";
@@ -80,7 +80,7 @@ namespace LemonadeWars.Unity
             {
                 return $"Your Turn ({ActionsLabel(View.ActionsRemaining)})";
             }
-            return $"{NameOf(View.ActivePlayer)}'s turn — {View.Phase}";
+            return $"{NameOf(View.ActivePlayer)}'s Turn ({ActionsLabel(View.ActionsRemaining)})";
         }
 
         /// <summary>

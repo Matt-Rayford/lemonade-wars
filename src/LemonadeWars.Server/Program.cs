@@ -13,8 +13,12 @@ string dataDir = Environment.GetEnvironmentVariable("DATA_DIR")
 int botDelayMs = int.TryParse(Environment.GetEnvironmentVariable("BOT_DELAY_MS"), out int configuredDelayMs)
     ? configuredDelayMs
     : 1100;
+// Tests shorten the action timer's second; nothing else should set this.
+int msPerTimerSecond = int.TryParse(Environment.GetEnvironmentVariable("ACTION_TIMER_SECOND_MS"), out int configuredSecondMs)
+    ? configuredSecondMs
+    : 1000;
 var connections = new ConnectionRegistry();
-var rooms = new RoomManager(db, dataDir, botDelayMs, connections.NotifyTurn);
+var rooms = new RoomManager(db, dataDir, botDelayMs, connections.NotifyTurn, msPerTimerSecond);
 var players = new PlayerRegistry(dataDir);
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });

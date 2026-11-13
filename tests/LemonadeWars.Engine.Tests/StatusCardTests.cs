@@ -55,6 +55,60 @@ namespace LemonadeWars.Engine.Tests
         }
 
         [Fact]
+        public void SellingMoreThanAFineNeedsGivesNoChange()
+        {
+            // Rulebook, Timeout: "They do not get a refund if they sell more than is needed to pay."
+            var (game, baby) = TimeoutDrawnOnABabyOwingSix(babyMoney: 4);
+            var babyState = game.State.Players[baby];
+
+            // Two Bargain stands raise $4 against a $2 shortfall.
+            var events = game.Apply(new SubmitTimeoutPayment
+            {
+                PlayerId = baby,
+                SellStandInstanceIds = babyState.Stands.Select(stand => stand.InstanceId).ToList(),
+            });
+
+            Assert.Equal(0, babyState.Money);
+            // One change of -$4, so the bar never shows sale money arriving or a negative balance.
+            var babyMoneyEvent = Assert.Single(events.OfType<MoneyChanged>(), change => change.PlayerId == baby);
+            Assert.Equal(-4, babyMoneyEvent.Amount);
+        }
+
+        [Fact]
+        public void AFineThePlayerCanAffordCannotBePaidBySelling()
+        {
+            var (game, baby) = TimeoutDrawnOnABabyOwingSix(babyMoney: 20);
+            var babyState = game.State.Players[baby];
+
+            Assert.Throws<InvalidActionException>(() => game.Apply(new SubmitTimeoutPayment
+            {
+                PlayerId = baby,
+                SellStandInstanceIds = new List<int> { babyState.Stands[0].InstanceId },
+            }));
+            Assert.Equal(2, babyState.Stands.Count);
+
+            game.Apply(new SubmitTimeoutPayment { PlayerId = baby });
+            Assert.Equal(14, babyState.Money);
+        }
+
+        /// <summary>The seat after the active player is the Baby with two played Tantrums ($3 each) when the Timeout comes up.</summary>
+        private static (Game Game, int Baby) TimeoutDrawnOnABabyOwingSix(int babyMoney)
+        {
+            var game = ReadyToPlay(seed: 7);
+            StripHands(game, "tantrum");
+            var state = game.State;
+            int baby = SeatAfterActive(game, 1);
+            PutTantrumsInPile(game, baby, 2);
+            state.WhiniestBabyHolder = baby;
+            state.Players[baby].Money = babyMoney;
+            int timeout = state.LemonDeck.First(id => state.LemonInstances[id].DefId == "timeout");
+            state.LemonDeck.Remove(timeout);
+            state.LemonDeck.Insert(0, timeout);
+            game.Apply(new DrawLemonCard { PlayerId = ActivePlayer(game) });
+            return (game, baby);
+        }
+
+        [Fact]
         public void WhiniestBabyDiscardsOneOfTheTwoDrawnCards()
         {
             var game = ReadyToPlay(seed: 7);

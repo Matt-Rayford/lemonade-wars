@@ -26,7 +26,11 @@ namespace LemonadeWars.Unity
         private void Awake()
         {
             _rect = (RectTransform)transform;
-            _group = GetComponent<CanvasGroup>() ?? gameObject.AddComponent<CanvasGroup>();
+            _group = GetComponent<CanvasGroup>();
+            if (_group == null)
+            {
+                _group = gameObject.AddComponent<CanvasGroup>();
+            }
             _group.blocksRaycasts = true; // the card is readable on hover like the one under it
         }
 

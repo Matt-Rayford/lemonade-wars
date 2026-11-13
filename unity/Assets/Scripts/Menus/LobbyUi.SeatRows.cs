@@ -7,6 +7,33 @@ namespace LemonadeWars.Unity
     {
         private const float ReadyDotInsetPx = 26f;
         private static readonly Color RemoveButtonIdle = new Color(0.72f, 0.24f, 0.20f, 0.95f);
+        private static readonly Color PlainRowColor = new Color(0, 0, 0, 0.30f);
+        private const float SeatLabelInsetPx = 16f;
+        private const float BotIconHeightPx = 24f;
+        private const float BotIconGapPx = 10f;
+        /// <summary>What servers before the robot icon appended to a bot's name; still found in rooms saved back then.</summary>
+        private const string LegacyBotNameSuffix = " (bot)";
+
+        private static Texture2D s_botIcon;
+        private static bool s_botIconLoaded;
+
+        private static Texture2D BotIcon
+        {
+            get
+            {
+                if (!s_botIconLoaded)
+                {
+                    s_botIconLoaded = true;
+                    s_botIcon = UiKit.LoadInkIconAsMask("bot.png");
+                }
+                return s_botIcon;
+            }
+        }
+
+        private static string WithoutLegacyBotSuffix(string seatName) =>
+            seatName != null && seatName.EndsWith(LegacyBotNameSuffix, System.StringComparison.Ordinal)
+                ? seatName.Substring(0, seatName.Length - LegacyBotNameSuffix.Length)
+                : seatName;
 
         public static string NextLevel(string level) =>
             level == "easy" ? "medium"
@@ -31,10 +58,12 @@ namespace LemonadeWars.Unity
         /// <summary>
         /// A bot's difficulty chip is clickable only when <paramref name="onCycleLevel"/> is given.
         /// <paramref name="ready"/> draws the status dot; null = no dot (solo seats, the games list).
+        /// <paramref name="seat"/> tints the row in that seat's player colour; null = a plain row (not a player).
+        /// A row with a <paramref name="botLevel"/> wears the robot icon after its name.
         /// </summary>
         private static void AddSeatRow(RectTransform list, string label, System.Action onRemove,
             string botLevel = null, System.Action onCycleLevel = null, bool? ready = null,
-            bool isYou = false)
+            bool isYou = false, int? seat = null)
         {
             // The dot owns the row's right edge; chip and remove button shift left of it.
             float dotInset = ready != null ? ReadyDotInsetPx : 0f;
@@ -43,7 +72,9 @@ namespace LemonadeWars.Unity
             var background = row.GetComponent<Image>();
             background.sprite = UiSprites.RoundedRect;
             background.type = Image.Type.Sliced;
-            background.color = new Color(0, 0, 0, 0.30f);
+            background.color = seat is int playerSeat
+                ? PlayerPalette.BarColorOf(playerSeat)
+                : PlainRowColor;
             row.GetComponent<LayoutElement>().minHeight = 48;
             if (isYou)
             {
@@ -52,7 +83,11 @@ namespace LemonadeWars.Unity
 
             var text = UiKit.CreateText(row.transform, label, 20, TextAnchor.MiddleLeft);
             UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(16, 2), new Vector2((botLevel != null ? -182 : -56) - dotInset, -2));
+                new Vector2(SeatLabelInsetPx, 2), new Vector2((botLevel != null ? -182 : -56) - dotInset, -2));
+            if (botLevel != null && BotIcon != null)
+            {
+                AddBotIcon(row, text.preferredWidth);
+            }
 
             if (ready is bool isReady)
             {
@@ -67,6 +102,21 @@ namespace LemonadeWars.Unity
             {
                 AddRemoveSeatButton(row, onRemove, rightEdgeX: -7f - dotInset);
             }
+        }
+
+        private static void AddBotIcon(GameObject row, float nameWidthPx)
+        {
+            var iconGo = new GameObject("BotIcon", typeof(RectTransform), typeof(RawImage));
+            iconGo.transform.SetParent(row.transform, false);
+            var icon = (RectTransform)iconGo.transform;
+            icon.anchorMin = icon.anchorMax = new Vector2(0f, 0.5f);
+            icon.pivot = new Vector2(0f, 0.5f);
+            icon.sizeDelta = new Vector2(BotIconHeightPx * BotIcon.width / BotIcon.height, BotIconHeightPx);
+            icon.anchoredPosition = new Vector2(SeatLabelInsetPx + nameWidthPx + BotIconGapPx, 0f);
+            var iconImage = iconGo.GetComponent<RawImage>();
+            iconImage.texture = BotIcon;
+            iconImage.color = Color.white; // matches the name beside it; yellow was hard to read on the coloured rows
+            iconImage.raycastTarget = false;
         }
 
         private static void AddYourSeatRim(GameObject row)

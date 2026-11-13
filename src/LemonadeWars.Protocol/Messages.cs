@@ -14,12 +14,15 @@ namespace LemonadeWars.Protocol
         public const string RemoveBot = "remove_bot";
         public const string SetBotLevel = "set_bot_level";
         public const string SetSpeed = "set_speed";
+        public const string SetActionTimer = "set_action_timer";
         public const string Ready = "ready";
         public const string StartGame = "start_game";
         public const string Action = "action";
         public const string ListGames = "list_games";
         /// <summary>A deliberate exit frees a lobby seat; a dropped socket keeps it for a rejoin.</summary>
         public const string LeaveRoom = "leave_room";
+        /// <summary>The sender's table has finished showing what led to their wait, so their action timer may start.</summary>
+        public const string TableSettled = "table_settled";
 
         // server -> client
         public const string Welcome = "welcome";
@@ -27,6 +30,7 @@ namespace LemonadeWars.Protocol
         public const string Update = "update";
         public const string Games = "games";
         public const string TurnAlert = "turn_alert";
+        public const string ActionClocks = "action_clocks";
         public const string Error = "error";
     }
 
@@ -52,6 +56,8 @@ namespace LemonadeWars.Protocol
         public bool Started { get; set; }
         /// <summary>Bot pacing: "slow" / "medium" / "fast".</summary>
         public string Speed { get; set; } = "medium";
+        /// <summary>Seconds an awaited player has before the table acts for them; 0 = no limit.</summary>
+        public int ActionTimerSeconds { get; set; }
         public List<SeatInfo> Seats { get; set; } = new List<SeatInfo>();
     }
 
@@ -63,6 +69,27 @@ namespace LemonadeWars.Protocol
         public JObject View { get; set; }
         /// <summary>Empty unless the game is waiting on this seat.</summary>
         public List<MoveOption> Moves { get; set; } = new List<MoveOption>();
+        /// <summary>Counts the room's game broadcasts. Echoed in table_settled, so a report about an older state is ignored.</summary>
+        public int StateVersion { get; set; }
+        /// <summary>Every awaited seat on the action timer; empty when the room plays without one.</summary>
+        public List<ActionClockInfo> Clocks { get; set; } = new List<ActionClockInfo>();
+    }
+
+    public sealed class ActionClockInfo
+    {
+        public int Seat { get; set; }
+        public double SecondsLeft { get; set; }
+        /// <summary>False until the seat's table has settled (or the grace for that ran out): the countdown has not begun.</summary>
+        public bool Running { get; set; }
+    }
+
+    /// <summary>Sent when a countdown starts between game updates.</summary>
+    public sealed class ActionClocksMessage
+    {
+        public string Type { get; set; } = MessageType.ActionClocks;
+        /// <summary>The update these clocks belong to: a client already past it ignores them.</summary>
+        public int StateVersion { get; set; }
+        public List<ActionClockInfo> Clocks { get; set; } = new List<ActionClockInfo>();
     }
 
     public sealed class MoveOption

@@ -21,6 +21,10 @@ namespace LemonadeWars.Unity
             // staged beside its player's bar and held there through any reactions.
             bool onThePile = !IsStagedPlay(played.DefId) &&
                 _playTheatre.AddResponse(_art.Lemon(played.DefId), played.DefId, played.PlayerId);
+            if (onThePile)
+            {
+                ShowWhereAReactionSendsTheAttack(played);
+            }
             bool preStaged = played.PlayerId == _session.Seat && _preStagedDefId == played.DefId &&
                 _playTheatre.Matches(_session.Seat, played.DefId);
             _preStagedDefId = null;
@@ -32,6 +36,19 @@ namespace LemonadeWars.Unity
                     : TakenArt(played);
                 _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId,
                     played.TargetPlayerId ?? -1, loot);
+            }
+        }
+
+        /// <summary>Tag names its new victim; Rubber-Glue sends the attack back at whoever played it.</summary>
+        private void ShowWhereAReactionSendsTheAttack(LemonCardPlayed reaction)
+        {
+            int? proposedVictim =
+                reaction.DefId == LemonCardIds.TagYoureIt ? reaction.RedirectTargetId
+                : reaction.DefId == LemonCardIds.ImRubberYoureGlue ? reaction.RespondingToOwnerId
+                : null;
+            if (proposedVictim is int victimId)
+            {
+                _playTheatre.ProposeTarget(reaction.PlayerId, reaction.DefId, victimId);
             }
         }
 

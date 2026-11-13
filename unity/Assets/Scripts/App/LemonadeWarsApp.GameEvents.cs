@@ -36,9 +36,15 @@ namespace LemonadeWars.Unity
                 case CardDrawn drawn when drawn.PlayerId == _session.Seat: HandleOwnCardDrawn(drawn); break;
                 case CardDrawn rivalDraw: HandleRivalCardDrawn(rivalDraw); break;
                 case TimeoutDrawn _: HandleTimeoutDrawn(); break;
+                case ActionTimerExpired expired when expired.PlayerId == _session.Seat:
+                    HandleOwnActionTimerExpired();
+                    break;
                 case TitleClaimed title when title.PlayerId == _session.Seat: Sfx.Play(Sfx.TitleClaim); break;
                 case BraggingRightsPurchased brag: HandleBraggingRightsPurchased(brag); break;
                 case WhiniestBabyMoved baby when baby.ToPlayerId == _session.Seat: HandleWhiniestBabyClaimed(); break;
+                case WhiniestBabyMoved baby when baby.ToPlayerId is int newBabyId:
+                    HandleWhiniestBabyPassedToRival(baby.FromPlayerId, newBabyId);
+                    break;
                 case SpoiledRottenMoved spoiled when spoiled.ToPlayerId == _session.Seat: HandleSpoiledRottenClaimed(); break;
                 case BlackMarketPurchased bought: HandleBlackMarketPurchased(bought); break;
                 case BlackMarketPurchaseStarted purchaseStarted: HandlePurchaseStarted(purchaseStarted); break;
@@ -112,6 +118,29 @@ namespace LemonadeWars.Unity
                 });
         }
 
+        /// <summary>
+        /// The Baby goes to a rival: its card travels to their bar the way a purchase does (beside
+        /// the bar, a beat, then into the chip), so it is seen changing hands, not just gone.
+        /// </summary>
+        private void HandleWhiniestBabyPassedToRival(int? previousHolderId, int newHolderId)
+        {
+            System.Func<UnityEngine.Vector3?> origin;
+            if (previousHolderId == _session.Seat)
+            {
+                origin = () => _table.WhiniestBabyLandingWorld(); // where it sat in the viewer's own fan
+            }
+            else if (previousHolderId is int previousRival)
+            {
+                origin = () => _table.PlayerBarWorld(previousRival);
+            }
+            else
+            {
+                origin = () => _table.PurchaseShowcaseWorld(newHolderId); // fresh from the market: it appears beside the bar
+            }
+            _fx.QueueSound(Sfx.WhinyBaby);
+            _fx.QueuePurchase(_art.WhiniestBaby(), newHolderId, price: 0, _art.Bill, origin);
+        }
+
         private void HandleSpoiledRottenClaimed()
         {
             _table.SuppressSpoiledRotten = true;
@@ -127,7 +156,7 @@ namespace LemonadeWars.Unity
 
         private void HandleCardsStolen(CardsStolen cardTheft)
         {
-            _fx.QueueCardFly(_art.Back("lemon"),
+            _fx.QueueCardFly(_art.Back(cardTheft.IsBlackMarketCard ? "blackMarket" : "lemon"),
                 cardTheft.FromPlayerId, cardTheft.ToPlayerId, cardTheft.Count);
         }
 

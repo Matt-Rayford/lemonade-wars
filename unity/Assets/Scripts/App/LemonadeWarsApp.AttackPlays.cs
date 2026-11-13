@@ -53,11 +53,11 @@ namespace LemonadeWars.Unity
         /// <summary>The opponent a play ultimately hits, or -1 when it isn't aimed at one.</summary>
         private int VictimOf(GameAction move)
         {
-            // Hand reactions aim at bars too: Tag's victim is the redirect target, Rubber
-            // Glue's the attacker the play bounces back onto.
+            // Hand reactions aim at bars too: Tag's victim is the redirect target (your own bar
+            // included: a bystander may take the attack), Rubber Glue's the attacker it bounces onto.
             if (move is RespondToWindow respond)
             {
-                if (respond.RedirectTargetId is int redirect && redirect != View.ViewerId)
+                if (respond.RedirectTargetId is int redirect)
                 {
                     return redirect;
                 }

@@ -11,7 +11,7 @@ namespace LemonadeWars.Unity
     /// </summary>
     public sealed class DragSource : MonoBehaviour,
         IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler,
-        IBeginDragHandler, IDragHandler, IEndDragHandler
+        IBeginDragHandler, IDragHandler, IEndDragHandler, IDragCue
     {
         private const float GhostWidthPx = 150f;
         private const float GhostHeightPx = 210f;
@@ -31,6 +31,7 @@ namespace LemonadeWars.Unity
         public System.Action DoubleClicked;
 
         public bool Dragging { get; private set; }
+        public bool InvitesDrag => CanAct != null && CanAct();
 
         private RectTransform _ghost;
 

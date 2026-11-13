@@ -29,7 +29,13 @@ namespace LemonadeWars.Unity
                 }
                 return;
             }
-            _boardScroll = Mathf.Clamp(_boardScroll, 0f, overflow);
+            // The band can narrow or widen under a scrolled row (the action log opening or closing).
+            float reachableScroll = Mathf.Clamp(_boardScroll, 0f, overflow);
+            if (reachableScroll != _boardScroll)
+            {
+                _boardScroll = reachableScroll;
+                ApplyBoardScroll();
+            }
             if (!RectTransformUtility.RectangleContainsScreenPoint(_boardPanel, screenPosition))
             {
                 return;

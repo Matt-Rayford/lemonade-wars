@@ -64,37 +64,54 @@ namespace LemonadeWars.Engine.Core
         {
             var decision = RequireDecision(action.PlayerId, DecisionKind.TimeoutFine);
             var player = Player(action.PlayerId);
+            int owed = decision.RequiredMoney;
+            int cashBeforeSales = player.Money;
+            var soldCardIds = action.SellBmInstanceIds.Distinct().ToList();
+            var soldStandIds = action.SellStandInstanceIds.Distinct().ToList();
+            bool isSelling = soldCardIds.Count + soldStandIds.Count > 0;
+            if (isSelling && cashBeforeSales >= owed)
+            {
+                throw new InvalidActionException($"You can pay the ${owed} fine; nothing needs selling.");
+            }
 
             // Black Market cards go FIRST: selling a stand discards its remaining equips
             // uncompensated, so an equip listed with its stand is cashed in before it.
-            foreach (int bmId in action.SellBmInstanceIds.Distinct())
+            int raised = cashBeforeSales;
+            foreach (int bmId in soldCardIds)
             {
-                SellEquippedCardAtCost(player, bmId, events);
+                raised += SellEquippedCardAtCost(player, bmId);
             }
-            foreach (int standId in action.SellStandInstanceIds.Distinct())
+            foreach (int standId in soldStandIds)
             {
-                SellStandAtBaseCost(player, standId, events);
+                raised += SellStandAtBaseCost(player, standId);
             }
 
-            int owed = decision.RequiredMoney;
-            bool isBankrupt = player.Money < owed &&
+            bool isBankrupt = raised < owed &&
                 player.Stands.Count == 0 &&
                 player.Turf.Equipped.Count == 0;
-            if (player.Money < owed && !isBankrupt)
+            if (raised < owed && !isBankrupt)
             {
                 throw new InvalidActionException(
-                    $"Fine is ${owed}; sell enough assets to cover it (have ${player.Money}).");
+                    $"Fine is ${owed}; sell enough assets to cover it (have ${raised}).");
             }
 
-            int paid = System.Math.Min(owed, player.Money);
-            player.Money -= paid;
-            events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = -paid, Reason = "timeout fine" });
+            // Rulebook, Timeout: "They do not get a refund if they sell more than is needed to
+            // pay", so whoever sells ends on $0 and the bar only ever sees the cash they lost.
+            int cashAfter = isSelling ? 0 : cashBeforeSales - owed;
+            player.Money = cashAfter;
+            events.Add(new MoneyChanged
+            {
+                PlayerId = player.PlayerId,
+                Amount = cashAfter - cashBeforeSales,
+                Reason = "timeout fine",
+            });
 
             State.PendingDecisions.Remove(decision);
             Pump(events);
         }
 
-        private void SellEquippedCardAtCost(PlayerState player, int bmInstanceId, List<GameEvent> events)
+        /// <summary>Returns the card's base price; the caller settles the money.</summary>
+        private int SellEquippedCardAtCost(PlayerState player, int bmInstanceId)
         {
             bool wasOnStand = player.Stands.Any(s => s.Equipped.Remove(bmInstanceId));
             bool wasOnTurf = !wasOnStand && player.Turf.Equipped.Remove(bmInstanceId);
@@ -102,17 +119,15 @@ namespace LemonadeWars.Engine.Core
             {
                 throw new InvalidActionException($"No equipped Black Market card {bmInstanceId}.");
             }
-            var def = Db.BlackMarket(State.BlackMarketInstances[bmInstanceId].DefId);
             State.BlackMarketDiscard.Add(bmInstanceId);
-            player.Money += def.Cost;
-            events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = def.Cost, Reason = "sold card" });
+            return Db.BlackMarket(State.BlackMarketInstances[bmInstanceId].DefId).Cost;
         }
 
-        private void SellStandAtBaseCost(PlayerState player, int standInstanceId, List<GameEvent> events)
+        /// <summary>Returns the stand's base price; the caller settles the money.</summary>
+        private int SellStandAtBaseCost(PlayerState player, int standInstanceId)
         {
             var stand = player.Stands.FirstOrDefault(s => s.InstanceId == standInstanceId)
                 ?? throw new InvalidActionException($"No owned stand {standInstanceId}.");
-            var standType = Db.StandType(stand.StandTypeId);
             // Cards still equipped on a sold stand are discarded with it.
             foreach (int equipped in stand.Equipped)
             {
@@ -120,8 +135,7 @@ namespace LemonadeWars.Engine.Core
             }
             player.Stands.Remove(stand);
             State.StandSupply[stand.StandTypeId].Add(stand.Shape); // bottom of the stack
-            player.Money += standType.BaseCost;
-            events.Add(new MoneyChanged { PlayerId = player.PlayerId, Amount = standType.BaseCost, Reason = "sold stand" });
+            return Db.StandType(stand.StandTypeId).BaseCost;
         }
 
         // ------------------------------------------------------- free plays

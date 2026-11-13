@@ -20,6 +20,14 @@ namespace LemonadeWars.Unity
         /// <summary>Neighbouring cards overlap to this share of a card's width, or tighter when the zone is narrow.</summary>
         private const float TitleFanMaxSpacingFraction = 0.72f;
 
+        private const float ClaimMarkerInsetPx = 4f;
+        /// <summary>Narrow enough to clear the next card when six titles squeeze the fan to about 40px a card.</summary>
+        private const float ClaimAvatarDiameterPx = 34f;
+        private const float ClaimNameBarGapPx = 6f;
+        private const float ClaimNameBarThicknessPx = 24f;
+        /// <summary>From under the avatar to just short of the screen's edge while the card rests peeking.</summary>
+        private const float ClaimNameBarLengthPx = 100f;
+
         private RectTransform _lordHost;
         private RectTransform _dibsHost;
         // An unchanged fan is not rebuilt: rebuilding a hovered fan drops the raise.
@@ -39,7 +47,7 @@ namespace LemonadeWars.Unity
         {
             var entries = FirstDibsEntries(view);
             string signature = Mathf.RoundToInt(_dibsHost.rect.width) + "|" +
-                string.Join(",", entries.Select(e => e.TitleId + ":" + e.ClaimedBy));
+                string.Join(",", entries.Select(e => e.TitleId + ":" + e.Claimant?.Name));
             if (signature == _dibsSignature)
             {
                 return;
@@ -62,22 +70,21 @@ namespace LemonadeWars.Unity
 
             for (int i = 0; i < entries.Count; i++)
             {
-                var (titleId, claimedBy) = entries[i];
+                var (titleId, claimant) = entries[i];
                 var texture = _art.Title(titleId);
                 var card = AddTitleFanCard(_dibsHost, texture, startX + i * spacing);
-                if (claimedBy != null)
+                if (claimant != null)
                 {
-                    AddTitleFanChip(card.Frame, "ClaimChip", claimedBy.ToUpperInvariant(),
-                        TitleFanCardWidthPx - 40f, fontSize: 13, bodyFont: true);
+                    AddClaimantMarkers(card.Frame, claimant);
                 }
                 RaiseTitleFanCardOnHover(card.Image, card.Frame, card.Motion, restingSiblingIndex: i);
                 _preview.Attach(card.Image.gameObject, texture);
             }
         }
 
-        private static List<(string TitleId, string ClaimedBy)> FirstDibsEntries(PlayerView view)
+        private static List<(string TitleId, PlayerView.PlayerPanel Claimant)> FirstDibsEntries(PlayerView view)
         {
-            var entries = new List<(string TitleId, string ClaimedBy)>();
+            var entries = new List<(string TitleId, PlayerView.PlayerPanel Claimant)>();
             foreach (string titleId in view.FirstDibsRow)
             {
                 entries.Add((titleId, null));
@@ -86,10 +93,43 @@ namespace LemonadeWars.Unity
             {
                 foreach (string claimed in player.FirstDibsClaimed)
                 {
-                    entries.Add((claimed, player.Name));
+                    entries.Add((claimed, player));
                 }
             }
             return entries;
+        }
+
+        /// <summary>
+        /// Who won a First Dibs title: their avatar on the card's top-left corner and their name down the
+        /// left edge. Both sit in the sliver that stays visible when the next card overlaps this one, and
+        /// neither takes the pointer, or that sliver could no longer raise the card.
+        /// </summary>
+        private static void AddClaimantMarkers(RectTransform cardFrame, PlayerView.PlayerPanel claimant)
+        {
+            var avatar = CreatePlayerBadge(cardFrame, claimant.PlayerId, claimant.Name, ClaimAvatarDiameterPx);
+            avatar.anchorMin = avatar.anchorMax = new Vector2(0f, 1f);
+            avatar.pivot = new Vector2(0f, 1f);
+            avatar.anchoredPosition = new Vector2(ClaimMarkerInsetPx, -ClaimMarkerInsetPx);
+
+            // Built lying flat, then stood on end: the name reads bottom to top, like a book's spine.
+            var nameBar = UiKit.CreatePanel(cardFrame, "ClaimNameBar", UiKit.ButtonColor);
+            nameBar.GetComponent<Image>().raycastTarget = false;
+            nameBar.anchorMin = nameBar.anchorMax = new Vector2(0f, 1f);
+            nameBar.pivot = new Vector2(0.5f, 0.5f);
+            nameBar.sizeDelta = new Vector2(ClaimNameBarLengthPx, ClaimNameBarThicknessPx);
+            float avatarBottomY = ClaimMarkerInsetPx + ClaimAvatarDiameterPx;
+            nameBar.anchoredPosition = new Vector2(
+                ClaimMarkerInsetPx + ClaimAvatarDiameterPx / 2f,
+                -(avatarBottomY + ClaimNameBarGapPx + ClaimNameBarLengthPx / 2f));
+            nameBar.localEulerAngles = new Vector3(0f, 0f, 90f);
+
+            var nameText = UiKit.CreateText(nameBar, claimant.Name.ToUpperInvariant(), 13,
+                TextAnchor.MiddleCenter, UiKit.ButtonTextColor, body: true);
+            nameText.raycastTarget = false;
+            nameText.enableWordWrapping = false;
+            nameText.overflowMode = TMPro.TextOverflowModes.Ellipsis;
+            UiKit.Anchor((RectTransform)nameText.transform, Vector2.zero, Vector2.one,
+                new Vector2(4f, 0f), new Vector2(-4f, 0f));
         }
 
         /// <summary>Your two secret Lemon Lords, with the Whiniest Baby and Spoiled Rotten cards joining

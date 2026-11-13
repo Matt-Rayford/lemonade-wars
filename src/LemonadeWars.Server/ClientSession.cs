@@ -126,6 +126,14 @@ public sealed class ClientSession
                 await SendErrorIfAnyAsync(
                     room.SetSpeed(room.SeatIndexOf(_connection), (string?)message["speed"]));
                 break;
+            case MessageType.SetActionTimer when room != null:
+                await SendErrorIfAnyAsync(room.SetActionTimer(room.SeatIndexOf(_connection),
+                    (int?)message["seconds"] ?? -1));
+                break;
+            case MessageType.TableSettled when room != null:
+                room.ReportTableSettled(room.SeatIndexOf(_connection),
+                    (int?)message["stateVersion"] ?? -1);
+                break;
             case MessageType.RemoveBot when room != null:
                 await SendErrorIfAnyAsync(
                     room.RemoveBot(room.SeatIndexOf(_connection), (int?)message["seat"] ?? -1));

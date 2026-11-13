@@ -22,17 +22,19 @@ public sealed class RoomManager
     private readonly CardDatabase _db;
     private readonly string _dataDir;
     private readonly int _botDelayMs;
+    private readonly int _msPerTimerSecond;
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly Action<string, string>? _turnNotifier;
     /// <summary>Held in a field so the timer is not garbage-collected.</summary>
     private readonly Timer _sweepTimer;
 
     public RoomManager(CardDatabase db, string dataDir, int botDelayMs,
-        Action<string, string>? turnNotifier = null)
+        Action<string, string>? turnNotifier = null, int msPerTimerSecond = 1000)
     {
         _db = db;
         _dataDir = dataDir;
         _botDelayMs = botDelayMs;
+        _msPerTimerSecond = msPerTimerSecond;
         _turnNotifier = turnNotifier;
         Directory.CreateDirectory(dataDir);
         LoadPersistedRooms();
@@ -49,7 +51,7 @@ public sealed class RoomManager
                 .Select(_ => CodeAlphabet[RandomNumberGenerator.GetInt32(CodeAlphabet.Length)])
                 .ToArray());
             var room = new Room(code, _db, Path.Combine(_dataDir, code + ".jsonl"),
-                _botDelayMs, _turnNotifier);
+                _botDelayMs, _turnNotifier, _msPerTimerSecond);
             if (_rooms.TryAdd(code, room))
             {
                 return room;
@@ -117,7 +119,7 @@ public sealed class RoomManager
             string code = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
             var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(path);
             var room = age <= StaleRetention
-                ? Room.LoadFromFile(code, _db, path, _botDelayMs, _turnNotifier)
+                ? Room.LoadFromFile(code, _db, path, _botDelayMs, _turnNotifier, _msPerTimerSecond)
                 : null;
             if (room != null)
             {

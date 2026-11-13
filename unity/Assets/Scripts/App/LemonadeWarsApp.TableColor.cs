@@ -6,13 +6,13 @@ namespace LemonadeWars.Unity
     {
         private const float TableColorFadeSeconds = 0.25f;
 
-        private Color _tableColorTarget = TablePalette.Home;
-        private Color _tableColorFadeFrom = TablePalette.Home;
+        private Color _tableColorTarget = PlayerPalette.Menu;
+        private Color _tableColorFadeFrom = PlayerPalette.Menu;
         private float _tableColorFadeStartedAt = float.NegativeInfinity;
 
         /// <summary>
         /// The camera's clear colour is the table, so fading it recolours the whole
-        /// screen. Runs on every screen: leaving a game mid-view fades back home.
+        /// screen. Runs on every screen: leaving a game fades back to the menu purple.
         /// </summary>
         private void TickTableColor()
         {
@@ -41,18 +41,11 @@ namespace LemonadeWars.Unity
             var view = View;
             if (_screen != Screen.Game || view == null)
             {
-                return TablePalette.Home;
+                return PlayerPalette.Menu;
             }
 
-            int viewedPlayer = _table.ViewedBoardPlayer;
-            if (viewedPlayer < 0 || viewedPlayer == view.ViewerId)
-            {
-                return TablePalette.Home;
-            }
-
-            int playerCount = view.Players.Count;
-            int seatsAfterViewer = (viewedPlayer - view.ViewerId + playerCount) % playerCount;
-            return TablePalette.ForRival(seatsAfterViewer);
+            int boardOwner = _table.ViewedBoardPlayer >= 0 ? _table.ViewedBoardPlayer : view.ViewerId;
+            return PlayerPalette.TableColorOf(boardOwner);
         }
     }
 }

@@ -36,6 +36,7 @@ namespace LemonadeWars.Unity
             switch (gameEvent)
             {
                 case TurnStarted turn: return $"— {NameOf(turn.PlayerId)}'s turn —";
+                case ActionTimerExpired expired: return $"{NameOf(expired.PlayerId)} ran out of time";
                 case CardDrawn drawn: return DrawLine(drawn);
                 case LemonCardPlayed played: return PlayedLine(played);
                 case PlayCancelled cancelled: return CancelledLine(cancelled);

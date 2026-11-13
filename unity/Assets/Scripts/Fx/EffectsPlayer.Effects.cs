@@ -101,6 +101,9 @@ namespace LemonadeWars.Unity
             public int PlayerId;
             public int Amount;
             public System.Func<int, Texture2D> BillArt;
+            /// <summary>Cards the same roll dealt this player: they ride in on the money, face-down.</summary>
+            public Texture2D RiderCardArt;
+            public int RiderCardCount;
             /// <summary>The player's displayed cash may catch up; fires on every exit path.</summary>
             public System.Action OnArrived;
         }

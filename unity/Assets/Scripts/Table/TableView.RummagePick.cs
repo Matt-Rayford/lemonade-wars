@@ -7,7 +7,7 @@ namespace LemonadeWars.Unity
     // Asset picking on your live board (Rummage Sale, a Timeout fine you must sell
     // for): tucked Black Market cards and, when allowed, stands ring yellow on hover,
     // and a click hands the asset to the app, which moves it to the staged pile. A
-    // picked asset dims in place until it comes back.
+    // picked card leaves its stack, which closes up; a picked stand dims in place.
     public sealed partial class TableView
     {
         /// <summary>A pick is keyed by a card's instance id, or by a stand's id offset past any card id.</summary>
@@ -16,7 +16,7 @@ namespace LemonadeWars.Unity
         public static bool IsStandKey(int key) => key >= StandKeyOffset;
 
         private static readonly Color RummageGlowColor = new Color(1f, 0.93f, 0.45f, 1f);
-        private static readonly Color PickedCardTint = new Color(1f, 1f, 1f, 0.3f);
+        private static readonly Color PickedStandTint = new Color(1f, 1f, 1f, 0.3f);
 
         public bool RummagePickActive => _rummageValid != null;
 
@@ -53,9 +53,9 @@ namespace LemonadeWars.Unity
             _rummageValid = null;
             _rummageValidStands = new HashSet<int>();
             _rummagePicked.Clear();
-            foreach (var (_, strip, glow) in _equipCells)
+            foreach (var (_, _, glow) in _equipCells)
             {
-                RestoreEquipCell(strip, glow);
+                RestoreEquipCell(glow);
             }
             foreach (var (id, cell, _) in _dropCells)
             {
@@ -72,7 +72,7 @@ namespace LemonadeWars.Unity
         {
             if (!IsStandKey(key))
             {
-                return EquipStripWorld(key);
+                return EquipStripWorld(key) ?? EquipHomeWorld(key);
             }
             int standId = key - StandKeyOffset;
             foreach (var (id, cell, _) in _dropCells)
@@ -84,6 +84,12 @@ namespace LemonadeWars.Unity
             }
             return null;
         }
+
+        /// <summary>Where a card picked for a sale flies back to: the top of the stack it left.</summary>
+        private Vector3? EquipHomeWorld(int instanceId) =>
+            _equipHomeCells.TryGetValue(instanceId, out var cell) && cell != null
+                ? cell.TransformPoint(new Vector3(cell.rect.center.x, cell.rect.yMax, 0f))
+                : (Vector3?)null;
 
         /// <summary>World centre of a tucked card's visible strip; null once it is off the board.</summary>
         public Vector3? EquipStripWorld(int instanceId)
@@ -127,9 +133,8 @@ namespace LemonadeWars.Unity
                 {
                     continue;
                 }
-                bool picked = _rummagePicked.Contains(id);
-                bool pickable = _rummageValid.Contains(id) && !picked;
-                bool hovered = pickable && !covered && hover == null &&
+                // A picked card is off the board (its stack closed up), so every strip here is still on offer.
+                bool hovered = _rummageValid.Contains(id) && !covered && hover == null &&
                     RectTransformUtility.RectangleContainsScreenPoint(strip, screenPosition);
                 if (hovered)
                 {
@@ -140,7 +145,6 @@ namespace LemonadeWars.Unity
                     glow.GetComponent<Image>().color = RummageGlowColor;
                     glow.SetActive(hovered);
                 }
-                TintTuckedCard(strip, picked ? PickedCardTint : Color.white);
             }
             return hover;
         }
@@ -164,7 +168,7 @@ namespace LemonadeWars.Unity
                     hover = key;
                 }
                 LightStandGlow(standId, hovered);
-                TintStandCard(cell, picked ? PickedCardTint : Color.white);
+                TintStandCard(cell, picked ? PickedStandTint : Color.white);
             }
             return hover;
         }
@@ -190,23 +194,13 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private static void TintTuckedCard(RectTransform strip, Color tint)
-        {
-            if (strip != null && strip.parent is RectTransform card &&
-                card.GetComponent<RawImage>() is RawImage face)
-            {
-                face.color = tint;
-            }
-        }
-
-        private static void RestoreEquipCell(RectTransform strip, GameObject glow)
+        private static void RestoreEquipCell(GameObject glow)
         {
             if (glow != null)
             {
                 glow.GetComponent<Image>().color = AttackGlowColor;
                 glow.SetActive(false);
             }
-            TintTuckedCard(strip, Color.white);
         }
     }
 }

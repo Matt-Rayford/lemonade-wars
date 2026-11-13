@@ -53,6 +53,7 @@ namespace LemonadeWars.Unity
 
         private LobbyUi _lobby;
         private TableView _table;
+        private GameCursor _cursor;
         private Prompt _prompt;
         private CardPicker _picker;
         private CardPreview _preview;
@@ -88,10 +89,12 @@ namespace LemonadeWars.Unity
             _db = CardDatabase.Load(Path.Combine(Application.streamingAssetsPath, "game-data"));
             _art = new CardArt(Application.streamingAssetsPath);
             BuildHud();
+            _cursor = new GameCursor(() => _table.StickyDragActive);
         }
 
         private void Update()
         {
+            _cursor.Tick();
             TickPendingConnection();
 
             // Mid-game connection loss: back to menu; the saved token allows Resume.
@@ -116,6 +119,8 @@ namespace LemonadeWars.Unity
 
             TickGameHotkeys(escConsumed);
             TickPointerDrivenTable();
+            ReportTableSettledOnceIdle();
+            ShowClockOnTurnBanner();
             TickDice();
             // What waited on ONWARD! is queued before the render, so the decisions
             // behind it (a Timeout's discards) open after its flight, not before.
@@ -141,6 +146,8 @@ namespace LemonadeWars.Unity
             _table.TickPlayerPick(Input.mousePosition);
             _table.TickHandScroll(Input.mousePosition);
             _table.TickBoardScroll(Input.mousePosition);
+            _table.TickActionLog();
+            _table.TickActionCountdowns();
             _table.TickDiscardScroll(Input.mousePosition);
             _picker.Tick(Input.mousePosition);
         }
@@ -149,7 +156,9 @@ namespace LemonadeWars.Unity
         {
             // A roll that is still open for responses keeps its die on the table.
             _dice.Linger = View != null && View.PendingRollValue != null;
-            _dice.KeepForEarnings = EarningsStillShowing();
+            // A waiting Spoiled Rotten roll already holds earnings of its own: the die on the table
+            // belongs to the roll before it, and stays only while that roll's payouts are playing.
+            _dice.KeepForEarnings = _turnStartRollWaiting ? _fx.IsBusy : EarningsStillShowing();
             _dice.Tick();
             if (_dice.HeadlineRevision != _shownDiceHeadline)
             {

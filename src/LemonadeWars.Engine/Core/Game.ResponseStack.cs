@@ -49,6 +49,7 @@ namespace LemonadeWars.Engine.Core
                 TargetPlayerId = item.AttackTargetId,
                 RespondingToOwnerId = answered?.OwnerId,
                 RespondingToDefId = answered == null ? null : StackItemDefId(answered),
+                RedirectTargetId = item.RedirectTargetId,
                 StolenDefId = stolen?.DefId,
                 StolenShape = stolen?.Shape,
                 TakenDefId = takenDefId,

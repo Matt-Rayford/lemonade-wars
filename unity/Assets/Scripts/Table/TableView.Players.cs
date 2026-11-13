@@ -17,20 +17,11 @@ namespace LemonadeWars.Unity
         /// <summary>True while the table is mid-theatre (effects, die, turn banner). The turn lemon and
         /// the hourglasses hold their last position until it ends, so the turn is seen to finish first.</summary>
         public System.Func<bool> TheatreBusy;
-        /// <summary>Dollars a player has earned that the theatre has not delivered to their bar yet.</summary>
+        /// <summary>Dollars the bar must not show yet: earnings still on their way, less any payment the table
+        /// has not been shown leaving (so a negative value shows MORE than the player holds).</summary>
         public System.Func<int, int> UnshownMoney;
         private int _shownTurnHolder = -1;
         private List<int> _shownAwaited;
-
-        /// <summary>Dark badge palette; a player's color is a stable hash of their name.</summary>
-        private static readonly Color[] BadgeColors =
-        {
-            new Color(0.55f, 0.24f, 0.24f), new Color(0.23f, 0.42f, 0.58f),
-            new Color(0.25f, 0.48f, 0.32f), new Color(0.56f, 0.40f, 0.16f),
-            new Color(0.45f, 0.28f, 0.55f), new Color(0.20f, 0.48f, 0.48f),
-            new Color(0.58f, 0.30f, 0.44f), new Color(0.38f, 0.42f, 0.20f),
-            new Color(0.30f, 0.32f, 0.58f), new Color(0.50f, 0.34f, 0.24f),
-        };
 
         private RectTransform _playersColumn;
         private Texture2D _lemonIcon;
@@ -38,7 +29,7 @@ namespace LemonadeWars.Unity
         private Texture2D _cashIcon;
         private Texture2D _tantrumIcon;
         private Texture2D _hourglassIcon;
-        /// <summary>The cards' blank price tag with its pin: worn by the first player's bar, numbered 1.</summary>
+        /// <summary>The cards' blank price tag with its pin: every bar wears one, numbered with the player's place in turn order.</summary>
         private Texture2D _pinnedTagIcon;
 
         private const float AvatarInsetPx = 12f;
@@ -46,16 +37,16 @@ namespace LemonadeWars.Unity
         private const float TantrumStatColumnPx = 168f;
         private const float TantrumIconSizePx = 36f;
 
-        private const float FirstPlayerTagWidthPx = 36f;
+        private const float TurnOrderTagWidthPx = 36f;
         /// <summary>Counter-clockwise, so the tag hangs off its pin with its foot swung outward.</summary>
-        private const float FirstPlayerTagTiltDegrees = 15f;
+        private const float TurnOrderTagTiltDegrees = 15f;
         /// <summary>The tag's centre relative to the bar's top-right corner: over the corner, mostly outside it.</summary>
-        private static readonly Vector2 FirstPlayerTagOffsetPx = new Vector2(-4f, -16f);
-        /// <summary>The turn lemon steps this far left on the first player's bar, out from under the tag.</summary>
+        private static readonly Vector2 TurnOrderTagOffsetPx = new Vector2(-4f, -16f);
+        /// <summary>The turn lemon sits this far left of the bar's edge, out from under the tag.</summary>
         private const float TurnLemonTagClearancePx = 16f;
-        private const int FirstPlayerTagFontSize = 20;
+        private const int TurnOrderTagFontSize = 20;
         /// <summary>Thick, like the price lettering on the cards' own tags.</summary>
-        private const float FirstPlayerTagBorderPx = 2f;
+        private const float TurnOrderTagBorderPx = 2f;
         /// <summary>The navy the card art outlines everything in.</summary>
         private static readonly Color CardInkColor = new Color32(34, 13, 64, 255);
 
@@ -67,6 +58,7 @@ namespace LemonadeWars.Unity
         {
             UiKit.Clear(_playersColumn);
             _playerRows.Clear();
+            _countdownGlasses.Clear();
             _cashIcons.Clear();
             _avatarBadges.Clear();
             int count = view.Players.Count;
@@ -94,19 +86,24 @@ namespace LemonadeWars.Unity
         private void BuildPlayerRow(PlayerView view, int playerId, bool isMe, bool isViewedBoard)
         {
             var player = view.Players[playerId];
-            var row = CreatePlayerBar();
+            var row = CreatePlayerBar(playerId);
             // The drafter holds the lemon during setup (ActivePlayer is frozen until play starts).
             int turnHolder = ShownTurnHolder(view);
             var awaited = ShownAwaited(view);
-            bool wearsFirstPlayerTag = playerId == view.FirstPlayer && _pinnedTagIcon != null;
+            bool wearsTurnOrderTag = _pinnedTagIcon != null;
 
             if (playerId == turnHolder && _lemonIcon != null)
             {
-                AddTurnLemon(row, wearsFirstPlayerTag);
+                AddTurnLemon(row, wearsTurnOrderTag);
             }
-            var avatar = AddPlayerAvatar(row, player.Name);
+            var avatar = AddPlayerAvatar(row, playerId, player.Name);
             _avatarBadges[playerId] = avatar;
-            if (awaited.Contains(playerId) && !isMe)
+            bool isAwaited = awaited.Contains(playerId);
+            if (isAwaited && ActionCountdownOf?.Invoke(playerId) != null)
+            {
+                AddCountdownGlass(avatar, playerId); // on your own avatar too: it is your clock
+            }
+            else if (isAwaited && !isMe)
             {
                 AddWaitingHourglass(avatar);
             }
@@ -120,13 +117,13 @@ namespace LemonadeWars.Unity
             var attackGlow = AddPlayerAttackGlow(row);
             _playerRows.Add((playerId, row, attackGlow));
             ShowBoardOnBarClick(row, playerId, view.ViewerId);
-            if (wearsFirstPlayerTag)
+            if (wearsTurnOrderTag)
             {
-                PinFirstPlayerTag(row); // last: over everything else on the bar
+                PinTurnOrderTag(row, TurnOrderOf(view, playerId)); // last: over everything else on the bar
             }
         }
 
-        private RectTransform CreatePlayerBar()
+        private RectTransform CreatePlayerBar(int playerId)
         {
             var row = new GameObject("PlayerRow", typeof(RectTransform), typeof(Image),
                 typeof(LayoutElement));
@@ -134,12 +131,12 @@ namespace LemonadeWars.Unity
             var background = row.GetComponent<Image>();
             background.sprite = UiSprites.RoundedRect;
             background.type = Image.Type.Sliced;
-            background.color = new Color(0, 0, 0, 0.32f);
+            background.color = PlayerPalette.BarColorOf(playerId);
             row.GetComponent<LayoutElement>().minHeight = 82;
             return (RectTransform)row.transform;
         }
 
-        private void AddTurnLemon(RectTransform row, bool wearsFirstPlayerTag)
+        private void AddTurnLemon(RectTransform row, bool wearsTurnOrderTag)
         {
             var lemonGo = new GameObject("TurnLemon", typeof(RectTransform), typeof(RawImage));
             lemonGo.transform.SetParent(row, false);
@@ -148,23 +145,39 @@ namespace LemonadeWars.Unity
             lemonRect.pivot = new Vector2(1f, 0.5f);
             lemonRect.sizeDelta = new Vector2(38f, 38f);
             lemonRect.anchoredPosition = new Vector2(
-                wearsFirstPlayerTag ? -10f - TurnLemonTagClearancePx : -10f, 0);
+                wearsTurnOrderTag ? -10f - TurnLemonTagClearancePx : -10f, 0);
             var lemonImage = lemonGo.GetComponent<RawImage>();
             lemonImage.texture = _lemonIcon;
             lemonImage.raycastTarget = false;
         }
 
-        private static RectTransform AddPlayerAvatar(RectTransform row, string playerName)
+        private static RectTransform AddPlayerAvatar(RectTransform row, int playerId, string playerName)
         {
-            var avatar = CreatePlayerBadge(row, playerName, AvatarDiameterPx);
+            var avatar = CreatePlayerBadge(row, playerId, playerName, AvatarDiameterPx);
             avatar.anchorMin = avatar.anchorMax = new Vector2(0f, 0.5f);
             avatar.pivot = new Vector2(0f, 0.5f);
             avatar.anchoredPosition = new Vector2(AvatarInsetPx, 0);
             return avatar;
         }
 
-        /// <summary>Greys the avatar under an hourglass while the table waits on this player; several can wait at once.</summary>
+        /// <summary>The spinning hourglass of a wait with no clock on it; several players can wait at once.</summary>
         private void AddWaitingHourglass(RectTransform avatar)
+        {
+            ShadeAvatar(avatar);
+            var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
+                typeof(HourglassMotion));
+            glassGo.transform.SetParent(avatar, false);
+            var glassRect = (RectTransform)glassGo.transform;
+            glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
+            // Half the avatar; HourglassMotion scales from here.
+            glassRect.sizeDelta = new Vector2(AvatarDiameterPx / 2f, AvatarDiameterPx / 2f);
+            var glass = glassGo.GetComponent<RawImage>();
+            glass.texture = _hourglassIcon;
+            glass.raycastTarget = false;
+        }
+
+        /// <summary>Greys the avatar so the hourglass drawn over it stands out.</summary>
+        private static void ShadeAvatar(RectTransform avatar)
         {
             var shadeGo = new GameObject("TurnShade", typeof(RectTransform), typeof(Image));
             shadeGo.transform.SetParent(avatar, false);
@@ -176,17 +189,6 @@ namespace LemonadeWars.Unity
             var grey = ModalBackdrop.Tint;
             shade.color = new Color(grey.r, grey.g, grey.b, 0.8f);
             shade.raycastTarget = false;
-
-            var glassGo = new GameObject("Hourglass", typeof(RectTransform), typeof(RawImage),
-                typeof(HourglassMotion));
-            glassGo.transform.SetParent(avatar, false);
-            var glassRect = (RectTransform)glassGo.transform;
-            glassRect.anchorMin = glassRect.anchorMax = new Vector2(0.5f, 0.5f);
-            // Half the avatar; HourglassMotion scales from here.
-            glassRect.sizeDelta = new Vector2(AvatarDiameterPx / 2f, AvatarDiameterPx / 2f);
-            var glass = glassGo.GetComponent<RawImage>();
-            glass.texture = _hourglassIcon;
-            glass.raycastTarget = false;
         }
 
         /// <summary>A crown per VP. Met Lemon Lords count once revealed (FinishedLords is empty until game
@@ -320,25 +322,32 @@ namespace LemonadeWars.Unity
             });
         }
 
-        /// <summary>The first player's marker: the cards' own price tag pinned over the bar's top-right
-        /// corner at a tilt, numbered 1 the way the cards letter their prices.</summary>
-        private void PinFirstPlayerTag(RectTransform row)
+        /// <summary>1 for the first player, counting up around the table in the order turns are taken.</summary>
+        private static int TurnOrderOf(PlayerView view, int playerId)
         {
-            var tagGo = new GameObject("FirstPlayerTag", typeof(RectTransform), typeof(RawImage));
+            int playerCount = view.Players.Count;
+            return (playerId - view.FirstPlayer + playerCount) % playerCount + 1;
+        }
+
+        /// <summary>The cards' own price tag pinned over the bar's top-right corner at a tilt, numbered the way
+        /// the cards letter their prices.</summary>
+        private void PinTurnOrderTag(RectTransform row, int turnOrder)
+        {
+            var tagGo = new GameObject("TurnOrderTag", typeof(RectTransform), typeof(RawImage));
             tagGo.transform.SetParent(row, false);
             var tag = (RectTransform)tagGo.transform;
             tag.anchorMin = tag.anchorMax = new Vector2(1f, 1f);
             tag.pivot = new Vector2(0.5f, 0.5f);
-            tag.sizeDelta = new Vector2(FirstPlayerTagWidthPx,
-                FirstPlayerTagWidthPx * _pinnedTagIcon.height / _pinnedTagIcon.width);
-            tag.anchoredPosition = FirstPlayerTagOffsetPx;
-            tag.localEulerAngles = new Vector3(0f, 0f, FirstPlayerTagTiltDegrees);
+            tag.sizeDelta = new Vector2(TurnOrderTagWidthPx,
+                TurnOrderTagWidthPx * _pinnedTagIcon.height / _pinnedTagIcon.width);
+            tag.anchoredPosition = TurnOrderTagOffsetPx;
+            tag.localEulerAngles = new Vector3(0f, 0f, TurnOrderTagTiltDegrees);
             var image = tagGo.GetComponent<RawImage>();
             image.texture = _pinnedTagIcon;
             image.raycastTarget = false; // the bar under it still takes the click
 
-            var number = UiKit.CreateOutlinedText(tag, "1", FirstPlayerTagFontSize,
-                Color.white, CardInkColor, FirstPlayerTagBorderPx);
+            var number = UiKit.CreateOutlinedText(tag, turnOrder.ToString(), TurnOrderTagFontSize,
+                Color.white, CardInkColor, TurnOrderTagBorderPx);
             // The paper below the pin, not the whole image: the pin overhangs the top-right,
             // so the paper's own centre sits left of and below the art's.
             UiKit.Anchor(number, new Vector2(0.03f, 0.04f), new Vector2(0.89f, 0.63f));
@@ -378,7 +387,8 @@ namespace LemonadeWars.Unity
 
         /// <summary>A player's avatar: a circle in their stable name colour with their initial. The caller
         /// anchors it; the same badge marks their bar and the cards they play.</summary>
-        public static RectTransform CreatePlayerBadge(Transform parent, string name, float diameter)
+        /// <summary>A circle in the player's seat colour carrying their initial.</summary>
+        public static RectTransform CreatePlayerBadge(Transform parent, int playerId, string name, float diameter)
         {
             var badgeGo = new GameObject("Badge", typeof(RectTransform), typeof(Image));
             badgeGo.transform.SetParent(parent, false);
@@ -388,7 +398,7 @@ namespace LemonadeWars.Unity
             badgeImage.sprite = UiSprites.Circle;
             badgeImage.type = Image.Type.Simple;
             badgeImage.preserveAspect = true;
-            badgeImage.color = BadgeColors[StableNameHash(name) % BadgeColors.Length];
+            badgeImage.color = PlayerPalette.ChipColorOf(playerId);
             badgeImage.raycastTarget = false;
             string initial = string.IsNullOrEmpty(name) ? "?" : char.ToUpperInvariant(name[0]).ToString();
             var letter = UiKit.CreateText(badgeGo.transform, initial, Mathf.RoundToInt(diameter * 30f / 56f),
@@ -449,17 +459,6 @@ namespace LemonadeWars.Unity
                 }
             }
             return null;
-        }
-
-        /// <summary>Deterministic across sessions (unlike string.GetHashCode).</summary>
-        private static int StableNameHash(string name)
-        {
-            int hash = 17;
-            foreach (char c in name ?? "")
-            {
-                hash = hash * 31 + c;
-            }
-            return Mathf.Abs(hash);
         }
     }
 }

@@ -31,13 +31,14 @@ public sealed partial class Room
     public string? StorePath => _storePath;
 
     public Room(string code, CardDatabase db, string? storePath, int botDelayMs,
-        Action<string, string>? turnNotifier = null)
+        Action<string, string>? turnNotifier = null, int msPerTimerSecond = 1000)
     {
         Code = code;
         _db = db;
         _storePath = storePath;
         _botDelayMs = botDelayMs;
         _turnNotifier = turnNotifier;
+        _msPerTimerSecond = msPerTimerSecond;
     }
 
     public bool Started

@@ -62,7 +62,11 @@ namespace LemonadeWars.Unity
         private void WireTableCallbacks()
         {
             _table.BotLevelLookup = id => _session?.BotLevelOf(id);
-            _table.UnshownMoney = id => _earningsInFlight.TryGetValue(id, out int amount) ? amount : 0;
+            _table.ActionCountdownOf = id => _remote?.ActionSecondsLeft(id) is float secondsLeft
+                ? (secondsLeft, (float)_remote.Room.ActionTimerSeconds)
+                : ((float, float)?)null;
+            _table.UnshownMoney = id =>
+                (_earningsInFlight.TryGetValue(id, out int earned) ? earned : 0) - HeldSpendingOf(id);
             _table.TheatreBusy = () =>
                 (_fx != null && _fx.IsBusy) || (_dice != null && _dice.IsBusy) ||
                 (_turnBanner != null && _turnBanner.IsOpen) ||
@@ -134,6 +138,7 @@ namespace LemonadeWars.Unity
             _lobby.OnAddBot = () => _remote?.AddBot();
             _lobby.OnRemoveBotSeat = seat => _remote?.RemoveBot(seat);
             _lobby.OnSetBotLevel = (seat, level) => _remote?.SetBotLevel(seat, level);
+            _lobby.OnSetActionTimer = seconds => _remote?.SetActionTimer(seconds);
             _lobby.OnStart = () => _remote?.StartGame();
             _lobby.OnReadyToggle = ready => _remote?.SetReady(ready);
             _lobby.OnLeave = () => BackToMenu("");

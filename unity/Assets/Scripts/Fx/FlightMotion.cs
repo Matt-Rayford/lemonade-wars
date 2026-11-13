@@ -29,7 +29,12 @@ namespace LemonadeWars.Unity
         private void Awake()
         {
             _rect = (RectTransform)transform;
-            _group = gameObject.AddComponent<CanvasGroup>();
+            // A chip that already fades (a pile card flying home) keeps its group: Unity refuses a second.
+            _group = GetComponent<CanvasGroup>();
+            if (_group == null)
+            {
+                _group = gameObject.AddComponent<CanvasGroup>();
+            }
             _group.blocksRaycasts = false;
             _group.alpha = VisibleWhileWaiting ? 1f : 0f;
         }

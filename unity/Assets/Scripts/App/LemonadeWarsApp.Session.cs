@@ -78,6 +78,9 @@ namespace LemonadeWars.Unity
             _playTheatre.Clear();
             // The per-game reset checklist: add every new field that holds one game's state here.
             _earningsInFlight.Clear();
+            _spendingHeld.Clear();
+            _turnStartRollWaiting = false;
+            _rollDraws.Clear();
             _rollEarnings = null;
             _table.ViewedBoardPlayer = -1;
             _table.SuppressWhiniestBaby = false; // a dropped mid-flight claim must not hide it forever
@@ -142,6 +145,9 @@ namespace LemonadeWars.Unity
             _fx.Clear();
             _playTheatre.Clear();
             _earningsInFlight.Clear();
+            _spendingHeld.Clear();
+            _turnStartRollWaiting = false;
+            _rollDraws.Clear();
             _rollEarnings = null;
             _lobby.ShowMenu(status);
         }
