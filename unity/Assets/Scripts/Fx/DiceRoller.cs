@@ -10,7 +10,7 @@ namespace LemonadeWars.Unity
     /// whole table. Every roll is a physics throw recorded ahead of time
     /// (<see cref="DieThrowSimulator"/>) and relabelled so the face on top is the number
     /// the engine already rolled. Rolls queue and play back-to-back, faster if they
-    /// pile up; a click skips ahead.
+    /// pile up; a click skips ahead. A die at rest can be dragged out of the way.
     /// </summary>
     public sealed partial class DiceRoller
     {
@@ -75,13 +75,8 @@ namespace LemonadeWars.Unity
         /// <summary>Applied after the recorded rotation so the engine's number is the face on top.</summary>
         private Quaternion _labelRotation = Quaternion.identity;
 
-        /// <param name="landingCeilingViewportY">
-        /// How far up the screen (0 bottom, 1 top) the die may come to REST, so a settled
-        /// die never covers the message strip. Throws still fly in across it.
-        /// </param>
-        public DiceRoller(RectTransform canvasRoot, float landingCeilingViewportY = 1f)
+        public DiceRoller(RectTransform canvasRoot)
         {
-            _landingCeilingViewportY = landingCeilingViewportY;
             // Far below the origin on its own layer; only the die camera sees it.
             _rig = new GameObject("DieRig").transform;
             _rig.position = new Vector3(0, -500f, 0);
@@ -111,6 +106,7 @@ namespace LemonadeWars.Unity
             _group = viewGo.AddComponent<CanvasGroup>();
             UiKit.AddClick(viewGo, Skip);
             viewGo.SetActive(false);
+            BuildGrip(canvasRoot); // after the view, so it sits over the die's picture
         }
 
         /// <summary>
@@ -156,6 +152,8 @@ namespace LemonadeWars.Unity
             _phase = Phase.Idle;
             _recording = null;
             _view.gameObject.SetActive(false);
+            _grip.gameObject.SetActive(false);
+            _isHeldByPlayer = false;
             _camera.enabled = false;
             SetHeadline(null);
         }

@@ -35,6 +35,7 @@ namespace LemonadeWars.Unity
                     TickFadeOut();
                     break;
             }
+            PlaceGrip();
         }
 
         private void TickRolling()
@@ -48,6 +49,10 @@ namespace LemonadeWars.Unity
 
         private void TickHold()
         {
+            if (_isHeldByPlayer)
+            {
+                return; // a die in the player's hand is not whisked away mid-drag
+            }
             if (_phaseElapsed >= HoldSeconds)
             {
                 if (ShouldStay && _queue.Count == 0)
@@ -118,6 +123,7 @@ namespace LemonadeWars.Unity
             {
                 _recording = _simulator.RecordThrow();
                 _labelRotation = LabelShowing(_current.Value, _recording.FinalRotation);
+                _movedBy = Vector3.zero; // a fresh throw lands where it lands
             }
             PlaceDie(0f);
             SetPhase(Phase.Rolling);
@@ -177,6 +183,7 @@ namespace LemonadeWars.Unity
         private void PlaceDie(float seconds)
         {
             _recording.Sample(seconds, out var position, out var rotation);
+            position += _movedBy;
             _die.localPosition = position;
             _die.localRotation = rotation * _labelRotation;
             PlaceContactShadow(position);

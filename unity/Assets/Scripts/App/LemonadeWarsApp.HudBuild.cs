@@ -185,8 +185,8 @@ namespace LemonadeWars.Unity
         {
             _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
-            // The die may tumble across the message strip but never rests on it.
-            _dice = new DiceRoller(root, landingCeilingViewportY: MessageStripBottom);
+            // The die may come to rest anywhere on screen: the player can drag it off whatever it covers.
+            _dice = new DiceRoller(root);
             _dice.OnFinished = ReopenHeldModals;
             _turnBanner = new TurnBanner(root, this);
             _turnBanner.OnDismiss = ReopenHeldModals;

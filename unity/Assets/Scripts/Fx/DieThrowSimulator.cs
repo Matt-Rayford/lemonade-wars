@@ -6,9 +6,9 @@ namespace LemonadeWars.Unity
 {
     /// <summary>
     /// Throws a real rigidbody die across an invisible table in its own physics scene
-    /// and records the flight, ahead of time, in a few milliseconds. Walls close behind
-    /// the die once it is inside the landing area, so it bounces off them and settles in
-    /// view. Which number ends up on top is the renderer's problem (it relabels the
+    /// and records the flight, ahead of time, in a few milliseconds. Walls stand along the
+    /// screen's edges and close behind the die once it is inside them, so it bounces off them
+    /// and settles in view. Which number ends up on top is the renderer's problem (it relabels the
     /// faces); hops for modifier flips retry until the wanted face lands up.
     /// </summary>
     public sealed class DieThrowSimulator
@@ -28,12 +28,8 @@ namespace LemonadeWars.Unity
         /// <summary>The die's half-diagonal is 0.87: this far inside, no wall can overlap it when it closes.</summary>
         private const float EntryMargin = 1.2f;
         /// <summary>A hop only counts when the die's centre rests at least this far inside the walls.</summary>
-        public const float RestMargin = 0.4f;
+        private const float RestMargin = 0.4f;
         private const float SpawnOffset = 2.5f;
-        /// <summary>Horizontal speed ceiling: past it a long throw gains arc instead of pace.</summary>
-        private const float MaxThrowSpeed = 34f;
-        /// <summary>The first touchdown lands this far past the depth at which the walls close.</summary>
-        private const float TouchdownCushion = 0.5f;
         private const float RestSpeed = 0.1f;
         private const int RestSteps = 12;
 
@@ -43,7 +39,6 @@ namespace LemonadeWars.Unity
         private readonly PhysicsMaterial _surface;
         private readonly List<BoxCollider> _walls = new List<BoxCollider>();
         private Vector2[] _arena = new Vector2[0];
-        private Vector2[] _screen = new Vector2[0];
 
         public DieThrowSimulator()
         {
@@ -79,11 +74,8 @@ namespace LemonadeWars.Unity
             SceneManager.MoveGameObjectToScene(dieGo, _scene);
         }
 
-        /// <summary>
-        /// Both are convex quads in xz with their corners in the same order. The landing area (where
-        /// the walls stand) may be smaller than the screen; throws start beyond the SCREEN's edge.
-        /// </summary>
-        public void SetArena(Vector2[] cornersXz, Vector2[] screenCornersXz)
+        /// <summary>The landing area: a convex quad in xz, a wall along each side. Throws start beyond it.</summary>
+        public void SetArena(Vector2[] cornersXz)
         {
             foreach (var wall in _walls)
             {
@@ -91,7 +83,6 @@ namespace LemonadeWars.Unity
             }
             _walls.Clear();
             _arena = cornersXz;
-            _screen = screenCornersXz;
             for (int i = 0; i < cornersXz.Length; i++)
             {
                 _walls.Add(CreateWall(i, cornersXz[i], cornersXz[(i + 1) % cornersXz.Length]));
@@ -175,27 +166,14 @@ namespace LemonadeWars.Unity
             return recording;
         }
 
-        /// <summary>
-        /// From off screen, anywhere round its edge, AT a point inside the walls, hard enough that the first
-        /// touchdown is already inside them: a longer carry comes in faster or, past the speed cap, on a higher arc.
-        /// </summary>
+        /// <summary>From off screen, anywhere round its edge, at a point well inside the walls.</summary>
         private Vector3 AimThrow(out Vector3 start)
         {
             var spawn = RandomSpawnOffScreen();
             var direction = (RandomTargetInside() - spawn).normalized;
-            float height = Random.Range(2f, 4f);
-            float lift = Random.Range(-1f, 3f);
-            float airSeconds = AirSeconds(height, lift);
-            float carry = DistanceUntilInside(spawn, direction, EntryMargin) + TouchdownCushion;
-            float speed = Mathf.Max(Random.Range(15f, 20f), carry / airSeconds);
-            if (speed > MaxThrowSpeed)
-            {
-                speed = MaxThrowSpeed;
-                airSeconds = carry / speed;
-                lift = (0.5f * Gravity * airSeconds * airSeconds - height) / airSeconds;
-            }
-            start = new Vector3(spawn.x, height, spawn.y);
-            return new Vector3(direction.x * speed, lift, direction.y * speed);
+            float speed = Random.Range(15f, 20f);
+            start = new Vector3(spawn.x, Random.Range(2f, 4f), spawn.y);
+            return new Vector3(direction.x * speed, Random.Range(-1f, 3f), direction.y * speed);
         }
 
         private DieThrowRecording SimulateHop(Vector3 from, Quaternion fromRotation)
@@ -287,47 +265,27 @@ namespace LemonadeWars.Unity
             return Vector2.Dot(centroid - a, normal) >= 0f ? normal : -normal;
         }
 
-        /// <summary>Seconds until a die launched at this height with this upward speed is back on the floor.</summary>
-        private static float AirSeconds(float height, float lift) =>
-            (lift + Mathf.Sqrt(lift * lift + 2f * Gravity * height)) / Gravity;
-
-        /// <summary>A point beyond the screen's edge, on a random stretch of its whole perimeter.</summary>
+        /// <summary>A point beyond the walls, off a random stretch of their whole perimeter.</summary>
         private Vector2 RandomSpawnOffScreen()
         {
             float perimeter = 0f;
-            for (int i = 0; i < _screen.Length; i++)
+            for (int i = 0; i < _arena.Length; i++)
             {
-                perimeter += (_screen[(i + 1) % _screen.Length] - _screen[i]).magnitude;
+                perimeter += (_arena[(i + 1) % _arena.Length] - _arena[i]).magnitude;
             }
             float along = Random.value * perimeter;
-            for (int i = 0; i < _screen.Length; i++)
+            for (int i = 0; i < _arena.Length; i++)
             {
-                var a = _screen[i];
-                var b = _screen[(i + 1) % _screen.Length];
+                var a = _arena[i];
+                var b = _arena[(i + 1) % _arena.Length];
                 float length = (b - a).magnitude;
-                if (along <= length || i == _screen.Length - 1)
+                if (along <= length || i == _arena.Length - 1)
                 {
-                    var edge = (b - a).normalized;
-                    var outward = new Vector2(-edge.y, edge.x);
-                    if (Vector2.Dot(ScreenCentre() - a, outward) > 0f)
-                    {
-                        outward = -outward;
-                    }
-                    return Vector2.Lerp(a, b, Random.Range(0.1f, 0.9f)) + outward * SpawnOffset;
+                    return Vector2.Lerp(a, b, Random.Range(0.1f, 0.9f)) - InwardNormal(a, b) * SpawnOffset;
                 }
                 along -= length;
             }
-            return _screen[0];
-        }
-
-        private Vector2 ScreenCentre()
-        {
-            var centre = Vector2.zero;
-            foreach (var corner in _screen)
-            {
-                centre += corner / _screen.Length;
-            }
-            return centre;
+            return _arena[0];
         }
 
         /// <summary>A point in the landing area's middle half: something to throw the die at.</summary>
@@ -338,27 +296,6 @@ namespace LemonadeWars.Unity
             return Vector2.Lerp(
                 Vector2.Lerp(_arena[0], _arena[1], u),
                 Vector2.Lerp(_arena[3], _arena[2], u), v);
-        }
-
-        /// <summary>
-        /// How far along this heading until the point is at least <paramref name="margin"/> inside EVERY
-        /// wall, the depth at which the walls close. An oblique throw travels further than to the wall line.
-        /// </summary>
-        private float DistanceUntilInside(Vector2 from, Vector2 direction, float margin)
-        {
-            float distance = 0f;
-            for (int i = 0; i < _arena.Length; i++)
-            {
-                var a = _arena[i];
-                var inward = InwardNormal(a, _arena[(i + 1) % _arena.Length]);
-                float shortfall = margin - Vector2.Dot(from - a, inward); // > 0: not yet deep enough past this wall
-                float closing = Vector2.Dot(direction, inward);
-                if (shortfall > 0f && closing > 0.0001f)
-                {
-                    distance = Mathf.Max(distance, shortfall / closing);
-                }
-            }
-            return distance;
         }
     }
 }
