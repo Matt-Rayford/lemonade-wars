@@ -143,18 +143,5 @@ namespace LemonadeWars.Unity
             Layer(fill, Vector2.zero);
             return holder;
         }
-
-        public static TextMeshProUGUI CreateBadge(Transform parent, string content, int size,
-            Color background)
-        {
-            var go = new GameObject("Badge", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
-            go.transform.SetParent(parent, false);
-            go.GetComponent<Image>().color = background;
-            go.GetComponent<LayoutElement>().minHeight = size + 8;
-            var text = CreateText(go.transform, content, size, TextAnchor.MiddleCenter, body: true);
-            Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one,
-                new Vector2(4, 1), new Vector2(-4, -1));
-            return text;
-        }
     }
 }

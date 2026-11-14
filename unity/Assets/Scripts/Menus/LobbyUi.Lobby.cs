@@ -12,7 +12,14 @@ namespace LemonadeWars.Unity
         private const float LobbyTitleTop = 0.95f;
         private const float LobbySeatsTop = 0.83f;
 
-        /// <summary>Bottom to top: Start Game, Back / Ready Up, the action timer, First Dibs, the status line, the seats.</summary>
+        private RectTransform _everyoneControls;
+        private RectTransform _timerHeader;
+        private RectTransform _dibsModeHeader;
+        /// <summary>What a guest sees in place of the host's buttons: the settings as words, nothing to click.</summary>
+        private RectTransform _guestTimerLine;
+        private RectTransform _guestDibsLine;
+
+        /// <summary>Every piece is built once here; <see cref="ArrangeLobbyControls"/> stacks the ones a host or a guest gets.</summary>
         private void BuildLobby(RectTransform canvasRoot)
         {
             _lobbyRoot = UiKit.CreatePanel(canvasRoot, "Lobby", UiKit.TableColor);
@@ -21,31 +28,63 @@ namespace LemonadeWars.Unity
             UiKit.Anchor((RectTransform)_lobbyTitle.transform,
                 new Vector2(0, LobbyTitleBottom), new Vector2(1, LobbyTitleTop));
 
-            float stackTopPx = 0f;
             _hostControls = CreateButtonRow(_lobbyRoot, "HostControls", Vector2.zero, Vector2.one);
-            StackOnBaseline(_hostControls, MenuButtonHeightPx, ref stackTopPx);
             UiKit.CreateButton(_hostControls, "Start game", 20, () => OnStart?.Invoke());
 
-            var everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls", Vector2.zero, Vector2.one);
-            StackOnBaseline(everyoneControls, MenuButtonHeightPx, ref stackTopPx);
-            UiKit.CreateButton(everyoneControls, "Back", 20, () => OnLeave?.Invoke());
-            var readyButton = UiKit.CreateButton(everyoneControls,
+            _everyoneControls = CreateButtonRow(_lobbyRoot, "EveryoneControls", Vector2.zero, Vector2.one);
+            UiKit.CreateButton(_everyoneControls, "Back", 20, () => OnLeave?.Invoke());
+            var readyButton = UiKit.CreateButton(_everyoneControls,
                 "READY UP", 20, () => OnReadyToggle?.Invoke(!_myReady));
             _readyLabel = readyButton.GetComponentInChildren<TMP_Text>();
 
-            _timerChoiceRow = StackChoiceRow(_lobbyRoot, "ACTION TIMER", ref stackTopPx);
-            _lobbyDibsModeRow = StackChoiceRow(_lobbyRoot, "FIRST DIBS", ref stackTopPx);
+            _timerChoiceRow = CreateChoiceRow(_lobbyRoot, "ACTION TIMER", out _timerHeader);
+            _lobbyDibsModeRow = CreateChoiceRow(_lobbyRoot, "FIRST DIBS", out _dibsModeHeader);
+            _guestTimerLine = CreateSettingLine(_lobbyRoot, "ActionTimerSetting");
+            _guestDibsLine = CreateSettingLine(_lobbyRoot, "FirstDibsSetting");
 
             _lobbyStatus = UiKit.CreateText(_lobbyRoot, "", 18,
                 TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.6f), body: true);
+            _lobbySeatList = CreateSeatList(_lobbyRoot,
+                new Vector2(StackLeft, StackBaseline), new Vector2(StackRight, LobbySeatsTop));
+            ArrangeLobbyControls(isHost: false);
+        }
+
+        /// <summary>
+        /// Bottom to top. A host: Start Game, Back / Ready Up, the action timer's buttons, First
+        /// Dibs' buttons, the status line, the seats. A guest has no Start Game, and reads the two
+        /// settings as lines of words: buttons they cannot press only look broken.
+        /// </summary>
+        private void ArrangeLobbyControls(bool isHost)
+        {
+            foreach (var hostOnly in new[] { _hostControls, _timerChoiceRow, _timerHeader, _lobbyDibsModeRow, _dibsModeHeader })
+            {
+                hostOnly.gameObject.SetActive(isHost);
+            }
+            _guestTimerLine.gameObject.SetActive(!isHost);
+            _guestDibsLine.gameObject.SetActive(!isHost);
+
+            float stackTopPx = 0f;
+            if (isHost)
+            {
+                StackOnBaseline(_hostControls, MenuButtonHeightPx, ref stackTopPx);
+            }
+            StackOnBaseline(_everyoneControls, MenuButtonHeightPx, ref stackTopPx);
+            if (isHost)
+            {
+                StackChoiceRow(_timerChoiceRow, _timerHeader, ref stackTopPx);
+                StackChoiceRow(_lobbyDibsModeRow, _dibsModeHeader, ref stackTopPx);
+            }
+            else
+            {
+                StackOnBaseline(_guestTimerLine, SettingLineHeightPx, ref stackTopPx);
+                StackOnBaseline(_guestDibsLine, SettingLineHeightPx, ref stackTopPx);
+            }
+
             var statusRect = (RectTransform)_lobbyStatus.transform;
             StackOnBaseline(statusRect, LobbyStatusHeightPx, ref stackTopPx);
             // Wider than the buttons: a connection error can be a long sentence.
             statusRect.anchorMin = new Vector2(0.1f, StackBaseline);
             statusRect.anchorMax = new Vector2(0.9f, StackBaseline);
-
-            _lobbySeatList = CreateSeatList(_lobbyRoot,
-                new Vector2(StackLeft, StackBaseline), new Vector2(StackRight, LobbySeatsTop));
             _lobbySeatList.offsetMin = new Vector2(0f, stackTopPx);
         }
 
@@ -83,13 +122,21 @@ namespace LemonadeWars.Unity
                 UiKit.CreateButton(_lobbySeatList, "+ Add bot", 18, () => OnAddBot?.Invoke());
             }
 
-            ShowActionTimerChoices(room.ActionTimerSeconds, isHost);
-            ShowFirstDibsModes(_lobbyDibsModeRow, room.FirstDibsMode == FirstDibsModes.Manual,
-                isHost ? isManual => OnSetFirstDibsMode?.Invoke(
-                    isManual ? FirstDibsModes.Manual : FirstDibsModes.Random) : (System.Action<bool>)null);
+            ArrangeLobbyControls(isHost);
+            bool isManualDibs = room.FirstDibsMode == FirstDibsModes.Manual;
+            if (isHost)
+            {
+                ShowActionTimerChoices(room.ActionTimerSeconds);
+                ShowFirstDibsModes(_lobbyDibsModeRow, isManualDibs, isManual => OnSetFirstDibsMode?.Invoke(
+                    isManual ? FirstDibsModes.Manual : FirstDibsModes.Random));
+            }
+            else
+            {
+                ShowActionTimerSetting(_guestTimerLine, room.ActionTimerSeconds);
+                ShowSettingLine(_guestDibsLine, "FIRST DIBS", isManualDibs ? "MANUAL" : "RANDOM");
+            }
             _readyLabel.text = myReady ? "UNREADY" : "READY UP";
             _lobbyStatus.text = status ?? "";
-            _hostControls.gameObject.SetActive(isHost);
         }
     }
 }

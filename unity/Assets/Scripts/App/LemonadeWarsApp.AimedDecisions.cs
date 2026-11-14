@@ -78,8 +78,9 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>
-        /// A Tag sent a card-stealing attack at someone else: show THEIR board, aim at their tucked
-        /// cards, then pick where a steal lands. False when the retarget is not a card pick.
+        /// A Tag or a Rubber Glue handed the viewer a card-stealing attack to aim afresh: show the
+        /// victim's board, aim at their tucked cards, then come home to pick where a steal lands.
+        /// False when the retarget is not a card pick.
         /// </summary>
         private bool TryBeginRetargetPick(MoveGroups groups)
         {
@@ -110,7 +111,7 @@ namespace LemonadeWars.Unity
                 equippedId => ResolveEquipDestination(byCard[equippedId], EquippedArt(equippedId),
                     m => ((SubmitRetarget)m).EquipStandInstanceId, reArm),
                 reArm,
-                $"Tagged to {NameOf(victim)} — aim {attack} at one of their cards");
+                $"Aim {attack} at one of {NameOf(victim)}'s cards");
             return true;
         }
     }

@@ -17,6 +17,8 @@ namespace LemonadeWars.Unity
 
         public Vector2 From;
         public Vector2 To;
+        /// <summary>How long the slide in takes; longer for a pile crossing the table.</summary>
+        public float ArriveDurationSeconds = ArriveSeconds;
         public float StartScale = 0.3f;
         /// <summary>Earnings arrive full-size and opaque from off-screen; purchases grow out of the bar.</summary>
         public bool GrowAndFadeIn = true;
@@ -57,12 +59,12 @@ namespace LemonadeWars.Unity
                 Leave();
                 return;
             }
-            if (AutoFadeAfterSeconds >= 0f && _elapsed >= ArriveSeconds + AutoFadeAfterSeconds)
+            if (AutoFadeAfterSeconds >= 0f && _elapsed >= ArriveDurationSeconds + AutoFadeAfterSeconds)
             {
                 BeginFade();
                 return;
             }
-            float arrival = Mathf.Clamp01(_elapsed / ArriveSeconds);
+            float arrival = Mathf.Clamp01(_elapsed / ArriveDurationSeconds);
             float eased = arrival * arrival * (3f - 2f * arrival);
             _rect.anchoredPosition = Vector2.Lerp(From, To, eased);
             if (GrowAndFadeIn)

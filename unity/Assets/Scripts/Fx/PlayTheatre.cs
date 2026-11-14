@@ -43,6 +43,7 @@ namespace LemonadeWars.Unity
         private RectTransform _loot;
         private CanvasGroup _lootGroup;
         private Vector2 _lootShowcase;
+        private bool _isLootTaken;
         private Vector2 _lootTo;
         private Phase _phase = Phase.Idle;
         private float _phaseStart;
@@ -108,10 +109,12 @@ namespace LemonadeWars.Unity
         public bool Matches(int ownerId, string defId) => IsActive && ownerId == _attackerId && defId == _defId;
 
         /// <param name="targetId">The attack's victim; -1 for a play with no victim (a take).</param>
-        /// <param name="lootArt">For takes and steals, the card changing hands: staged beside the play under a grabbing hand.</param>
+        /// <param name="lootArt">The card the play is aimed at, staged beside it.</param>
         /// <param name="fromWorld">Where the card lifts from; null = the player's bar. A contested purchase lifts from its shelf slot.</param>
+        /// <param name="isLootTaken">True for takes and steals: the loot wears a grabbing hand and leaves for the
+        /// player's bar. False for a card that is only being discarded: no hand, and it fades where it lies.</param>
         public void Begin(Texture2D art, string defId, int attackerId, int targetId, Texture2D lootArt = null,
-            Vector3? fromWorld = null)
+            Vector3? fromWorld = null, bool isLootTaken = true)
         {
             Clear();
             var showcase = _showcaseWorld(attackerId);
@@ -132,7 +135,8 @@ namespace LemonadeWars.Unity
             if (lootArt != null)
             {
                 _lootShowcase = _showcase + new Vector2(CardWidth + LootGapPx, 0);
-                _loot = BuildLoot(lootArt);
+                _isLootTaken = isLootTaken;
+                _loot = BuildLoot(lootArt, withGrabbingHand: isLootTaken);
                 _loot.anchoredPosition = _from;
             }
             _arriveSeconds = ArriveSeconds;
@@ -358,8 +362,8 @@ namespace LemonadeWars.Unity
             _departEndScale = spot == null ? EndHeight / CardHeight : _resolveEndScale;
             _to = spot != null ? Local(spot.Value)
                 : target == null ? _showcase : Local(target.Value);
-            // The loot is the player's now: it slides into their bar.
-            _lootTo = owner == null ? _lootShowcase : Local(owner.Value);
+            // Taken loot is the player's now: it slides into their bar. A discarded card goes nowhere.
+            _lootTo = owner == null || !_isLootTaken ? _lootShowcase : Local(owner.Value);
             UiKit.Clear(_arrowHost);
             GlowVictim(off: true);
             _group.blocksRaycasts = false; // no magnifier on a card that is leaving

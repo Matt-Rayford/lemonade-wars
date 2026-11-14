@@ -8,6 +8,13 @@ namespace LemonadeWars.Unity
     /// <summary>Choosing which of YOUR stands a card lands on or targets, on the real board.</summary>
     public sealed partial class LemonadeWarsApp
     {
+        /// <summary>
+        /// Set across the render that brings the viewer's board back for a placement. When the
+        /// placement answers a pending decision (a re-aimed Finders Keepers), that render would
+        /// otherwise find no pick on screen, re-open the decision and swing the view back to the rival.
+        /// </summary>
+        private bool _snappingHomeToPlace;
+
         /// <summary>Shelf purchases and own-stand picks land on YOUR board: snap the view home from a rival's.</summary>
         private void ShowOwnBoard()
         {
@@ -56,7 +63,9 @@ namespace LemonadeWars.Unity
             }
             // The card rides the cursor over your own board until a click on a lit stand
             // places it (letting go drops the play).
+            _snappingHomeToPlace = true;
             ShowOwnBoard();
+            _snappingHomeToPlace = false;
             _table.BeginStickyPlace(texture, new HashSet<int?>(byDestination.Keys), pickDestination,
                 onCancel ?? (() => { }));
         }

@@ -96,6 +96,21 @@ namespace LemonadeWars.Unity
             }
         }
 
+        /// <summary>The thief's bar holds its old total until the stolen bills reach it, as with earnings.</summary>
+        private void HandleMoneyStolen(MoneyStolen theft)
+        {
+            int thiefId = theft.ToPlayerId;
+            int amount = theft.Amount;
+            _earningsInFlight[thiefId] = _earningsInFlight.TryGetValue(thiefId, out int pending) ? pending + amount : amount;
+            _renderedRevision = -1;
+            _fx.QueueMoneySteal(theft.FromPlayerId, thiefId, amount, _art.Bill, () =>
+            {
+                _earningsInFlight[thiefId] = System.Math.Max(0,
+                    (_earningsInFlight.TryGetValue(thiefId, out int held) ? held : 0) - amount);
+                _renderedRevision = -1;
+            });
+        }
+
         /// <summary>
         /// A purchase or a market refresh slaps its money on the table as a bill pile,
         /// so a "-$X" floater would only say it again. Fines and the Swear Jar have no pile.

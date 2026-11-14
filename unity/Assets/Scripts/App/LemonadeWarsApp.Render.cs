@@ -55,7 +55,7 @@ namespace LemonadeWars.Unity
         /// </summary>
         private void DismissModalForDissolvedChoice(MoveGroups groups)
         {
-            if (_autoModalOpen &&
+            if (_autoModalOpen && View.Stage != GameStage.Finished &&
                 (_prompt.IsOpen || _picker.IsOpen || HasTableDecisionOverlay) &&
                 (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0))
             {

@@ -60,7 +60,7 @@ namespace LemonadeWars.Unity
 
         private void MaybeShowModal(MoveGroups groups, int revision)
         {
-            if (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0)
+            if (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0 || _snappingHomeToPlace)
             {
                 return;
             }
