@@ -68,6 +68,17 @@ public sealed partial class Room
         }
     }
 
+    private const int MaxVoiceLength = 24;
+
+    /// <summary>A voice is a folder name on the clients: lower-case letters, digits and dashes, or nothing.</summary>
+    private static string SanitizeVoice(string? voice)
+    {
+        string wanted = (voice ?? "").Trim().ToLowerInvariant();
+        bool isFolderName = wanted.Length <= MaxVoiceLength &&
+            wanted.All(letter => (letter >= 'a' && letter <= 'z') || char.IsDigit(letter) || letter == '-');
+        return isFolderName ? wanted : "";
+    }
+
     private static string SanitizeName(string name)
     {
         name = (name ?? "").Trim();

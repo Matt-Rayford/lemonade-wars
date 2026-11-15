@@ -108,10 +108,11 @@ namespace LemonadeWars.Unity
                 iconGo.transform.SetParent(_logTab, false);
                 var iconImage = iconGo.GetComponent<RawImage>();
                 iconImage.texture = _actionLogIcon;
-                iconImage.color = UiKit.ButtonTextColor; // the art is white on clear, so it takes the tint exactly
+                iconImage.color = UiKit.ButtonTextColor; // loaded as a white mask, so it takes the tint exactly
                 iconImage.raycastTarget = false;
                 face = (RectTransform)iconGo.transform;
-                face.sizeDelta = new Vector2(LogTabIconPx, LogTabIconPx);
+                face.sizeDelta = new Vector2(
+                    LogTabIconPx * _actionLogIcon.width / _actionLogIcon.height, LogTabIconPx);
             }
             face.anchorMin = face.anchorMax = new Vector2(0f, 0.5f);
             face.pivot = new Vector2(0.5f, 0.5f);

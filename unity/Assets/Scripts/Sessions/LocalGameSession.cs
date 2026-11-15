@@ -86,6 +86,8 @@ namespace LemonadeWars.Unity
             state.LemonDeck[deckIndex] = swappedOut;
         }
 
+        public string VoiceOf(int playerId) => playerId == Seat ? VoiceLines.VoiceForTable : VoiceLines.NoVoice;
+
         public string BotLevelOf(int playerId) =>
             _botLevels.TryGetValue(playerId, out var level) ? level : null;
 

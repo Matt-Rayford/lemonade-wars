@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using LemonadeWars.Engine.Core;
 using LemonadeWars.Engine.Data;
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -30,7 +29,6 @@ namespace LemonadeWars.Unity
         private RectTransform _boardPanel;
         private RectTransform _boardRow;
         private RectMask2D _boardMask;
-        private TMP_Text _boardOwnerLabel;
         private bool _viewingOwnBoard = true;
         private RectTransform _vpCell;
         private RectTransform _turfCell;
@@ -80,9 +78,7 @@ namespace LemonadeWars.Unity
                 boardOwnerId = view.ViewerId; // stale selection from a previous game
             }
             _viewingOwnBoard = boardOwnerId == view.ViewerId;
-            var owner = view.Players[boardOwnerId];
-            _boardOwnerLabel.text = _viewingOwnBoard ? "" : $"{owner.Name}'s board — view only";
-            return owner;
+            return view.Players[boardOwnerId];
         }
 
         private void BuildVictoryColumn(PlayerView.PlayerPanel owner)

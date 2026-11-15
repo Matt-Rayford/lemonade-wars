@@ -276,6 +276,7 @@ public sealed partial class Room
                     BotLevel = s.IsBot ? s.BotLevel : "",
                     Connected = s.IsBot || s.Connected,
                     Ready = s.Ready,
+                    Voice = s.Voice,
                 }).ToList(),
             };
             _ = seat.SendAsync(message);

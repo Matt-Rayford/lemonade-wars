@@ -25,6 +25,14 @@ namespace LemonadeWars.Unity
                 AddLogLine(logLine);
             }
             System.Action onLanded = logLine == null ? null : () => AddLogLine(logLine);
+            if (gameEvent is WhiniestBabyMoved babyMove && babyMove.ToPlayerId is int babyHolderId)
+            {
+                SpeakWhenTitleArrives(babyHolderId, WhiniestBabyLine);
+            }
+            if (gameEvent is SpoiledRottenMoved spoiledMove && spoiledMove.ToPlayerId is int spoiledHolderId)
+            {
+                SpeakWhenTitleArrives(spoiledHolderId, SpoiledRottenLine);
+            }
 
             switch (gameEvent)
             {
@@ -108,7 +116,7 @@ namespace LemonadeWars.Unity
             // hidden until the claim flight delivers it.
             _table.SuppressWhiniestBaby = true;
             // Queued: the card often lands at turn start, so the wail waits for ONWARD!.
-            _fx.QueueSound(Sfx.WhinyBaby);
+            QueueWhiniestBabyWailFor(_session.Seat);
             _fx.QueueClaim(_art.WhiniestBaby(), "You are the Whiniest Baby!",
                 () => _table.WhiniestBabyLandingWorld(),
                 () =>
@@ -137,7 +145,7 @@ namespace LemonadeWars.Unity
             {
                 origin = () => _table.PurchaseShowcaseWorld(newHolderId); // fresh from the market: it appears beside the bar
             }
-            _fx.QueueSound(Sfx.WhinyBaby);
+            QueueWhiniestBabyWailFor(newHolderId);
             _fx.QueuePurchase(_art.WhiniestBaby(), newHolderId, price: 0, _art.Bill, origin);
         }
 

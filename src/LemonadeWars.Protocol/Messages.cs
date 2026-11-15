@@ -52,6 +52,8 @@ namespace LemonadeWars.Protocol
         public string BotLevel { get; set; } = "";
         public bool Connected { get; set; }
         public bool Ready { get; set; }
+        /// <summary>The voice this player's cards speak in (a folder of voice lines on the clients); empty for none and for bots.</summary>
+        public string Voice { get; set; } = "";
     }
 
     /// <summary>Sent on every lobby change and on (re)join.</summary>

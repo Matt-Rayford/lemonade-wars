@@ -198,7 +198,8 @@ public sealed class ClientSession
         }
         LeaveCurrentRoom();
         _room = _rooms.Create();
-        _room.Join((string?)message["name"] ?? "", null, _identity?.PlayerId, _connection, out _);
+        _room.Join((string?)message["name"] ?? "", null, _identity?.PlayerId, _connection, out _,
+            (string?)message["voice"]);
     }
 
     private async Task HandleJoinRoomAsync(JObject message)
@@ -215,7 +216,7 @@ public sealed class ClientSession
             return;
         }
         var seat = found.Join((string?)message["name"] ?? "", (string?)message["token"],
-            _identity?.PlayerId, _connection, out string error);
+            _identity?.PlayerId, _connection, out string error, (string?)message["voice"]);
         if (seat == null)
         {
             await SendErrorAsync(error);

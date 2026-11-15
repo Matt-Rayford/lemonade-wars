@@ -115,6 +115,7 @@ namespace LemonadeWars.Unity
             _actionLog.Clear();
             _drawRunText = null;
             _endShown = false;
+            PreloadTableVoices();
         }
 
         private void BackToMenu(string status)

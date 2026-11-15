@@ -50,6 +50,12 @@ namespace LemonadeWars.Unity
         public bool HumanAutoplay { get; set; }
         public event Action<GameEvent> EventEmitted;
 
+        public string VoiceOf(int playerId)
+        {
+            var seat = Room.Seats.FirstOrDefault(s => s.Seat == playerId);
+            return seat == null || seat.IsBot ? VoiceLines.NoVoice : seat.Voice ?? VoiceLines.NoVoice;
+        }
+
         public string BotLevelOf(int playerId)
         {
             var seat = Room.Seats.FirstOrDefault(s => s.Seat == playerId);
@@ -105,9 +111,10 @@ namespace LemonadeWars.Unity
         public void Hello(string playerKey, string name) =>
             Send(new { type = "hello", playerKey, name });
         public void ListGames() => Send(new { type = "list_games" });
-        public void CreateRoom(string name) => Send(new { type = "create_room", name });
-        public void JoinRoom(string code, string name, string token = null) =>
-            Send(new { type = "join_room", code, name, token });
+        /// <param name="voice">The voice this player's cards speak in for the whole room.</param>
+        public void CreateRoom(string name, string voice) => Send(new { type = "create_room", name, voice });
+        public void JoinRoom(string code, string name, string voice, string token = null) =>
+            Send(new { type = "join_room", code, name, token, voice });
         public void AddBot() => Send(new { type = "add_bot" });
         public void RemoveBot(int seat) => Send(new { type = "remove_bot", seat });
         public void SetBotLevel(int seat, string level) =>

@@ -16,6 +16,8 @@ public sealed class Seat
     public string BotLevel { get; set; } = BotFactory.Medium;
     /// <summary>Bots are always ready; humans toggle in the lobby.</summary>
     public bool Ready { get; set; }
+    /// <summary>The voice the player's cards speak in on every client; empty for none. The server only passes it on.</summary>
+    public string Voice { get; set; } = "";
     public Connection? Client { get; set; }
 
     public bool Connected => Client is { Open: true };

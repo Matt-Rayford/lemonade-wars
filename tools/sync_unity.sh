@@ -42,6 +42,23 @@ rsync -a --include='*/' \
       --include='*.wav' --include='*.mp3' --include='*.ogg' --exclude='*' \
       game-assets/sound-effects/ "$UNITY_DIR/Assets/Resources/sounds/"
 
+echo "== syncing voices =="
+# game-assets/audio/<Voice>/<card-id>[-explicit][-N].wav -> Resources/voices/<voice>/, the folder
+# lower-cased: that name is the voice's id on the wire and in saved settings.
+VOICES="$UNITY_DIR/Assets/Resources/voices"
+mkdir -p "$VOICES"
+find "$VOICES" -type f \( -name '*.wav' -o -name '*.mp3' -o -name '*.ogg' \) -delete 2>/dev/null || true
+: > "$VOICES/index.txt"
+for voice_dir in game-assets/audio/*/; do
+  [ -d "$voice_dir" ] || continue
+  voice="$(basename "$voice_dir" | tr '[:upper:]' '[:lower:]')"
+  mkdir -p "$VOICES/$voice"
+  rsync -a --include='*.wav' --include='*.mp3' --include='*.ogg' --exclude='*' \
+        "$voice_dir" "$VOICES/$voice/"
+  # The client cannot list Resources folders: this index is how it learns which voices exist.
+  echo "$voice" >> "$VOICES/index.txt"
+done
+
 echo "== syncing game data =="
 rm -rf "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"
 mkdir -p "$STREAMING/game-data" "$STREAMING/images" "$STREAMING/icons"
