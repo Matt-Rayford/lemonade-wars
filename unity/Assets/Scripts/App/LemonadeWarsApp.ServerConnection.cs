@@ -103,11 +103,11 @@ namespace LemonadeWars.Unity
                 _remote.Hello(PlayerKey, _pendingName);
                 if (_pendingCreate)
                 {
-                    _remote.CreateRoom(_pendingName);
+                    _remote.CreateRoom(_pendingName, VoiceLines.VoiceForTable);
                 }
                 else if (!_pendingListOnly)
                 {
-                    _remote.JoinRoom(_pendingCode, _pendingName,
+                    _remote.JoinRoom(_pendingCode, _pendingName, VoiceLines.VoiceForTable,
                         string.IsNullOrEmpty(_pendingToken) ? null : _pendingToken);
                 }
             }
@@ -158,7 +158,7 @@ namespace LemonadeWars.Unity
             string token = PlayerPrefs.GetString(ResumeCodePref, "") == code
                 ? PlayerPrefs.GetString(ResumeTokenPref, "")
                 : "";
-            _remote.JoinRoom(code, _lobby.DisplayName,
+            _remote.JoinRoom(code, _lobby.DisplayName, VoiceLines.VoiceForTable,
                 string.IsNullOrEmpty(token) ? null : token);
             _lobbyRevision = -1;
             _lobby.ShowLobby(_remote.Room, $"Joining {code}...", false);

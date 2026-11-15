@@ -10,6 +10,7 @@ namespace LemonadeWars.Unity
 
         private void HandleLemonCardPlayed(LemonCardPlayed played)
         {
+            SpeakPlayedCard(played);
             // Audible for both duelists, silent for bystanders; queued, so it waits out
             // dice theatre instead of stinging mid-roll.
             if (played.TargetPlayerId is int struck &&

@@ -27,5 +27,7 @@ namespace LemonadeWars.Unity
         void Tick();
         /// <summary>The BotFactory level name for a bot seat; null for humans.</summary>
         string BotLevelOf(int playerId);
+        /// <summary>The voice that seat's cards speak in; empty for none, and always for bots.</summary>
+        string VoiceOf(int playerId);
     }
 }

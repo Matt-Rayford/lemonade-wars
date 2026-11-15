@@ -63,7 +63,7 @@ namespace LemonadeWars.Unity
         {
             if (_source == null)
             {
-                CreateSource();
+                _source = CreateChannel("Sfx");
             }
             if (!Clips.TryGetValue(name, out var clip))
             {
@@ -75,16 +75,22 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private static void CreateSource()
+        /// <summary>
+        /// A hidden AudioSource that outlives scene changes, for a kind of sound that needs its own
+        /// volume or needs stopping apart from the rest (voice lines). The saved Sound Effects
+        /// level still applies on top: that one sits on the listener.
+        /// </summary>
+        public static AudioSource CreateChannel(string name)
         {
-            var go = new GameObject("Sfx", typeof(AudioSource));
+            var go = new GameObject(name, typeof(AudioSource));
             Object.DontDestroyOnLoad(go);
-            _source = go.GetComponent<AudioSource>();
-            _source.playOnAwake = false;
+            var channel = go.GetComponent<AudioSource>();
+            channel.playOnAwake = false;
             if (Object.FindFirstObjectByType<AudioListener>() == null)
             {
                 go.AddComponent<AudioListener>(); // code-built scene may lack one
             }
+            return channel;
         }
     }
 }

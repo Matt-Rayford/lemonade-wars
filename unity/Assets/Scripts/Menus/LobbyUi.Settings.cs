@@ -12,10 +12,11 @@ namespace LemonadeWars.Unity
             CreateScreenTitle(_settingsRoot, "SETTINGS");
 
             var settingsColumn = CreateButtonColumn(_settingsRoot, "SettingsColumn",
-                new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.70f));
+                new Vector2(0.34f, 0.16f), new Vector2(0.66f, 0.72f));
 
             BuildUsernameRow(settingsColumn, defaultName);
             BuildVolumeControl(settingsColumn);
+            BuildVoiceControls(settingsColumn);
 
             UiKit.CreateButton(settingsColumn, "Back", 20, () => ShowMenu(""));
             _settingsRoot.gameObject.SetActive(false);
@@ -24,6 +25,7 @@ namespace LemonadeWars.Unity
         public void ShowSettings()
         {
             ActivateOnly(_settingsRoot);
+            ShowVoiceSettings();
         }
 
         private void BuildUsernameRow(Transform settingsColumn, string defaultName)

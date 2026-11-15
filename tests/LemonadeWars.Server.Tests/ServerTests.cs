@@ -248,6 +248,26 @@ public class ServerTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(3, ((JArray)update["view"]!["firstDibsRow"]!).Count);
     }
 
+    [Fact]
+    public async Task EachPlayersVoiceIsSharedWithTheRoom()
+    {
+        await using var host = await TestClient.ConnectAsync(_factory);
+        await host.SendAsync(new { type = "create_room", name = "Host", voice = "kevin" });
+        var room = await host.NextOfTypeAsync("room");
+        Assert.Equal("kevin", (string)room["seats"]![0]!["voice"]!);
+
+        // Not a folder name: it is dropped, never passed on to other clients.
+        await using var guest = await TestClient.ConnectAsync(_factory);
+        await guest.SendAsync(new { type = "join_room", code = (string)room["code"]!, name = "Guest", voice = "../etc" });
+        var joined = await host.NextAsync(m => (string?)m["type"] == "room" && ((JArray)m["seats"]!).Count == 2);
+        Assert.Equal("kevin", (string)joined["seats"]![0]!["voice"]!);
+        Assert.Equal("", (string)joined["seats"]![1]!["voice"]!);
+
+        await host.SendAsync(new { type = "add_bot" });
+        var withBot = await host.NextAsync(m => (string?)m["type"] == "room" && ((JArray)m["seats"]!).Count == 3);
+        Assert.Equal("", (string)withBot["seats"]![2]!["voice"]!);
+    }
+
     // ------------------------------------------------- reclaiming a seat
 
     [Fact]

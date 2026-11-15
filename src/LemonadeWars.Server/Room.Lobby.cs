@@ -20,8 +20,9 @@ public sealed partial class Room
     /// <summary>A <see cref="FirstDibsModes"/> value: dealt at random, or hand-picked by the host as they start the game.</summary>
     public string FirstDibsMode { get; private set; } = FirstDibsModes.Random;
 
+    /// <param name="voice">The joiner's chosen voice; a returning player's replaces the one their seat had.</param>
     public Seat? Join(string name, string? token, string? playerId, Connection connection,
-        out string error)
+        out string error, string? voice = null)
     {
         List<Seat> toNotify;
         Seat seat;
@@ -36,6 +37,7 @@ public sealed partial class Room
             if (existing != null)
             {
                 existing.Client = connection;
+                existing.Voice = SanitizeVoice(voice);
                 seat = existing;
             }
             else
@@ -56,6 +58,7 @@ public sealed partial class Room
                     Name = SanitizeName(name),
                     PlayerId = playerId,
                     Client = connection,
+                    Voice = SanitizeVoice(voice),
                 };
                 _seats.Add(seat);
             }

@@ -79,7 +79,7 @@ namespace LemonadeWars.Unity
             _upperSand = LoadIconAsSprite("HourglassSandTop.png");
             _lowerSand = LoadIconAsSprite("HourglassSandBottom.png");
             _pinnedTagIcon = LoadIcon("PriceTag.png");
-            _actionLogIcon = LoadIcon("ActionLog.png");
+            _actionLogIcon = UiKit.LoadInkIconAsMask("action-log.png");
             Build(canvasRoot);
         }
 
@@ -173,11 +173,6 @@ namespace LemonadeWars.Unity
                 ContentSizeFitter.FitMode.PreferredSize;
             // Bottom-aligned: the headroom above holds a five-deep tucked stack clear of the shelf.
             _boardRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.LowerLeft;
-            _boardOwnerLabel = UiKit.CreateText(board, "", 20, TextAnchor.MiddleCenter,
-                new Color(1f, 0.92f, 0.55f), body: true);
-            _boardOwnerLabel.raycastTarget = false;
-            UiKit.Anchor((RectTransform)_boardOwnerLabel.transform,
-                new Vector2(0, 0.90f), new Vector2(1, 1));
         }
 
         private void BuildActionBarStrip()
