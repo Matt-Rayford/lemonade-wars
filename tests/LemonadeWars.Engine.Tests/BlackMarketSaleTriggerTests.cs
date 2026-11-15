@@ -52,6 +52,32 @@ namespace LemonadeWars.Engine.Tests
                 game.State.Players[activeId].Money);
         }
 
+        /// <summary>Black Market cards trigger after earnings: a rival who was broke before the roll has this roll's money to lose.</summary>
+        [Fact]
+        public void JuiceBoxJoeyTriggersAfterTheRollHasPaidEveryone()
+        {
+            var game = ReadyToPlay(seed: 11);
+            StripHands(game, "tantrum");
+            int activeId = ActivePlayer(game);
+            int rivalId = SeatAfterActive(game, 1);
+            var player = game.State.Players[activeId];
+            var rival = game.State.Players[rivalId];
+            RigEquip(game, activeId, "juice-box-joey", player.Stands[0].InstanceId);
+            rival.Money = 0;
+
+            HoldRollWindowOpen(game);
+            EndTurnWithRollUntilDecision(game, 2);
+
+            // Joey's choice is open, and the rival's own stands have already sold on this roll.
+            Assert.Equal(DecisionKind.AbilityVictim, Assert.Single(game.State.PendingDecisions).Kind);
+            int rivalEarned = rival.Money;
+            Assert.True(rivalEarned >= 2, $"the rival had only ${rivalEarned} when Joey triggered");
+
+            game.Apply(new SubmitAbilityChoice { PlayerId = activeId, TargetPlayerId = rivalId });
+
+            Assert.Equal(rivalEarned - 1, rival.Money);
+        }
+
         [Fact]
         public void VictimChoiceAbilitiesCanBeDeclined()
         {

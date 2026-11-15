@@ -40,9 +40,10 @@ namespace LemonadeWars.Unity
             RenderTableSurfaces(groups);
             MaybeAnnounceTurn();
             EndPlayerPickForMovedDecision(groups);
-            // Decisions wait behind the theatre, and behind a turn handover the banner has yet
-            // to announce: a turn-start choice must not open over the previous roll's payout.
-            if (TheatreHoldsModals() || TurnHandoverPending())
+            // Decisions wait behind the theatre, behind a turn handover the banner has yet to
+            // announce (a turn-start choice must not open over the previous roll's payout), and
+            // behind a roll's own payout: what a sale triggers comes after what it earned.
+            if (TheatreHoldsModals() || TurnHandoverPending() || RollPayoutOwed())
             {
                 return;
             }

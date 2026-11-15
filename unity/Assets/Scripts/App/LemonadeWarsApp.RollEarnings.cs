@@ -123,6 +123,15 @@ namespace LemonadeWars.Unity
             _rollEarnings != null || _earningsInFlight.Values.Any(held => held > 0);
 
         /// <summary>
+        /// The roll is settled in the engine, but its earnings have not been handed to the effects
+        /// queue yet. Once they have, the queue itself holds everything behind them; until then
+        /// nothing else knows a payout is coming. A roll whose window sat open is the case that
+        /// matters: by the time it resolves the die is long at rest and no theatre is playing, so a
+        /// Juice-box Joey pick raised by that very sale would open ahead of the money that came first.
+        /// </summary>
+        private bool RollPayoutOwed() => _rollEarnings != null && View.PendingRollValue == null;
+
+        /// <summary>
         /// Response windows can hold a roll open for several frames, so its earnings are
         /// staged only once the pending roll is gone.
         /// </summary>
@@ -137,6 +146,9 @@ namespace LemonadeWars.Unity
                 _fx.QueueSound(Sfx.Coins);
             }
             StageRollEarnings();
+            // Whatever waited on the payout (see RollPayoutOwed) is looked at again: behind the
+            // piles if there are any, at once if the roll paid nobody.
+            ReopenHeldModals();
         }
 
         /// <summary>
