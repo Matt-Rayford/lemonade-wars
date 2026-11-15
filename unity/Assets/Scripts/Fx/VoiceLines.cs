@@ -24,8 +24,13 @@ namespace LemonadeWars.Unity
         /// <summary>One voice id per line: Resources folders cannot be listed at runtime.</summary>
         private const string IndexResource = "voices/index";
 
+        /// <summary>After a line ends, the table stays quiet of new ones this long: cards land in bursts, and line after line is noise.</summary>
+        private const float QuietAfterLineSeconds = 3f;
+
         private static List<string> _available;
         private static AudioSource _channel;
+        /// <summary>When the line now in the air, and the quiet owed after it, will be over.</summary>
+        private static float _quietUntil = float.NegativeInfinity;
         private static readonly Dictionary<string, VoiceLineBank> Banks = new Dictionary<string, VoiceLineBank>();
 
         /// <summary>Every voice that shipped with this build, by id (its folder name).</summary>
@@ -110,18 +115,23 @@ namespace LemonadeWars.Unity
         public static string DisplayName(string voice) =>
             string.IsNullOrEmpty(voice) ? "None" : char.ToUpperInvariant(voice[0]) + voice.Substring(1);
 
-        /// <summary>Says the voice's line for a card, if this listener hears voices and the voice has one.</summary>
-        public static void Speak(string voice, string cardId)
+        /// <summary>
+        /// Says the voice's line for a card, if this listener hears voices and the voice has one,
+        /// and no line is still being said or ended in the last few seconds: this one then goes
+        /// unsaid, not said late.
+        /// </summary>
+        /// <returns>Whether a line was said, for sounds a spoken line stands in for.</returns>
+        public static bool Speak(string voice, string cardId)
         {
-            if (HearVoices && BankOf(voice) is VoiceLineBank bank)
+            bool isTooSoon = Time.unscaledTime < _quietUntil;
+            if (!HearVoices || isTooSoon || !(BankOf(voice) is VoiceLineBank bank))
             {
-                Say(bank.PickFor(cardId, ExplicitMode));
+                return false;
             }
+            var line = bank.PickFor(cardId, ExplicitMode);
+            Say(line);
+            return line != null;
         }
-
-        /// <summary>Whether <see cref="Speak"/> is certain to be heard here: for sounds a spoken line stands in for.</summary>
-        public static bool WillSpeak(string voice, string cardId) =>
-            HearVoices && BankOf(voice) is VoiceLineBank bank && bank.HasCleanLineFor(cardId);
 
         /// <summary>Plays any one clean line in place of whatever is being said, so a voice can be judged as it is chosen.</summary>
         public static void Audition(string voice)
@@ -149,6 +159,7 @@ namespace LemonadeWars.Unity
             }
             _channel.volume = Volume / 100f;
             _channel.PlayOneShot(line);
+            _quietUntil = Time.unscaledTime + line.length + QuietAfterLineSeconds;
         }
 
         /// <summary>Loads a voice's clips ahead of its first line, which would otherwise hitch as it is said.</summary>

@@ -13,31 +13,28 @@ namespace LemonadeWars.Unity
         private void SpeakPlayedCard(LemonCardPlayed played) =>
             VoiceLines.Speak(_session.VoiceOf(played.PlayerId), played.DefId);
 
-        /// <summary>Queued: a title often changes hands under a roll or a turn banner, and its line belongs with the card's own arrival.</summary>
-        private void SpeakWhenTitleArrives(int newHolderId, string line)
+        /// <summary>
+        /// Queued: a title often changes hands under a roll or a turn banner, and its line belongs
+        /// with the card's own arrival. <paramref name="soundIfUnsaid"/> plays when no line does
+        /// (no voice, voices off, or another line still in the air): the Baby's wail, which a
+        /// holder with a line of their own says in words instead.
+        /// </summary>
+        private void SpeakWhenTitleArrives(int newHolderId, string line, string soundIfUnsaid = null)
         {
             var sessionAtQueueing = _session;
             string voice = _session.VoiceOf(newHolderId);
             _fx.QueueCallback(() =>
             {
                 // Queued callbacks also fire when the queue is torn down: a game that was left says nothing.
-                if (_session == sessionAtQueueing && _screen == Screen.Game)
+                if (_session != sessionAtQueueing || _screen != Screen.Game)
                 {
-                    VoiceLines.Speak(voice, line);
+                    return;
+                }
+                if (!VoiceLines.Speak(voice, line) && soundIfUnsaid != null)
+                {
+                    Sfx.Play(soundIfUnsaid);
                 }
             });
-        }
-
-        /// <summary>
-        /// The wail is the Baby's sound for a holder with nothing to say about it. One whose voice
-        /// has a Whiniest Baby line says that instead: both at once is only noise.
-        /// </summary>
-        private void QueueWhiniestBabyWailFor(int holderId)
-        {
-            if (!VoiceLines.WillSpeak(_session.VoiceOf(holderId), WhiniestBabyLine))
-            {
-                _fx.QueueSound(Sfx.WhinyBaby);
-            }
         }
 
         /// <summary>

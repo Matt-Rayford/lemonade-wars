@@ -69,10 +69,6 @@ namespace LemonadeWars.Unity
             return takes.Count == 0 ? null : takes[Random.Range(0, takes.Count)].Clip;
         }
 
-        /// <summary>The card has a line that can always be said, whatever the listener's explicit setting.</summary>
-        public bool HasCleanLineFor(string cardId) =>
-            _linesByCard.TryGetValue(cardId, out var lines) && lines.Any(line => !line.IsExplicit);
-
         /// <summary>Any clean line at all, to let a player hear a voice before choosing it.</summary>
         public AudioClip PickSample()
         {
