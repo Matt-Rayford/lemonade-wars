@@ -24,7 +24,7 @@ namespace LemonadeWars.Unity
             _tableMessage.text = "";
             // A theft or a free play asks a question, then lists its answers. Anything else is
             // a list of choices with the way out last: [Use Sugared Up] or [Pass].
-            bool asksQuestion = View.TheftOnMe || IsFreePlayDecision();
+            bool asksQuestion = View.TheftOnMe || IsPlayedFromHandDecision();
             bool handCanAnswer = groups.HandMoves.Values.Any(moves => moves.Any(m => m is RespondToWindow));
             var abilities = groups.ModalMoves
                 .Where(move => move is UseTurnAbility ||

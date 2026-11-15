@@ -64,6 +64,11 @@ namespace LemonadeWars.Unity
         private System.Func<Vector3?> _resolveDestination;
         private float _resolveEndScale = 1f;
         private System.Action _resolveArrived;
+        private System.Func<Vector3?> _lootDestination;
+        private float _lootEndScale = 1f;
+        private System.Action _lootArrived;
+        /// <summary>Decided at departure: the loot found its spot on the viewed board and travels there whole.</summary>
+        private bool _lootLandsOnBoard;
         private float _departEndScale;
         private bool _departFades;
         private bool _wasBusy;
@@ -226,6 +231,28 @@ namespace LemonadeWars.Unity
             _resolveWhenReady = true;
         }
 
+        /// <summary>
+        /// The staged loot was equipped: when the play resolves, the loot slides to a spot read at
+        /// departure (the card's tucked place on its stand) at the given scale, instead of shrinking
+        /// into the bar. A null spot (that board is not in view) keeps the trip to the bar. The
+        /// callback fires exactly once, on every exit path, straight away if no loot is staged.
+        /// </summary>
+        public void LandLootAt(System.Func<Vector3?> destinationWorld, float endScale, System.Action onArrive)
+        {
+            if (!IsActive || _loot == null)
+            {
+                onArrive?.Invoke();
+                return;
+            }
+            _lootDestination = destinationWorld;
+            _lootEndScale = endScale;
+            _lootArrived = onArrive;
+        }
+
+        /// <summary>This player's staged play has a card beside it that they are taking.</summary>
+        public bool IsStagingLootOf(int ownerId) =>
+            IsActive && ownerId == _attackerId && _loot != null && _isLootTaken;
+
         /// <summary>The attack was cancelled: fade in place once the minimum hold is over.</summary>
         public void Cancel() => _cancelWhenReady = IsActive;
 
@@ -252,6 +279,11 @@ namespace LemonadeWars.Unity
             var arrived = _resolveArrived;
             _resolveArrived = null;
             arrived?.Invoke();
+            _lootDestination = null;
+            _lootLandsOnBoard = false;
+            var lootArrived = _lootArrived;
+            _lootArrived = null;
+            lootArrived?.Invoke();
         }
 
         public void Tick()
@@ -362,8 +394,12 @@ namespace LemonadeWars.Unity
             _departEndScale = spot == null ? EndHeight / CardHeight : _resolveEndScale;
             _to = spot != null ? Local(spot.Value)
                 : target == null ? _showcase : Local(target.Value);
-            // Taken loot is the player's now: it slides into their bar. A discarded card goes nowhere.
-            _lootTo = owner == null || !_isLootTaken ? _lootShowcase : Local(owner.Value);
+            // Taken loot is the player's now: it slides to its place on their board when that is
+            // in view, else into their bar. A discarded card goes nowhere.
+            var lootSpot = _lootDestination?.Invoke();
+            _lootLandsOnBoard = lootSpot != null;
+            _lootTo = lootSpot != null ? Local(lootSpot.Value)
+                : owner == null || !_isLootTaken ? _lootShowcase : Local(owner.Value);
             UiKit.Clear(_arrowHost);
             GlowVictim(off: true);
             _group.blocksRaycasts = false; // no magnifier on a card that is leaving
@@ -385,8 +421,10 @@ namespace LemonadeWars.Unity
             if (_loot != null)
             {
                 _loot.anchoredPosition = Vector2.Lerp(_lootShowcase, _lootTo, eased);
-                _loot.localScale = _chip.localScale;
-                _lootGroup.alpha = _group.alpha;
+                _loot.localScale = _lootLandsOnBoard
+                    ? Vector3.one * Mathf.Lerp(1f, _lootEndScale, eased)
+                    : _chip.localScale;
+                _lootGroup.alpha = _lootLandsOnBoard ? 1f : _group.alpha;
             }
             if (progress >= 1f)
             {
