@@ -32,6 +32,10 @@ namespace LemonadeWars.Unity
         private void ShowEndSummary()
         {
             _prompt.Hide();
+            // The scoreboard answers no engine decision. Left flagged as one, the next harmless
+            // update (another player leaving the room) would dismiss it as a dissolved choice.
+            _autoModalOpen = false;
+            _modalSignature = "";
             string winners = string.Join(" & ", View.Winners.Select(NameOf));
             string verb = View.Winners.Count > 1 ? "WIN" : "WINS";
             _prompt.ShowBody($"{winners.ToUpperInvariant()} {verb} LEMONADE WARS!", BuildScoreboard,

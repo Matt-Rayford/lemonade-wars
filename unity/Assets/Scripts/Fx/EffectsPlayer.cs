@@ -156,6 +156,9 @@ namespace LemonadeWars.Unity
                 case EarnFx earn:
                     earn.OnArrived?.Invoke();
                     break;
+                case StealFx steal:
+                    steal.OnArrived?.Invoke();
+                    break;
                 case CallbackFx callback:
                     callback.Run?.Invoke(); // a draw flight still releases the card it hides
                     break;
@@ -258,7 +261,10 @@ namespace LemonadeWars.Unity
                     _endActive = () => { };
                     break;
                 case FlyFx fly:
-                    StartStealFlight(fly);
+                    StartCardFlight(fly);
+                    break;
+                case StealFx steal:
+                    StartMoneySteal(steal);
                     break;
             }
         }

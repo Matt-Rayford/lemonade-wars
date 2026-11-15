@@ -188,7 +188,7 @@ namespace LemonadeWars.Unity
                 new Vector2(3, 1), new Vector2(-3, -1));
             var bar = new GameObject("ActionBarRow", typeof(RectTransform), typeof(HorizontalLayoutGroup));
             bar.transform.SetParent(actions, false);
-            // Inset top and bottom so a button touches neither the stand captions nor the hand.
+            // Inset top and bottom so a button touches neither the stands nor the hand.
             UiKit.Anchor((RectTransform)bar.transform, Vector2.zero, Vector2.one,
                 new Vector2(8, 9), new Vector2(-8, -9));
             var barLayout = bar.GetComponent<HorizontalLayoutGroup>();

@@ -14,15 +14,69 @@ namespace LemonadeWars.Unity
         private static readonly Color ChoiceIdle = new Color(0.58f, 0.61f, 0.67f, 0.32f);
         private static readonly Color ChoiceIdleInk = new Color(0.93f, 0.93f, 0.90f);
 
-        /// <summary>Stacks an empty choice row and the header over it; returns the row.</summary>
-        private RectTransform StackChoiceRow(RectTransform screen, string header, ref float stackTopPx)
+        private const float SettingLineHeightPx = 36f;
+        private const float SettingLineGapPx = 10f;
+
+        /// <summary>An empty choice row and its header, for the caller to stack.</summary>
+        private static RectTransform CreateChoiceRow(RectTransform screen, string header, out RectTransform headerRect)
         {
             var row = CreateButtonRow(screen, header + " choices", Vector2.zero, Vector2.one);
-            StackOnBaseline(row, MenuButtonHeightPx, ref stackTopPx);
             var headerText = UiKit.CreateText(screen, header, ChoiceFontSize,
                 TextAnchor.MiddleCenter, ChoiceHeaderColor);
-            StackOnBaseline((RectTransform)headerText.transform, ChoiceHeaderHeightPx, ref stackTopPx);
+            headerRect = (RectTransform)headerText.transform;
             return row;
+        }
+
+        private static void StackChoiceRow(RectTransform row, RectTransform headerRect, ref float stackTopPx)
+        {
+            StackOnBaseline(row, MenuButtonHeightPx, ref stackTopPx);
+            StackOnBaseline(headerRect, ChoiceHeaderHeightPx, ref stackTopPx);
+        }
+
+        // ---- the same settings as one line of words, for players who cannot change them
+
+        /// <summary>An empty centred line, for the caller to stack and <see cref="ShowSettingLine"/> to fill.</summary>
+        private static RectTransform CreateSettingLine(RectTransform screen, string name)
+        {
+            var lineGo = new GameObject(name, typeof(RectTransform), typeof(HorizontalLayoutGroup));
+            lineGo.transform.SetParent(screen, false);
+            var layout = lineGo.GetComponent<HorizontalLayoutGroup>();
+            layout.spacing = SettingLineGapPx;
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            return (RectTransform)lineGo.transform;
+        }
+
+        /// <summary>"FIRST DIBS: RANDOM", the value in the chosen button's yellow. A <paramref name="valueIcon"/> stands in for the value's words.</summary>
+        private static void ShowSettingLine(RectTransform line, string name, string value,
+            Texture2D valueIcon = null, float valueIconHeightPx = 0f)
+        {
+            UiKit.Clear(line);
+            AddSettingWords(line, name + ":", ChoiceHeaderColor);
+            if (valueIcon == null)
+            {
+                AddSettingWords(line, value, UiKit.ButtonColor);
+                return;
+            }
+            var iconGo = new GameObject("Value", typeof(RectTransform), typeof(RawImage), typeof(LayoutElement));
+            iconGo.transform.SetParent(line, false);
+            var element = iconGo.GetComponent<LayoutElement>();
+            element.preferredWidth = valueIconHeightPx * valueIcon.width / valueIcon.height;
+            element.preferredHeight = valueIconHeightPx;
+            var image = iconGo.GetComponent<RawImage>();
+            image.texture = valueIcon;
+            image.color = UiKit.ButtonColor;
+            image.raycastTarget = false;
+        }
+
+        private static void AddSettingWords(RectTransform line, string words, Color color)
+        {
+            var text = UiKit.CreateText(line, words, ChoiceFontSize, TextAnchor.MiddleCenter, color);
+            text.textWrappingMode = TMPro.TextWrappingModes.NoWrap;
+            text.raycastTarget = false;
         }
 
         private static void AddChoice(RectTransform row, string label, bool isSelected, System.Action onPick)

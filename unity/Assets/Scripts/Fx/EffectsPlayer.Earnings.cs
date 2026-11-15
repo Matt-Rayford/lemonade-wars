@@ -24,6 +24,8 @@ namespace LemonadeWars.Unity
                 var card = (RectTransform)image.transform.parent;
                 card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
                 card.pivot = new Vector2(0.5f, 0.5f);
+                // No layout group sizes it here, and a bare rect is square: the card came out squashed.
+                card.sizeDelta = new Vector2(ShelfCardWidth, ShelfCardHeight);
                 // Back at the showcase spot, which the pile itself sits right of.
                 card.anchoredPosition = new Vector2(-BillPileRightShiftPx + i * RiderCardFanPx, -i * RiderCardFanPx);
             }

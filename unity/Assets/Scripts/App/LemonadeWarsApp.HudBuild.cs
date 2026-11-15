@@ -153,13 +153,15 @@ namespace LemonadeWars.Unity
         /// <see cref="BuildEffectsLayer"/>), so a reveal still covers them.</summary>
         private void BuildPlayTheatre(RectTransform root)
         {
+            _grabIcon = UiKit.LoadTextureSharp(
+                Path.Combine(Application.streamingAssetsPath, "icons", "steal-blank.png"));
             _playTheatre = new PlayTheatre(root,
                 playerId => _table.PlayerBarWorld(playerId),
                 playerId => _table.PlayerAvatarWorld(playerId),
                 playerId => _table.PurchaseShowcaseWorld(playerId),
                 (playerId, on) => _table.SetVictimGlow(playerId, on),
                 _preview,
-                UiKit.LoadTextureSharp(Path.Combine(Application.streamingAssetsPath, "icons", "steal-blank.png")),
+                _grabIcon,
                 NameOf);
             _playTheatre.OnIdle = ReopenHeldModals;
         }
@@ -174,6 +176,7 @@ namespace LemonadeWars.Unity
                 playerId => _table.PlayerCashWorld(playerId),
                 buyerId => _table.PurchaseShowcaseWorld(buyerId));
             _fx.OnFinished = ReopenHeldModals;
+            _fx.GrabIcon = _grabIcon;
             // A contested purchase's bills land at the showcase under its staged card.
             _playTheatre.DrawAbove(_fx.Layer);
         }
@@ -182,8 +185,8 @@ namespace LemonadeWars.Unity
         {
             _prompt = new Prompt(root, this, _preview);
             _picker = new CardPicker(root, _preview, this);
-            // The die may tumble across the message strip but never rests on it.
-            _dice = new DiceRoller(root, landingCeilingViewportY: MessageStripBottom);
+            // The die may come to rest anywhere on screen: the player can drag it off whatever it covers.
+            _dice = new DiceRoller(root);
             _dice.OnFinished = ReopenHeldModals;
             _turnBanner = new TurnBanner(root, this);
             _turnBanner.OnDismiss = ReopenHeldModals;

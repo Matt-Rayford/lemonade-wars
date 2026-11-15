@@ -35,6 +35,7 @@ namespace LemonadeWars.Unity
         private const int DrawSlotId = int.MinValue;
 
         private RectTransform _handHost;
+        private readonly Dictionary<int, float> _handHeightsBeforeRebuild = new Dictionary<int, float>();
         /// <summary>What the fan last showed: an unchanged hand is not rebuilt (see RenderHand).</summary>
         private string _handSignature;
         private float _handStartX;
@@ -57,6 +58,7 @@ namespace LemonadeWars.Unity
             }
             _handSignature = signature;
 
+            RememberHandCardHeights();
             UiKit.Clear(_handHost);
             _handFrames.Clear();
             if (hand.Count == 0 && !canDraw)
@@ -176,10 +178,13 @@ namespace LemonadeWars.Unity
                 AddReactionGlow(frame);
             }
             float baseX = _handStartX + fanIndex * _handSpacing;
-            frame.anchoredPosition = new Vector2(baseX - _handScroll, restY);
+            int cardId = card.InstanceId;
+            // From where the card stood a moment ago: a reaction lifting for its window, or
+            // settling once the window shuts, is seen to move instead of jumping.
+            float startY = _handHeightsBeforeRebuild.TryGetValue(cardId, out float shownY) ? shownY : restY;
+            frame.anchoredPosition = new Vector2(baseX - _handScroll, startY);
             var motion = frame.gameObject.AddComponent<HandCardMotion>();
             motion.TargetY = restY;
-            int cardId = card.InstanceId;
             _handFrames.Add((cardId, frame, baseX, motion, restY));
 
             if (isPlayable)
@@ -189,6 +194,19 @@ namespace LemonadeWars.Unity
             WireHandCardDrag(image.gameObject, cardId, isPlayable);
             WireHandCardHover(image.gameObject, cardId, frame, motion, fanIndex, restY);
             _preview.Attach(image.gameObject, texture);
+        }
+
+        /// <summary>Each card's height in the fan about to be torn down, for its replacement to start from.</summary>
+        private void RememberHandCardHeights()
+        {
+            _handHeightsBeforeRebuild.Clear();
+            foreach (var entry in _handFrames)
+            {
+                if (entry.Frame != null)
+                {
+                    _handHeightsBeforeRebuild[entry.Id] = entry.Frame.anchoredPosition.y;
+                }
+            }
         }
 
         /// <summary>A reaction, or an attack a Bouncer lets you strike back with: it rests half-raised and glows.</summary>

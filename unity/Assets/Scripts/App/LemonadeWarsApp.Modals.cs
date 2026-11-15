@@ -34,7 +34,7 @@ namespace LemonadeWars.Unity
             }
             // A Bouncer strike-back has no stack top (its attack already left the stack), but
             // picking who to hit back needs the table just as much; so does Smear Campaign's free play.
-            return decision.Kind == DecisionKind.AttackRetarget || IsFreePlayDecision();
+            return decision.Kind == DecisionKind.AttackRetarget || IsPlayedFromHandDecision();
         }
 
         /// <summary>A Bouncer strike-back or Smear Campaign's free play: "play a card from your hand, or skip".</summary>
@@ -44,9 +44,31 @@ namespace LemonadeWars.Unity
             return kind == DecisionKind.BouncerAttack || kind == DecisionKind.FreePlayOffer;
         }
 
-        /// <summary>A plain response window or a free play: answered by a half-raised hand card or a strip button.</summary>
+        /// <summary>
+        /// Reverse Engineer's recovered card, when playing it still takes a choice: null otherwise.
+        /// (With one way to play it, it plays itself; with none, the modal says so.)
+        /// </summary>
+        private int? ForcedPlayCardToAim()
+        {
+            var decision = View.MyDecisions.FirstOrDefault();
+            if (decision == null || decision.Kind != DecisionKind.ForcedPlay ||
+                !(decision.CardInstanceId is int cardId))
+            {
+                return null;
+            }
+            int waysToPlay = _session.Moves.Count(move => move is PlayLemonCard play && play.CardInstanceId == cardId);
+            return waysToPlay > 1 ? cardId : (int?)null;
+        }
+
+        /// <summary>
+        /// The decision is answered by playing a card out of the hand exactly as on a turn, with the
+        /// same aiming arrows and pickers: a free play, or a forced play that needs a target.
+        /// </summary>
+        private bool IsPlayedFromHandDecision() => IsFreePlayDecision() || ForcedPlayCardToAim() != null;
+
+        /// <summary>A plain response window or a play from the hand: answered by a half-raised hand card or a strip button.</summary>
         private bool IsAnsweredFromHandAndStrip(MoveGroups groups) =>
-            ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsFreePlayDecision());
+            ReactionWindowDue(groups) && (View.MyDecisions.Count == 0 || IsPlayedFromHandDecision());
 
         /// <summary>The viewer is the Whiniest Baby and the Timeout just came up.</summary>
         private bool TimeoutFineDue() =>
@@ -60,7 +82,7 @@ namespace LemonadeWars.Unity
 
         private void MaybeShowModal(MoveGroups groups, int revision)
         {
-            if (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0)
+            if (groups == null || !groups.IsModal || groups.ModalMoves.Count == 0 || _snappingHomeToPlace)
             {
                 return;
             }
@@ -108,6 +130,12 @@ namespace LemonadeWars.Unity
             {
                 _reaction.Hide();
                 _prompt.Hide();
+                if (ForcedPlayCardToAim() is int forcedCardId)
+                {
+                    // Nothing else can be done first, so the card starts its own play: the arrow
+                    // comes up at once, as if the player had clicked it.
+                    _table.ActivateHandCard(forcedCardId);
+                }
                 return;
             }
             // Plain windows and free plays returned above: the reaction still due is a retarget.

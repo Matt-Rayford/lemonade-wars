@@ -53,7 +53,7 @@ namespace LemonadeWars.Unity
                 // anything this new turn queues (a Timeout's flight, a draw).
                 case TurnStarted _: StageRollEarnings(); break;
                 case StandPurchased standBought: HandleStandPurchased(standBought); break;
-                case MoneyStolen theft: _fx.QueueMoneySteal(theft.FromPlayerId, theft.ToPlayerId, theft.Amount); break;
+                case MoneyStolen theft: HandleMoneyStolen(theft); break;
                 case CardsStolen cardTheft: HandleCardsStolen(cardTheft); break;
                 case HandsTraded trade: HandleHandsTraded(trade); break;
                 case LemonCardPlayed played: HandleLemonCardPlayed(played); break;

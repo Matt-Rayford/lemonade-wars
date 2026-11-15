@@ -48,13 +48,20 @@ namespace LemonadeWars.Unity
 
         private sealed class FlyFx : Fx
         {
-            /// <summary>Null for a coin flight.</summary>
             public Texture2D CardBack;
             public int FromPlayerId;
             public int ToPlayerId;
-            /// <summary>Coin flights only: shown as floaters at both ends on arrival.</summary>
-            public int Amount;
             public int Count = 1;
+        }
+
+        private sealed class StealFx : Fx
+        {
+            public int FromPlayerId;
+            public int ToPlayerId;
+            public int Amount;
+            public System.Func<int, Texture2D> BillArt;
+            /// <summary>The thief's displayed cash may catch up; fires on every exit path.</summary>
+            public System.Action OnArrived;
         }
 
         /// <summary>

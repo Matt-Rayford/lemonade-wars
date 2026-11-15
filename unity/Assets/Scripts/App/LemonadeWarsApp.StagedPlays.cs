@@ -31,11 +31,15 @@ namespace LemonadeWars.Unity
             if (!onThePile && !preStaged)
             {
                 _stagedAttacker = played.PlayerId;
-                var loot = played.DefId == LemonCardIds.FindersKeepers && played.StolenDefId != null
+                // Finders Keepers takes the equipped card it is aimed at; That's Not Fair only knocks it off.
+                bool isDiscarding = played.DefId == LemonCardIds.ThatsNotFair;
+                bool aimsAtEquippedCard = played.StolenDefId != null &&
+                    (isDiscarding || played.DefId == LemonCardIds.FindersKeepers);
+                var besideThePlay = aimsAtEquippedCard
                     ? _art.BlackMarket(played.StolenDefId, played.StolenShape ?? Shape.Square)
                     : TakenArt(played);
                 _playTheatre.Begin(_art.Lemon(played.DefId), played.DefId, played.PlayerId,
-                    played.TargetPlayerId ?? -1, loot);
+                    played.TargetPlayerId ?? -1, besideThePlay, isLootTaken: !isDiscarding);
             }
         }
 

@@ -14,14 +14,18 @@ namespace LemonadeWars.Unity
             }
         }
 
-        public void QueueMoneySteal(int fromPlayerId, int toPlayerId, int amount)
+        /// <param name="onArrived">Fires exactly once, when the bills reach the thief's bar or the effect is skipped.</param>
+        public void QueueMoneySteal(int fromPlayerId, int toPlayerId, int amount,
+            System.Func<int, Texture2D> billArt, System.Action onArrived)
         {
             _announceIdle = true;
-            _queue.Enqueue(new FlyFx
+            _queue.Enqueue(new StealFx
             {
                 FromPlayerId = fromPlayerId,
                 ToPlayerId = toPlayerId,
                 Amount = amount,
+                BillArt = billArt,
+                OnArrived = onArrived,
             });
         }
 

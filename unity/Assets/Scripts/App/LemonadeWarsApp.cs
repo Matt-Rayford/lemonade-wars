@@ -62,6 +62,8 @@ namespace LemonadeWars.Unity
         private int _shownDiceHeadline;
         private EffectsPlayer _fx;
         private PlayTheatre _playTheatre;
+        /// <summary>The hand drawn over anything being stolen: a staged card, a pile of bills.</summary>
+        private Texture2D _grabIcon;
         private RectTransform _turnActionRow;
         /// <summary>The message strip's vertical band on screen (0 bottom, 1 top): between the shelf and the board.</summary>
         private const float MessageStripBottom = 0.697f;

@@ -53,21 +53,12 @@ namespace LemonadeWars.Unity
         /// <summary>The opponent a play ultimately hits, or -1 when it isn't aimed at one.</summary>
         private int VictimOf(GameAction move)
         {
-            // Hand reactions aim at bars too: Tag's victim is the redirect target (your own bar
-            // included: a bystander may take the attack), Rubber Glue's the attacker it bounces onto.
+            // Of the hand reactions only Tag is aimed: its victim is the redirect target (your own
+            // bar included: a bystander may take the attack). Rubber Glue has one place to go, back
+            // at the attacker, so there is nothing to aim and a click plays it.
             if (move is RespondToWindow respond)
             {
-                if (respond.RedirectTargetId is int redirect)
-                {
-                    return redirect;
-                }
-                var reactionCard = View.Hand.FirstOrDefault(c => c.InstanceId == respond.CardInstanceId);
-                if (reactionCard?.DefId == LemonCardIds.ImRubberYoureGlue && View.StackTop != null &&
-                    View.StackTop.OwnerId != View.ViewerId)
-                {
-                    return View.StackTop.OwnerId;
-                }
-                return -1;
+                return respond.RedirectTargetId ?? -1;
             }
             if (!(move is PlayLemonCard play))
             {

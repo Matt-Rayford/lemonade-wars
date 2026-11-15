@@ -172,6 +172,19 @@ namespace LemonadeWars.Unity
                     _renderedRevision = -1;
                 });
             }
+            else if (_playTheatre.IsStagingLootOf(bought.PlayerId))
+            {
+                // A take (Connections, Reduce and Reuse, Finders Keepers): the card staged beside
+                // the play is the one just equipped, and it slides home the same way.
+                int takenId = bought.InstanceId;
+                _equippedInFlight.Add(takenId);
+                _renderedRevision = -1;
+                _playTheatre.LandLootAt(() => _table.EquippedCardWorld(takenId), TuckedOverStagedScale, () =>
+                {
+                    _equippedInFlight.Remove(takenId);
+                    _renderedRevision = -1;
+                });
+            }
         }
 
         /// <summary>

@@ -18,12 +18,8 @@ namespace LemonadeWars.Unity
         private const float DieCornerRadius = 0.13f;
         private const int DieFaceSegments = 14;
         private const float DieSizeUnits = 1f;
-        /// <summary>Air between a resting die's highest pixel and the ceiling, as a share of screen height.</summary>
-        private const float CeilingClearanceViewport = 0.01f;
         private static readonly Vector4 KeyLightDirection = new Vector4(-0.45f, 0.8f, -0.4f, 0f);
         private static readonly Vector4 FillLightDirection = new Vector4(0.7f, 0.1f, -0.3f, 0f);
-
-        private readonly float _landingCeilingViewportY;
 
         private Camera CreateDieCamera()
         {
@@ -92,32 +88,15 @@ namespace LemonadeWars.Unity
             _camera.targetTexture = _renderTexture;
             _camera.aspect = width / (float)height;
             _viewImage.texture = _renderTexture;
-            _simulator.SetArena(FloorCorners(ArenaTopViewportY()), FloorCorners(1f));
+            _simulator.SetArena(FloorCorners());
         }
 
-        /// <summary>
-        /// The walls bound the die's CENTRE, but its body reaches further up the screen (half its
-        /// floor diagonal plus its height leaning toward the camera): the top wall sits that much below the ceiling.
-        /// </summary>
-        private float ArenaTopViewportY()
-        {
-            if (_landingCeilingViewportY >= 1f)
-            {
-                return 1f;
-            }
-            float pitch = CameraPitchDegrees * Mathf.Deg2Rad;
-            float reachUnits = DieSizeUnits * 0.7071f * Mathf.Sin(pitch) + DieSizeUnits * Mathf.Cos(pitch)
-                - DieThrowSimulator.RestMargin;
-            float reachViewport = Mathf.Max(0f, reachUnits) / (2f * CameraOrthographicHalfHeight);
-            return _landingCeilingViewportY - reachViewport - CeilingClearanceViewport;
-        }
-
-        /// <summary>Where the screen's corners land on the table, in rig-local xz, with the top edge at the given height up the screen.</summary>
-        private Vector2[] FloorCorners(float topViewportY)
+        /// <summary>Where the screen's corners land on the table, in rig-local xz.</summary>
+        private Vector2[] FloorCorners()
         {
             var viewportCorners = new[]
             {
-                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, topViewportY), new Vector2(0, topViewportY),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
             };
             var corners = new Vector2[4];
             float floorY = _rig.position.y;

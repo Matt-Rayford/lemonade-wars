@@ -88,7 +88,6 @@ namespace LemonadeWars.Unity
         private void BuildVictoryColumn(PlayerView.PlayerPanel owner)
         {
             var victoryArts = VictoryCardArts(owner);
-            int scoredVp = owner.InGameVictoryPoints + owner.FinishedLords.Count(lord => lord.Met);
             RectTransform vpCell;
             if (victoryArts.Count == 0)
             {
@@ -96,7 +95,7 @@ namespace LemonadeWars.Unity
             }
             else
             {
-                vpCell = AddBoardCard(_boardRow, victoryArts[0], scoredVp == 1 ? "1 VP" : $"{scoredVp} VP");
+                vpCell = AddBoardCard(_boardRow, victoryArts[0]);
                 AddTuckedStack(vpCell, victoryArts.Skip(1).ToList());
             }
             _vpGlow = null;
@@ -133,8 +132,7 @@ namespace LemonadeWars.Unity
         private void BuildTurfCell(PlayerView.PlayerPanel owner)
         {
             var turfTexture = _art.Turf(owner.TurfPowerPourNumber);
-            var turfCaption = "Pours " + string.Join(",", owner.PourNumbers);
-            var turfCell = AddBoardCard(_boardRow, turfTexture, turfCaption);
+            var turfCell = AddBoardCard(_boardRow, turfTexture);
             _turfCell = turfCell;
             TuckEquippedCards(turfCell, owner.TurfEquipped);
             if (_viewingOwnBoard)
@@ -147,9 +145,8 @@ namespace LemonadeWars.Unity
         {
             foreach (var stand in owner.Stands)
             {
-                string caption = $"[{string.Join(",", stand.SaleNumbers)}] ${stand.Earnings}";
                 var standTexture = _art.Stand(stand.StandTypeId, stand.Shape);
-                var cell = AddBoardCard(_boardRow, standTexture, caption);
+                var cell = AddBoardCard(_boardRow, standTexture);
                 TuckEquippedCards(cell, stand.Equipped);
                 if (_viewingOwnBoard)
                 {
@@ -177,7 +174,7 @@ namespace LemonadeWars.Unity
         }
 
         /// <summary>Tucked stacks and flight anchors find the card inside the returned cell by its child name, "Card".</summary>
-        private RectTransform AddBoardCard(RectTransform parent, Texture2D texture, string caption)
+        private RectTransform AddBoardCard(RectTransform parent, Texture2D texture)
         {
             var cell = new GameObject("Cell", typeof(RectTransform), typeof(VerticalLayoutGroup),
                 typeof(LayoutElement));
@@ -196,12 +193,6 @@ namespace LemonadeWars.Unity
             var image = UiKit.CreateCardImage((RectTransform)cell.transform, texture,
                 BoardCardWidthPx, BoardCardHeightPx);
             _preview.Attach(image.gameObject, texture);
-
-            if (!string.IsNullOrEmpty(caption))
-            {
-                UiKit.CreateBadge((RectTransform)cell.transform, caption, 13,
-                    new Color(0, 0, 0, 0.55f)).color = Color.white;
-            }
             return (RectTransform)cell.transform;
         }
 
@@ -320,9 +311,6 @@ namespace LemonadeWars.Unity
             label.raycastTarget = false;
             UiKit.Anchor((RectTransform)label.transform, Vector2.zero, Vector2.one);
 
-            // A caption-height footer lines the placeholder's bottom edge up with its captioned neighbours.
-            UiKit.CreateBadge((RectTransform)cell.transform, "0 VP", 13,
-                new Color(0, 0, 0, 0.55f)).color = Color.white;
             return (RectTransform)cell.transform;
         }
     }

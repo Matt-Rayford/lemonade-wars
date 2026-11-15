@@ -28,24 +28,34 @@ namespace LemonadeWars.Unity
             }
         }
 
-        private void ShowActionTimerChoices(int selectedSeconds, bool isHost)
+        /// <summary>The host's row: every choice is a live button but the one already chosen.</summary>
+        private void ShowActionTimerChoices(int selectedSeconds)
         {
             UiKit.Clear(_timerChoiceRow);
             foreach (int seconds in ActionTimerChoices)
             {
                 int choice = seconds;
                 bool isSelected = seconds == selectedSeconds;
-                var onPick = isHost && !isSelected ? () => OnSetActionTimer?.Invoke(choice) : (System.Action)null;
+                var onPick = isSelected ? (System.Action)null : () => OnSetActionTimer?.Invoke(choice);
                 if (seconds == NoActionTimer && InfinityIcon != null)
                 {
                     AddIconChoice(_timerChoiceRow, InfinityIcon, InfinityIconHeightPx, isSelected, onPick);
                 }
                 else
                 {
-                    AddChoice(_timerChoiceRow, seconds == NoActionTimer ? "NO LIMIT" : $"{seconds}s",
-                        isSelected, onPick);
+                    AddChoice(_timerChoiceRow, TimerWords(seconds), isSelected, onPick);
                 }
             }
         }
+
+        /// <summary>A guest's line: "ACTION TIMER: 60S", or the infinity icon for no limit.</summary>
+        private static void ShowActionTimerSetting(RectTransform line, int seconds)
+        {
+            bool showsInfinity = seconds == NoActionTimer && InfinityIcon != null;
+            ShowSettingLine(line, "ACTION TIMER", TimerWords(seconds),
+                showsInfinity ? InfinityIcon : null, InfinityIconHeightPx);
+        }
+
+        private static string TimerWords(int seconds) => seconds == NoActionTimer ? "NO LIMIT" : $"{seconds}s";
     }
 }

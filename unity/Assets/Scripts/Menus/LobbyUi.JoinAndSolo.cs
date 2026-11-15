@@ -40,11 +40,13 @@ namespace LemonadeWars.Unity
             var joinActions = CreateButtonRow(_joinRoot, "JoinActions",
                 new Vector2(0.34f, 0.30f), new Vector2(0.66f, 0.38f));
             UiKit.CreateButton(joinActions, "Back", 20, () => ShowMenu(""));
-            UiKit.CreateButton(joinActions, "Join", 20,
-                () => OnJoin?.Invoke(ServerUrl, DisplayName,
-                    _codeInput.text.Trim().ToUpperInvariant()));
+            UiKit.CreateButton(joinActions, "Join", 20, JoinTypedRoom);
+            _codeInput.onSubmit.AddListener(_ => JoinTypedRoom()); // Enter in the code box
             _joinRoot.gameObject.SetActive(false);
         }
+
+        private void JoinTypedRoom() =>
+            OnJoin?.Invoke(ServerUrl, DisplayName, _codeInput.text.Trim().ToUpperInvariant());
 
         public void ShowJoin()
         {
@@ -66,7 +68,8 @@ namespace LemonadeWars.Unity
             StackOnBaseline(soloActions, MenuButtonHeightPx, ref stackTopPx);
             UiKit.CreateButton(soloActions, "Back", 20, () => ShowMenu(""));
             UiKit.CreateButton(soloActions, "Start game", 20, StartSoloOrPickFirstDibs);
-            _soloDibsModeRow = StackChoiceRow(_soloRoot, "FIRST DIBS", ref stackTopPx);
+            _soloDibsModeRow = CreateChoiceRow(_soloRoot, "FIRST DIBS", out var dibsHeader);
+            StackChoiceRow(_soloDibsModeRow, dibsHeader, ref stackTopPx);
 
             _soloSeatList = CreateSeatList(_soloRoot,
                 new Vector2(0.32f, StackBaseline), new Vector2(0.68f, 0.72f));

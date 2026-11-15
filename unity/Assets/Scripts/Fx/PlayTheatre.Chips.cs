@@ -33,9 +33,9 @@ namespace LemonadeWars.Unity
             return chip;
         }
 
-        private RectTransform BuildLoot(Texture2D lootArt)
+        private RectTransform BuildLoot(Texture2D lootArt, bool withGrabbingHand)
         {
-            var hand = _grabIcon != null ? BuildGrabbingHand() : null;
+            var hand = withGrabbingHand && _grabIcon != null ? BuildGrabbingHand() : null;
             var chip = BuildChip(lootArt);
             _lootGroup = chip.GetComponent<CanvasGroup>();
             if (hand != null)
