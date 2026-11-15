@@ -44,7 +44,7 @@ namespace LemonadeWars.Unity
             _pickArrowHost = (RectTransform)arrowGo.transform;
             UiKit.Anchor(_pickArrowHost, Vector2.zero, Vector2.one);
 
-            var pass = UiKit.CreateButton(_pickRoot, "Pass", 18, PassPlayerPick, dark: true);
+            var pass = UiKit.CreateButton(_pickRoot, "Pass", 18, PassPlayerPick, highlighted: true);
             _pickPassButton = pass.gameObject;
             var passRect = (RectTransform)pass.transform;
             passRect.anchorMin = passRect.anchorMax = new Vector2(0.5f, 0.55f);

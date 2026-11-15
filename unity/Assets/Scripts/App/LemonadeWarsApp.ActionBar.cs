@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace LemonadeWars.Unity
 {
     /// <summary>
-    /// The buttons that advance the game: the hand-side action bar, the top-right End Turn
-    /// chip, and the big button that takes over the message strip.
+    /// The buttons that advance the game: the hand-side action bar, and the End Turn button
+    /// in the message strip, beside its words or in place of them.
     /// </summary>
     public sealed partial class LemonadeWarsApp
     {
@@ -86,8 +86,12 @@ namespace LemonadeWars.Unity
             var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
             if (endTurn != null && View.ActionsRemaining == 0)
             {
-                // Silent click: the sale roll has its own sound. The top-right chip stays for ending early.
+                // Silent click: the sale roll has its own sound.
                 AddTableActionButton("End Turn & Sell", endTurn, clickSound: null);
+            }
+            else if (endTurn != null && !TurnHandoverPending())
+            {
+                OfferEarlyEndTurnBesideTheWords(endTurn);
             }
             var passDraft = groups.BarMoves.FirstOrDefault(m => m is InitialBuyEnd);
             if (passDraft != null)
@@ -95,6 +99,23 @@ namespace LemonadeWars.Unity
                 // The draft's Black Market card is optional: its way out is the same big button.
                 AddTableActionButton("Pass", passDraft, Sfx.ButtonClick);
             }
+        }
+
+        /// <summary>
+        /// Actions still in hand: the strip keeps its words and adds the way out after them,
+        /// "Your Turn (2 actions) or [End Turn & Sell]". The words move into the button row so
+        /// the two sit side by side, centred as one line.
+        /// </summary>
+        private void OfferEarlyEndTurnBesideTheWords(GameAction endTurn)
+        {
+            string words = _tableMessage.text;
+            _tableMessage.text = "";
+            if (!string.IsNullOrEmpty(words))
+            {
+                AddStripText(words);
+                AddStripText("or");
+            }
+            AddStripButton("End Turn & Sell", endTurn, clickSound: null); // silent, as above
         }
 
         private void AddTableActionButton(string label, GameAction move, string clickSound)
@@ -106,38 +127,6 @@ namespace LemonadeWars.Unity
             var layout = button.GetComponent<LayoutElement>();
             layout.minWidth = 360;
             layout.minHeight = EndTurnButtonHeightPx;
-        }
-
-        /// <summary>The top-right chip on the bare table: ending the turn before the actions run out.</summary>
-        private void RenderTurnActions(MoveGroups groups)
-        {
-            UiKit.Clear(_turnActionRow);
-            if (View.Stage == GameStage.Finished)
-            {
-                return; // the scoreboard carries the exit; Esc's pause menu has the other
-            }
-            if (groups == null || groups.IsModal || _turnBanner.IsOpen)
-            {
-                return; // the banner's dismiss re-renders, and the chip comes back then
-            }
-            var endTurn = groups.BarMoves.FirstOrDefault(m => m is EndTurn);
-            if (endTurn != null)
-            {
-                // Silent: the die's own roll sound covers it.
-                AddTurnActionChip("END TURN (SELL)", () => Submit(endTurn), null);
-            }
-        }
-
-        private void AddTurnActionChip(string label, UnityEngine.Events.UnityAction onClick, string clickSound)
-        {
-            var button = UiKit.CreateButton(_turnActionRow, label, 16, onClick,
-                clickSound: clickSound);
-            var element = button.GetComponent<LayoutElement>();
-            element.minWidth = 190;
-            element.minHeight = 36;
-            var text = button.GetComponentInChildren<TMPro.TMP_Text>();
-            text.alignment = TMPro.TextAlignmentOptions.Center;
-            UiKit.Anchor((RectTransform)text.transform, Vector2.zero, Vector2.one);
         }
     }
 }

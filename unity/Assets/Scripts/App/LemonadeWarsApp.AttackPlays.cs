@@ -129,25 +129,13 @@ namespace LemonadeWars.Unity
                 new[] { _art.Lemon(card?.DefId ?? "") }, ToOptions(onVictim), showCancel: true);
         }
 
+        /// <summary>The aim landed on a player's bar: go to their board to choose which card, with the way back re-arming the aim.</summary>
         private void OpenEquippedTargetPicker(int cardInstanceId, string cardName, int victimId,
             List<GameAction> onVictim)
         {
-            var byEquipped = onVictim.Cast<PlayLemonCard>()
-                .GroupBy(m => m.TargetEquippedInstanceId.Value)
-                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
-            var cards = EquippedCardInfos(victimId, onVictim);
-            string verb = TargetsForDiscardOnly(onVictim) ? "DISCARD" : "TAKE";
-            _table.OpenDiscardPicker(
-                $"{cardName.ToUpperInvariant()}: {verb} FROM {NameOf(victimId).ToUpperInvariant()}",
-                cards, blackMarket: true,
-                c => _db.BlackMarket(c.DefId).Name,
-                equippedId =>
-                {
-                    var picked = cards.First(c => c.InstanceId == equippedId);
-                    ResolveEquipDestination(byEquipped[equippedId],
-                        _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
-                },
-                onBack: () => _table.RestartAttackTargeting(cardInstanceId), verb: verb);
+            var card = View.Hand.FirstOrDefault(c => c.InstanceId == cardInstanceId);
+            AimAtEquippedCardsOf(victimId, onVictim, cardName, _art.Lemon(card?.DefId ?? ""),
+                onCancel: () => _table.RestartAttackTargeting(cardInstanceId));
         }
 
         /// <summary>Finders Keepers / That's Not Fair! from the menu: pick the victim, then the card
@@ -163,40 +151,46 @@ namespace LemonadeWars.Unity
                 _prompt.Show($"{cardName}: choose who to target", new[] { cardArt },
                     byVictim.Select(kv => new Prompt.Option(
                         $"{NameOf(kv.Key)} ({EquippedCardInfos(kv.Key, kv.Value).Count} card(s))",
-                        () => ShowCards(kv.Key))).ToList(),
+                        () =>
+                        {
+                            _prompt.Hide();
+                            AimAtEquippedCardsOf(kv.Key, kv.Value, cardName, cardArt, onCancel: ShowVictims);
+                        })).ToList(),
                     showCancel: true);
             }
 
-            void ShowCards(int victim)
-            {
-                _prompt.Hide();
-                var victimMoves = byVictim[victim];
-                var byEquipped = victimMoves.Cast<PlayLemonCard>()
-                    .GroupBy(m => m.TargetEquippedInstanceId.Value)
-                    .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
-                var cards = EquippedCardInfos(victim, victimMoves);
-                bool discardsTarget = TargetsForDiscardOnly(victimMoves);
-                // Picked on the victim's REAL board: which stand an upgrade sits on often decides the take.
-                // Arm BEFORE the snap render: the retained aim rides through it and keeps MaybeShowModal stood down.
-                _table.BeginEquippedCardPick(cardArt,
-                    new HashSet<int>(byEquipped.Keys),
-                    equippedId =>
-                    {
-                        var picked = cards.First(c => c.InstanceId == equippedId);
-                        ResolveEquipDestination(byEquipped[equippedId],
-                            _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
-                    },
-                    onCancel: ShowVictims,
-                    $"{cardName} — {(discardsTarget ? "discard" : "take")} a card from {NameOf(victim)}'s board");
-                if (_table.ViewedBoardPlayer != victim)
-                {
-                    _table.ViewedBoardPlayer = victim;
-                    _renderedRevision = -1;
-                    RenderIfChanged();
-                }
-            }
-
             ShowVictims();
+        }
+
+        /// <summary>
+        /// The card is picked on the victim's REAL board, an arrow from the attack to their tucked
+        /// cards: which stand an upgrade sits on often decides which one to take or knock off.
+        /// </summary>
+        private void AimAtEquippedCardsOf(int victim, List<GameAction> victimMoves, string cardName,
+            Texture2D cardArt, System.Action onCancel)
+        {
+            var byEquipped = victimMoves.Cast<PlayLemonCard>()
+                .GroupBy(m => m.TargetEquippedInstanceId.Value)
+                .ToDictionary(g => g.Key, g => g.Cast<GameAction>().ToList());
+            var cards = EquippedCardInfos(victim, victimMoves);
+            bool discardsTarget = TargetsForDiscardOnly(victimMoves);
+            // Arm BEFORE the snap render: the retained aim rides through it and keeps MaybeShowModal stood down.
+            _table.BeginEquippedCardPick(cardArt,
+                new HashSet<int>(byEquipped.Keys),
+                equippedId =>
+                {
+                    var picked = cards.First(c => c.InstanceId == equippedId);
+                    ResolveEquipDestination(byEquipped[equippedId],
+                        _art.BlackMarket(picked.DefId, picked.Shape ?? Shape.Square));
+                },
+                onCancel,
+                $"{cardName} — {(discardsTarget ? "discard" : "take")} a card from {NameOf(victim)}'s board");
+            if (_table.ViewedBoardPlayer != victim)
+            {
+                _table.ViewedBoardPlayer = victim;
+                _renderedRevision = -1;
+                RenderIfChanged();
+            }
         }
 
         /// <summary>That's Not Fair! discards its target instead of stealing it.</summary>

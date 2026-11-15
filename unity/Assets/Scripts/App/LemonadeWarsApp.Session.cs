@@ -139,7 +139,7 @@ namespace LemonadeWars.Unity
             _session = null;
             _remote = null;
             _screen = Screen.Menu;
-            UiKit.Clear(_turnActionRow);
+            UiKit.Clear(_tableActionHost);
             _table.DropShelfGhosts();
             _table.HideTimeoutCard();
             _table.SetVisible(false);

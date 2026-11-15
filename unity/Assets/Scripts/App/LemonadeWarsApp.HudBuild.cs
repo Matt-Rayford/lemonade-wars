@@ -25,7 +25,6 @@ namespace LemonadeWars.Unity
             BuildEffectsLayer(root);
             BuildBlockingOverlays(root);
             BuildTurnAlertToast(root);
-            BuildTurnActionRow(root);
 
             // Response windows use the non-modal reaction panel: card in the market
             // band, buttons in the log column, the table left live for scouting.
@@ -219,29 +218,6 @@ namespace LemonadeWars.Unity
             _alertGroup.alpha = 0f;
             _alertGroup.blocksRaycasts = false;
             UiKit.AddClick(alertPanel.gameObject, () => _alertUntil = 0f);
-        }
-
-        /// <summary>Turn actions live top-right, on the strip of bare table between the
-        /// shelf and the board.</summary>
-        private void BuildTurnActionRow(RectTransform root)
-        {
-            var turnActionsGo = new GameObject("TurnActions", typeof(RectTransform),
-                typeof(HorizontalLayoutGroup));
-            turnActionsGo.transform.SetParent(root, false);
-            _turnActionRow = (RectTransform)turnActionsGo.transform;
-            // Anchored to the strip's midline (shelf rule at 0.75, board top at 0.695)
-            // so the row stays centered in it at any window height.
-            UiKit.Anchor(_turnActionRow, new Vector2(1f, 0.7225f), new Vector2(1f, 0.7225f));
-            _turnActionRow.pivot = new Vector2(1f, 0.5f);
-            _turnActionRow.sizeDelta = new Vector2(430f, 40f);
-            _turnActionRow.anchoredPosition = new Vector2(-16f, 0f);
-            var turnActionsLayout = turnActionsGo.GetComponent<HorizontalLayoutGroup>();
-            turnActionsLayout.spacing = 8;
-            turnActionsLayout.childAlignment = TextAnchor.MiddleRight;
-            turnActionsLayout.childForceExpandWidth = false;
-            turnActionsLayout.childForceExpandHeight = true;
-            turnActionsLayout.childControlWidth = true;
-            turnActionsLayout.childControlHeight = true;
         }
 
         /// <summary>Built last: the pause menu and rulebook draw above every screen.</summary>

@@ -80,7 +80,6 @@ namespace LemonadeWars.Unity
                 _table.Render(View, _db, actionable);
                 _table.SetLog(_actionLog);
                 RenderActionBar(actionable);
-                RenderTurnActions(actionable);
             }
             catch (System.Exception e)
             {
